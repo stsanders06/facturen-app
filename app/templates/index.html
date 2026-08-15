@@ -1,0 +1,53 @@
+{% extends "_layout.html" %}
+{% block title %}Rekeningen{% endblock %}
+{% block content %}
+<h1>Rekeningen</h1>
+
+{% if not facturen %}
+<div class="card">
+  <p class="muted">Nog geen rekeningen gemaakt. <a href="{{ url_for('nieuw') }}">Maak de eerste aan</a>.</p>
+</div>
+{% else %}
+<div class="card">
+<table>
+  <thead>
+    <tr>
+      <th>Nummer</th>
+      <th>Datum</th>
+      <th>Klant</th>
+      <th>Bedrag</th>
+      <th>Status</th>
+      <th>Acties</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for f in facturen %}
+    <tr>
+      <td>{{ f.nummer }}</td>
+      <td>{{ f.datum }}</td>
+      <td>{{ f.klant_naam }}</td>
+      <td>&euro; {{ "%.2f"|format(f.totaal) }}</td>
+      <td><span class="status status-{{ f.status }}">{{ f.status }}</span></td>
+      <td class="actions">
+        <a class="btn btn-secondary" href="{{ url_for('download_pdf', factuur_id=f.id) }}">PDF</a>
+        {% if f.klant_email %}
+        <form method="post" action="{{ url_for('verstuur', factuur_id=f.id) }}">
+          <button type="submit">Mail</button>
+        </form>
+        {% endif %}
+        {% if f.status != 'betaald' %}
+        <form method="post" action="{{ url_for('markeer_betaald', factuur_id=f.id) }}">
+          <button type="submit" class="btn-secondary">Betaald</button>
+        </form>
+        {% endif %}
+        <form method="post" action="{{ url_for('verwijder', factuur_id=f.id) }}" onsubmit="return confirm('Weet je het zeker?');">
+          <button type="submit" class="btn-danger">Verwijder</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+{% endblock %}

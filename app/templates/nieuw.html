@@ -1,0 +1,64 @@
+{% extends "_layout.html" %}
+{% block title %}Nieuwe rekening{% endblock %}
+{% block content %}
+<h1>Nieuwe rekening</h1>
+<form method="post">
+  <div class="card">
+    <div class="row">
+      <div>
+        <label>Klantnaam</label>
+        <input type="text" name="klant_naam" required>
+      </div>
+      <div>
+        <label>Datum</label>
+        <input type="date" name="datum" value="{{ vandaag }}">
+      </div>
+    </div>
+    <label>Adres klant</label>
+    <textarea name="klant_adres" rows="2"></textarea>
+    <label>E-mail klant (optioneel, nodig om te mailen)</label>
+    <input type="email" name="klant_email">
+    <label>Betaalmethode</label>
+    <select name="betaalmethode">
+      <option value="bank">Bank</option>
+      <option value="cash">Contant</option>
+      <option value="tikkie">Tikkie</option>
+    </select>
+  </div>
+
+  <div class="card">
+    <label style="margin-top:0;">Regels (materiaal / arbeid)</label>
+    <div id="regels">
+      <div class="regel-row">
+        <div class="type-col">
+          <select name="type">
+            <option value="materiaal">Materiaal</option>
+            <option value="arbeid">Arbeid</option>
+          </select>
+        </div>
+        <div><input type="text" name="omschrijving" placeholder="Omschrijving"></div>
+        <div class="num-col"><input type="number" step="0.01" name="aantal" placeholder="Aantal/uren" value="1"></div>
+        <div class="num-col"><input type="number" step="0.01" name="prijs" placeholder="Prijs p/st"></div>
+      </div>
+    </div>
+    <button type="button" class="btn-secondary" onclick="voegRegelToe()">+ Regel toevoegen</button>
+  </div>
+
+  <div class="card">
+    <label style="margin-top:0;">
+      <input type="checkbox" name="verstuur" value="ja" style="width:auto;display:inline-block;margin-right:6px;">
+      Direct mailen naar klant na opslaan
+    </label>
+    <button type="submit">Rekening aanmaken</button>
+  </div>
+</form>
+
+<script>
+function voegRegelToe() {
+  const container = document.getElementById('regels');
+  const row = container.children[0].cloneNode(true);
+  row.querySelectorAll('input').forEach(i => { if (i.name !== 'aantal') i.value = ''; else i.value = '1'; });
+  container.appendChild(row);
+}
+</script>
+{% endblock %}

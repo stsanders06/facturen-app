@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}Facturen{% endblock %}</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f4f5f7;
+    color: #1a1a1a;
+    margin: 0;
+    padding: 0;
+  }
+  nav {
+    background: #1f2937;
+    padding: 14px 20px;
+    display: flex;
+    gap: 20px;
+    align-items: center;
+  }
+  nav a {
+    color: #e5e7eb;
+    text-decoration: none;
+    font-size: 15px;
+    font-weight: 500;
+  }
+  nav a.active { color: #ffffff; border-bottom: 2px solid #3b82f6; }
+  .container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 24px 16px;
+  }
+  h1 { font-size: 22px; margin-bottom: 16px; }
+  .card {
+    background: #fff;
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: #374151;
+    margin-top: 12px;
+    margin-bottom: 4px;
+  }
+  input, select, textarea {
+    width: 100%;
+    padding: 9px 10px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-size: 14px;
+    font-family: inherit;
+  }
+  button, .btn {
+    background: #3b82f6;
+    color: white;
+    border: none;
+    padding: 10px 16px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 16px;
+    display: inline-block;
+    text-decoration: none;
+  }
+  button:hover, .btn:hover { background: #2563eb; }
+  .btn-secondary { background: #6b7280; }
+  .btn-secondary:hover { background: #4b5563; }
+  .btn-danger { background: #ef4444; }
+  .btn-danger:hover { background: #dc2626; }
+  .row { display: flex; gap: 10px; }
+  .row > div { flex: 1; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #e5e7eb; font-size: 14px; }
+  th { color: #6b7280; font-weight: 600; font-size: 12px; text-transform: uppercase; }
+  .status { padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  .status-concept { background: #f3f4f6; color: #4b5563; }
+  .status-verzonden { background: #dbeafe; color: #1d4ed8; }
+  .status-betaald { background: #dcfce7; color: #15803d; }
+  .flash { background: #fef9c3; border: 1px solid #eab308; padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; font-size: 14px; }
+  .regel-row { display: flex; gap: 8px; align-items: end; margin-bottom: 8px; }
+  .regel-row > div { flex: 1; }
+  .regel-row .type-col { flex: 0 0 110px; }
+  .regel-row .num-col { flex: 0 0 90px; }
+  .muted { color: #9ca3af; font-size: 13px; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .actions form { display: inline; }
+  .actions button, .actions a { padding: 6px 10px; font-size: 12px; margin-top: 0; }
+</style>
+</head>
+<body>
+<nav>
+  <a href="{{ url_for('index') }}">Rekeningen</a>
+  <a href="{{ url_for('nieuw') }}">Nieuw</a>
+  <a href="{{ url_for('instellingen') }}">Instellingen</a>
+</nav>
+<div class="container">
+  {% with messages = get_flashed_messages() %}
+    {% if messages %}
+      {% for m in messages %}
+        <div class="flash">{{ m }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</div>
+</body>
+</html>

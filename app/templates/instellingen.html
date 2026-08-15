@@ -1,0 +1,53 @@
+{% extends "_layout.html" %}
+{% block title %}Instellingen{% endblock %}
+{% block content %}
+<h1>Instellingen</h1>
+<form method="post" enctype="multipart/form-data">
+  <div class="card">
+    <h3 style="margin-top:0;">Bedrijfsgegevens</h3>
+    <label>Naam</label>
+    <input type="text" name="naam" value="{{ s.naam }}">
+    <label>Adres (elke regel apart)</label>
+    <textarea name="adres" rows="3">{{ s.adres }}</textarea>
+    <label>Telefoon</label>
+    <input type="text" name="telefoon" value="{{ s.telefoon }}">
+    <label>E-mail</label>
+    <input type="email" name="email" value="{{ s.email }}">
+    <label>Logo</label>
+    <input type="file" name="logo" accept="image/*">
+    {% if s.logo_bestand %}<p class="muted">Huidig logo: {{ s.logo_bestand }}</p>{% endif %}
+    <input type="hidden" name="bestaand_logo" value="{{ s.logo_bestand }}">
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0;">Betaalgegevens</h3>
+    <label>IBAN</label>
+    <input type="text" name="iban" value="{{ s.iban }}">
+    <label>Tikkie link</label>
+    <input type="text" name="tikkie_link" value="{{ s.tikkie_link }}" placeholder="https://tikkie.me/pay/...">
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0;">E-mail versturen (SMTP)</h3>
+    <p class="muted">Voor Gmail: smtp.gmail.com, poort 587, en een app-wachtwoord (niet je gewone wachtwoord).</p>
+    <div class="row">
+      <div>
+        <label>SMTP host</label>
+        <input type="text" name="smtp_host" value="{{ s.smtp_host }}">
+      </div>
+      <div>
+        <label>SMTP poort</label>
+        <input type="number" name="smtp_port" value="{{ s.smtp_port }}">
+      </div>
+    </div>
+    <label>SMTP gebruikersnaam</label>
+    <input type="text" name="smtp_user" value="{{ s.smtp_user }}">
+    <label>SMTP wachtwoord / app-wachtwoord</label>
+    <input type="password" name="smtp_pass" value="{{ s.smtp_pass }}">
+    <label>Afzender e-mail (leeg = zelfde als gebruikersnaam)</label>
+    <input type="email" name="smtp_van" value="{{ s.smtp_van }}">
+  </div>
+
+  <button type="submit">Opslaan</button>
+</form>
+{% endblock %}
