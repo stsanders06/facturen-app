@@ -34,3 +34,57 @@ jobs:
             --target /data/facturen_app \
             --docker-hub local \
             --image "{arch}-addon-facturen-app"
+
+  smoke-test:
+    name: Smoke test (amd64)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Bouw het amd64 image
+        run: |
+          docker build \
+            --build-arg BUILD_FROM=ghcr.io/home-assistant/amd64-base-python:3.12-alpine3.20 \
+            --tag facturen-app:test \
+            ./facturen_app
+
+      # Draait de container zoals de Supervisor dat doet: /data gemount met
+      # options.json erin, en controleert of de webinterface antwoordt.
+      - name: Start de add-on en controleer de webinterface
+        run: |
+          mkdir -p /tmp/addon-data
+          echo '{"log_level": "debug"}' > /tmp/addon-data/options.json
+          docker run -d --name facturen-test \
+            -v /tmp/addon-data:/data \
+            -p 8099:8099 \
+            facturen-app:test
+
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8099/ > /tmp/response.html; then
+              echo "Webinterface antwoordt na ${i}s"
+              break
+            fi
+            if [ "$i" -eq 30 ]; then
+              echo "::error::Add-on antwoordde niet binnen 30 seconden"
+              docker logs facturen-test
+              exit 1
+            fi
+            sleep 1
+          done
+
+          grep -q "Rekeningen" /tmp/response.html \
+            || { echo "::error::Onverwachte pagina-inhoud"; cat /tmp/response.html; exit 1; }
+
+          # Ingress: links moeten het doorgegeven pad-prefix krijgen
+          curl -fsS -H "X-Ingress-Path: /api/hassio_ingress/xyz" \
+            http://localhost:8099/ > /tmp/ingress.html
+          grep -q 'href="/api/hassio_ingress/xyz/nieuw"' /tmp/ingress.html \
+            || { echo "::error::Ingress-prefix ontbreekt in de links"; exit 1; }
+          echo "Ingress-prefix correct toegepast"
+
+          docker logs facturen-test
+
+      - name: Ruim op
+        if: always()
+        run: docker rm -f facturen-test || true
