@@ -3,7 +3,7 @@ import os
 import secrets
 import sqlite3
 import smtplib
-from datetime import date
+from datetime import date, timedelta
 from email.message import EmailMessage
 from flask import (
     Flask, abort, request, redirect, url_for, render_template, send_file, flash
@@ -66,6 +66,26 @@ MAANDEN = [
     "jan", "feb", "mrt", "apr", "mei", "jun",
     "jul", "aug", "sep", "okt", "nov", "dec",
 ]
+
+# Aantal dagen dat de klant heeft om te betalen; komt als "Vóór ..." op de strook.
+BETAALTERMIJN_DAGEN = 14
+
+# Kleuren van de factuur.
+ORANJE = colors.HexColor("#DD6B0D")
+INKT = colors.HexColor("#17212B")
+GRIJS_DONKER = colors.HexColor("#5A6B75")
+GRIJS = colors.HexColor("#9AA5AD")
+LIJN = colors.HexColor("#E6EAEC")
+STIPPEL = colors.HexColor("#B9C3C7")
+WIT = colors.white
+
+
+def vervaldatum(datum):
+    """Factuurdatum plus de betaaltermijn, als ISO-datum."""
+    try:
+        return (date.fromisoformat(str(datum)) + timedelta(days=BETAALTERMIJN_DAGEN)).isoformat()
+    except ValueError:
+        return datum
 
 
 def nl_bedrag(waarde):
@@ -272,6 +292,8 @@ def nieuw():
 
 
 def maak_pdf(factuur_id):
+    """Tekent de rekening: ruime opzet met een oranje rand en merkregel bovenaan,
+    en onderaan een afscheurbare betaalstrook met alles wat nodig is om te betalen."""
     conn = get_db()
     factuur = conn.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
     regels = conn.execute("SELECT * FROM regels WHERE factuur_id=?", (factuur_id,)).fetchall()
@@ -280,94 +302,208 @@ def maak_pdf(factuur_id):
 
     pad = os.path.join(PDF_DIR, f"{factuur['nummer']}.pdf")
     c = canvas.Canvas(pad, pagesize=A4)
+    c.setTitle(f"Rekening {factuur['nummer']}")
     breedte, hoogte = A4
-    y = hoogte - 20 * mm
 
-    logo_pad = os.path.join(LOGO_DIR, s.get("logo_bestand", "")) if s.get("logo_bestand") else None
+    links = 26 * mm
+    rechts = breedte - 18 * mm
+    kolom_aantal = rechts - 62 * mm
+    kolom_prijs = rechts - 32 * mm
+
+    def rand():
+        """De oranje bies langs de linkerkant, op elke pagina."""
+        c.setFillColor(ORANJE)
+        c.rect(0, 0, 6 * mm, hoogte, stroke=0, fill=1)
+
+    def kort(tekst, font, grootte, maxbreedte):
+        tekst = tekst or ""
+        if c.stringWidth(tekst, font, grootte) <= maxbreedte:
+            return tekst
+        while tekst and c.stringWidth(tekst + "\u2026", font, grootte) > maxbreedte:
+            tekst = tekst[:-1]
+        return tekst + "\u2026"
+
+    def label(tekst, x, y, rechts_uit=False):
+        """Kleine grijze kapitalen met ruime letterafstand."""
+        c.setFont("Helvetica-Bold", 6.5)
+        c.setFillColor(GRIJS)
+        letters = " ".join(tekst.upper())
+        (c.drawRightString if rechts_uit else c.drawString)(x, y, letters)
+
+    rand()
+    y = hoogte - 22 * mm
+
+    # ---- Merkregel: logo, naam, contact ----
+    tekst_x = links
+    logo_bestand = s.get("logo_bestand") or ""
+    logo_pad = os.path.join(LOGO_DIR, logo_bestand) if logo_bestand else None
     if logo_pad and os.path.exists(logo_pad):
         try:
-            c.drawImage(logo_pad, 20 * mm, y - 20 * mm, width=40 * mm, height=20 * mm, preserveAspectRatio=True, mask="auto")
+            c.drawImage(logo_pad, links, y - 12 * mm, width=16 * mm, height=14 * mm,
+                        preserveAspectRatio=True, anchor="sw", mask="auto")
+            tekst_x = links + 20 * mm
         except Exception:
-            pass
+            tekst_x = links
 
-    c.setFont("Helvetica-Bold", 16)
-    c.drawRightString(breedte - 20 * mm, y, "REKENING")
-    y -= 8 * mm
-    c.setFont("Helvetica", 10)
-    c.drawRightString(breedte - 20 * mm, y, f"Nummer: {factuur['nummer']}")
-    y -= 5 * mm
-    c.drawRightString(breedte - 20 * mm, y, f"Datum: {filter_datum_nl(factuur['datum'])}")
+    c.setFillColor(INKT)
+    c.setFont("Helvetica-Bold", 13)
+    c.drawString(tekst_x, y - 3 * mm, s.get("naam", ""))
+    c.setFont("Helvetica", 8.5)
+    c.setFillColor(GRIJS_DONKER)
+    contact = " \u00b7 ".join(
+        deel for deel in [
+            ((s.get("adres") or "").split("\n") or [""])[0].strip(),
+            (s.get("telefoon") or "").strip(),
+            (s.get("email") or "").strip(),
+        ] if deel
+    )
+    c.drawString(tekst_x, y - 8 * mm, kort(contact, "Helvetica", 8.5, rechts - tekst_x))
 
-    y -= 20 * mm
-    c.setFont("Helvetica-Bold", 11)
-    c.drawString(20 * mm, y, s.get("naam", ""))
-    y -= 5 * mm
-    c.setFont("Helvetica", 10)
+    # ---- Titel ----
+    y -= 30 * mm
+    c.setFillColor(ORANJE)
+    c.setFont("Helvetica", 30)
+    c.drawString(links, y, "Factuur")
+
+    y -= 7 * mm
+    c.setFillColor(GRIJS_DONKER)
+    c.setFont("Helvetica", 9)
+    vervalt = vervaldatum(factuur["datum"])
+    c.drawString(links, y, f"{factuur['nummer']}   \u00b7   {filter_datum_nl(factuur['datum'])}")
+
+    # ---- Van en Voor naast elkaar ----
+    y -= 16 * mm
+    label("Van", links, y)
+    label("Voor", links + 68 * mm, y)
+    y -= 5.5 * mm
+
+    c.setFillColor(INKT)
+    c.setFont("Helvetica-Bold", 9.5)
+    c.drawString(links, y, s.get("naam", ""))
+    c.drawString(links + 68 * mm, y, factuur["klant_naam"] or "")
+
+    c.setFont("Helvetica", 9)
+    c.setFillColor(GRIJS_DONKER)
+    links_y = rechts_y = y - 4.8 * mm
     for regel in (s.get("adres") or "").split("\n"):
         if regel.strip():
-            c.drawString(20 * mm, y, regel.strip())
-            y -= 5 * mm
-    if s.get("telefoon"):
-        c.drawString(20 * mm, y, s["telefoon"])
-        y -= 5 * mm
-    if s.get("email"):
-        c.drawString(20 * mm, y, s["email"])
-        y -= 5 * mm
-
-    y -= 10 * mm
-    c.setFont("Helvetica-Bold", 10)
-    c.drawString(20 * mm, y, "Aan:")
-    y -= 5 * mm
-    c.setFont("Helvetica", 10)
-    c.drawString(20 * mm, y, factuur["klant_naam"] or "")
-    y -= 5 * mm
+            c.drawString(links, links_y, kort(regel.strip(), "Helvetica", 9, 62 * mm))
+            links_y -= 4.4 * mm
     for regel in (factuur["klant_adres"] or "").split("\n"):
         if regel.strip():
-            c.drawString(20 * mm, y, regel.strip())
-            y -= 5 * mm
+            c.drawString(links + 68 * mm, rechts_y, kort(regel.strip(), "Helvetica", 9, 62 * mm))
+            rechts_y -= 4.4 * mm
+    if factuur["klant_email"]:
+        c.drawString(links + 68 * mm, rechts_y, kort(factuur["klant_email"], "Helvetica", 9, 62 * mm))
+        rechts_y -= 4.4 * mm
 
-    y -= 12 * mm
-    c.setFont("Helvetica-Bold", 10)
-    c.drawString(20 * mm, y, "Omschrijving")
-    c.drawString(110 * mm, y, "Aantal")
-    c.drawString(135 * mm, y, "Prijs")
-    c.drawRightString(breedte - 20 * mm, y, "Subtotaal")
-    y -= 3 * mm
-    c.line(20 * mm, y, breedte - 20 * mm, y)
-    y -= 7 * mm
+    y = min(links_y, rechts_y) - 12 * mm
 
-    c.setFont("Helvetica", 10)
+    # ---- Regels ----
+    def kolomkoppen(y):
+        label("Omschrijving", links, y)
+        label("Aantal", kolom_aantal, y, rechts_uit=True)
+        label("Prijs", kolom_prijs, y, rechts_uit=True)
+        label("Bedrag", rechts, y, rechts_uit=True)
+        y -= 3 * mm
+        c.setStrokeColor(INKT)
+        c.setLineWidth(0.8)
+        c.line(links, y, rechts, y)
+        return y - 8 * mm
+
+    y = kolomkoppen(y)
+
+    soorten = {"materiaal": "Materiaal", "arbeid": "Arbeid"}
     for r in regels:
-        c.drawString(20 * mm, y, r["omschrijving"][:45])
-        c.drawString(110 * mm, y, f"{r['aantal']:g}")
-        c.drawString(135 * mm, y, f"\u20ac {nl_bedrag(r['prijs'])}")
-        c.drawRightString(breedte - 20 * mm, y, f"\u20ac {nl_bedrag(r['subtotaal'])}")
-        y -= 6 * mm
-        if y < 40 * mm:
+        if y < 78 * mm:
             c.showPage()
-            y = hoogte - 20 * mm
+            rand()
+            # Op een vervolgpagina opnieuw vertellen waar je naar kijkt.
+            c.setFillColor(GRIJS)
+            c.setFont("Helvetica", 8.5)
+            c.drawString(links, hoogte - 18 * mm,
+                         f"Factuur {factuur['nummer']} · vervolg")
+            y = kolomkoppen(hoogte - 28 * mm)
 
-    y -= 4 * mm
-    c.line(20 * mm, y, breedte - 20 * mm, y)
-    y -= 8 * mm
-    c.setFont("Helvetica-Bold", 12)
-    c.drawRightString(breedte - 20 * mm, y, f"Totaal: \u20ac {nl_bedrag(factuur['totaal'])}")
+        c.setFillColor(INKT)
+        c.setFont("Helvetica", 9.5)
+        c.drawString(links, y, kort(r["omschrijving"], "Helvetica", 9.5, kolom_aantal - links - 6 * mm))
+        c.drawRightString(kolom_aantal, y, f"{r['aantal']:g}".replace(".", ","))
+        c.drawRightString(kolom_prijs, y, nl_bedrag(r["prijs"]))
+        c.drawRightString(rechts, y, nl_bedrag(r["subtotaal"]))
 
-    y -= 15 * mm
-    c.setFont("Helvetica-Bold", 10)
-    # Alles behalve contant wordt per bank afgerekend. Oude rekeningen kunnen nog
-    # 'tikkie' als methode hebben; die krijgen nu gewoon de bankgegevens.
-    if factuur["betaalmethode"] == "cash":
-        c.drawString(20 * mm, y, "Contant afgehandeld.")
+        c.setFont("Helvetica", 7.5)
+        c.setFillColor(GRIJS)
+        c.drawString(links, y - 4 * mm, soorten.get(r["type"], r["type"] or ""))
+
+        y -= 9 * mm
+        c.setStrokeColor(LIJN)
+        c.setLineWidth(0.5)
+        c.line(links, y, rechts, y)
+        y -= 7 * mm
+
+    # ---- Totaal ----
+    label("Totaal", rechts - 42 * mm, y + 1 * mm, rechts_uit=True)
+    c.setFillColor(ORANJE)
+    c.setFont("Helvetica-Bold", 17)
+    c.drawRightString(rechts, y - 1 * mm, f"\u20ac {nl_bedrag(factuur['totaal'])}")
+
+    # ---- Betaalstrook, altijd onderaan het vel ----
+    if y < 80 * mm:
+        c.showPage()
+        rand()
+
+    strook_y = 62 * mm
+    c.setStrokeColor(STIPPEL)
+    c.setLineWidth(0.8)
+    c.setDash(2, 3)
+    c.line(links, strook_y, rechts, strook_y)
+    c.setDash()
+
+    contant = factuur["betaalmethode"] == "cash"
+    gespreid = " ".join("VOLDAAN" if contant else "BETAALSTROOK")
+    tekstbreedte = c.stringWidth(gespreid, "Helvetica-Bold", 6.5)
+    midden = links + (rechts - links) / 2
+    c.setFillColor(WIT)
+    c.rect(midden - tekstbreedte / 2 - 3 * mm, strook_y - 1.6 * mm,
+           tekstbreedte + 6 * mm, 3.4 * mm, stroke=0, fill=1)
+    c.setFillColor(GRIJS)
+    c.setFont("Helvetica-Bold", 6.5)
+    c.drawCentredString(midden, strook_y - 1 * mm, gespreid)
+
+    if contant:
+        c.setFillColor(INKT)
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(links, strook_y - 16 * mm, "Contant afgehandeld.")
+        c.setFont("Helvetica", 9)
+        c.setFillColor(GRIJS_DONKER)
+        c.drawString(links, strook_y - 22 * mm, "Deze rekening is ter plekke voldaan.")
     else:
-        c.drawString(20 * mm, y, "Te betalen per bank:")
-        y -= 5 * mm
-        c.setFont("Helvetica", 10)
-        c.drawString(20 * mm, y, f"IBAN: {s.get('iban', '')}")
-        y -= 5 * mm
-        c.drawString(20 * mm, y, f"T.n.v.: {tenaamstelling(s)}")
-        y -= 5 * mm
-        c.drawString(20 * mm, y, f"O.v.v.: {factuur['nummer']}")
+        label("Overmaken naar", links, strook_y - 8 * mm)
+        regel_y = strook_y - 14 * mm
+        for naam, waarde in [
+            ("IBAN", s.get("iban", "")),
+            ("T.n.v.", tenaamstelling(s)),
+            ("O.v.v.", factuur["nummer"]),
+            ("V\u00f3\u00f3r", filter_datum_nl(vervalt)),
+        ]:
+            c.setFont("Helvetica", 9)
+            c.setFillColor(GRIJS)
+            c.drawString(links, regel_y, naam)
+            c.setFillColor(INKT)
+            c.drawString(links + 18 * mm, regel_y, waarde or "")
+            regel_y -= 5.2 * mm
+
+        vak_b, vak_h = 58 * mm, 20 * mm
+        vak_x, vak_y = rechts - vak_b, strook_y - 26 * mm
+        c.setStrokeColor(ORANJE)
+        c.setLineWidth(1.4)
+        c.roundRect(vak_x, vak_y, vak_b, vak_h, 2 * mm, stroke=1, fill=0)
+        label("Te betalen", vak_x + vak_b - 5 * mm, vak_y + vak_h - 6 * mm, rechts_uit=True)
+        c.setFillColor(ORANJE)
+        c.setFont("Helvetica-Bold", 16)
+        c.drawRightString(vak_x + vak_b - 5 * mm, vak_y + 5 * mm,
+                          f"\u20ac {nl_bedrag(factuur['totaal'])}")
 
     c.save()
     return pad

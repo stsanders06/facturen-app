@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.4.0
+
+- Nieuw ontwerp voor de rekening zelf: ruime opzet met een oranje bies langs de zijkant,
+  je logo en naam bovenaan, en "Van" en "Voor" naast elkaar.
+- Onderaan staat een betaalstrook, gescheiden door een stippellijn, met de IBAN, de
+  tenaamstelling, het kenmerk en de vervaldatum. Het te betalen bedrag staat daarnaast
+  in een omkaderd vak, zodat het niet over het hoofd te zien is.
+- Rekeningen hebben nu een vervaldatum: veertien dagen na de factuurdatum.
+- Bij contant afgerekende klussen heet de strook "Voldaan" en staan er geen
+  bankgegevens op.
+- Aantallen staan in Nederlandse notatie (1,5 in plaats van 1.5) en een lange
+  omschrijving wordt netjes afgekapt in plaats van over de kolommen te lopen.
+- Loopt de rekening over meerdere pagina's, dan herhaalt de vervolgpagina het
+  factuurnummer en de kolomkoppen.
+
 ## 1.3.0
 
 - De tenaamstelling van je bankrekening is nu een eigen instelling. Stond er eerst
