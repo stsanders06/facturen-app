@@ -1,36 +1,33 @@
-# Facturen App (Home Assistant addon)
+# Facturen App — Home Assistant add-on repository
 
-Simpele rekeningen-app voor losse klussen. Geen BTW-administratie, geen KvK-koppeling,
-gewoon materiaalkosten + arbeidsloon optellen, PDF maken en versturen.
+Home Assistant add-on repository met de **Facturen App**: een simpele rekeningen-app
+voor losse klussen. Materiaalkosten en arbeidsloon optellen, PDF genereren en
+automatisch mailen.
 
-## Installatie
+## Toevoegen aan Home Assistant
 
-1. Zet deze map (`invoice-addon`) op je Home Assistant systeem in `/addons/facturen_app`.
-   Makkelijkste manier: installeer de "Samba share" of "SSH & Web Terminal" addon vanuit
-   de HA addon store, en kopieer de map naar `\\<ha-ip>\addons\facturen_app` of via `scp`.
-2. Ga in Home Assistant naar **Instellingen > Add-ons > Add-on Store**, klik rechtsboven
-   op de drie puntjes en kies **Reload** (of herstart Supervisor).
-3. De addon "Facturen App" verschijnt onderaan bij **Local add-ons**. Installeer hem.
-4. Start de addon. Ga naar `http://<ha-ip>:8099` in je browser.
+[![Open your Home Assistant instance and show the add add-on repository dialog with a specific repository URL pre-filled.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fstsanders06%2Ffacturen-app)
 
-## Eerste gebruik
+Of handmatig:
 
-1. Ga naar **Instellingen** in de app: vul naam, adres, IBAN, en eventueel Tikkie-link in.
-   Upload je logo.
-2. Voor automatisch mailen: vul SMTP-gegevens in. Voor Gmail gebruik je een
-   [app-wachtwoord](https://myaccount.google.com/apppasswords), niet je normale wachtwoord.
-3. Ga naar **Nieuw** om een rekening te maken: klantgegevens, regels voor materiaal en
-   arbeid, betaalmethode kiezen. Bij opslaan wordt automatisch een PDF gegenereerd.
+1. **Instellingen → Add-ons → Add-on Store**
+2. Rechtsboven de drie puntjes → **Repositories**
+3. Plak `https://github.com/stsanders06/facturen-app` en klik **Toevoegen**
+4. Installeer de add-on **Facturen App** uit de lijst
 
-## Data en back-up
+## Add-ons in deze repository
 
-Alle data (database, PDF's, logo) staat in de persistente `/data` map van de addon.
-Die overleeft addon-updates en herstarts van Home Assistant, maar wordt niet automatisch
-meegenomen in een HA-snapshot tenzij je "Add-on data" meeneemt in je back-up instellingen.
-Controleer dat.
+| Add-on | Beschrijving |
+| --- | --- |
+| [Facturen App](./facturen_app) | Rekeningen maken, PDF genereren en per e-mail versturen |
 
-## Belangrijk
+Zie [de documentatie](./facturen_app/DOCS.md) voor installatie en gebruik.
 
-Dit is geen fiscaal geldige factuur zolang er geen KvK-inschrijving achter zit. Voor
-incidentele bijverdiensten is dat meestal geen probleem, maar bij structurele inkomsten
-moet je dit gewoon opgeven bij de Belastingdienst als resultaat uit overige werkzaamheden.
+## Ondersteunde architecturen
+
+`aarch64`, `amd64`, `armv7` — dus onder andere Raspberry Pi 3/4/5, Home Assistant
+Green, Yellow en x86-installaties.
+
+## Licentie
+
+[MIT](./LICENSE)

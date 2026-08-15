@@ -1,0 +1,6 @@
+---
+ignored:
+  # apk-pakketten zonder versie-pin: de basis-image bepaalt de Alpine-versie
+  - DL3018
+  # pip zonder versie-pin: de versies staan in requirements.txt
+  - DL3013

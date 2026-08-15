@@ -1,4 +1,6 @@
+import logging
 import os
+import secrets
 import sqlite3
 import smtplib
 from datetime import date
@@ -19,8 +21,44 @@ os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(PDF_DIR, exist_ok=True)
 os.makedirs(LOGO_DIR, exist_ok=True)
 
+
+def _secret_key():
+    """Genereer eenmalig een sleutel en bewaar die in /data, zodat sessies een
+    herstart van de add-on overleven."""
+    override = os.environ.get("SECRET_KEY")
+    if override:
+        return override
+    pad = os.path.join(DATA_DIR, "secret_key")
+    if os.path.exists(pad):
+        with open(pad, "r", encoding="utf-8") as f:
+            sleutel = f.read().strip()
+        if sleutel:
+            return sleutel
+    sleutel = secrets.token_hex(32)
+    with open(pad, "w", encoding="utf-8") as f:
+        f.write(sleutel)
+    os.chmod(pad, 0o600)
+    return sleutel
+
+
+class IngressMiddleware:
+    """Home Assistant Ingress serveert de app onder een dynamisch pad. De
+    X-Ingress-Path header vertelt welk pad dat is, zodat url_for() links
+    genereert die binnen het HA-paneel blijven werken."""
+
+    def __init__(self, wsgi_app):
+        self.wsgi_app = wsgi_app
+
+    def __call__(self, environ, start_response):
+        ingress_path = environ.get("HTTP_X_INGRESS_PATH")
+        if ingress_path:
+            environ["SCRIPT_NAME"] = ingress_path.rstrip("/")
+        return self.wsgi_app(environ, start_response)
+
+
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "verander-mij")
+app.secret_key = _secret_key()
+app.wsgi_app = IngressMiddleware(app.wsgi_app)
 
 
 def get_db():
@@ -382,4 +420,24 @@ def verwijder(factuur_id):
 init_db()
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8099)
+    # De add-on kent log-niveaus die Python niet heeft (trace/notice/fatal).
+    niveaus = {
+        "trace": logging.DEBUG,
+        "debug": logging.DEBUG,
+        "info": logging.INFO,
+        "notice": logging.INFO,
+        "warning": logging.WARNING,
+        "error": logging.ERROR,
+        "fatal": logging.CRITICAL,
+    }
+    logging.basicConfig(
+        level=niveaus.get(os.environ.get("LOG_LEVEL", "info").lower(), logging.INFO),
+        format="[%(asctime)s] %(levelname)s: %(message)s",
+    )
+    poort = int(os.environ.get("PORT", "8099"))
+    try:
+        from waitress import serve
+
+        serve(app, host="0.0.0.0", port=poort, threads=4)
+    except ImportError:
+        app.run(host="0.0.0.0", port=poort)

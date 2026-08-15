@@ -1,0 +1,15 @@
+#!/usr/bin/with-contenv bashio
+# ==============================================================================
+# Start de Facturen App
+# ==============================================================================
+declare log_level
+
+log_level="$(bashio::config 'log_level' 'info')"
+
+export LOG_LEVEL="${log_level}"
+export DATA_DIR="/data"
+export PORT="8099"
+
+bashio::log.info "Facturen App wordt gestart op poort ${PORT}..."
+
+exec python3 /opt/app/main.py
