@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.8.0
+
+- Onderaan elke rekening staat nu in kleine letters: "Deze factuur is vrijgesteld van btw
+  i.v.m. particuliere levering van diensten."
+- Rekeningen zijn opnieuw te maken nadat je je instellingen hebt gewijzigd. Per rekening
+  met de knop **Vernieuwen**, of in één keer met **Alle rekeningen opnieuw maken** onderaan
+  de instellingenpagina. Bedragen en regels blijven daarbij ongewijzigd; alleen je eigen
+  gegevens, logo en IBAN worden bijgewerkt.
+- De hele kaart van een rekening is nu een knop die de factuur opent; de losse knop
+  **Bekijken** is daarmee vervallen. Hetzelfde geldt voor de klantenkaarten, die openen de
+  klant. De knoppen op de kaart blijven gewoon werken.
+
 ## 1.7.0
 
 - Nieuw tabblad **Klanten**. Je bewaart per klant naam, adres, e-mail, telefoon en een

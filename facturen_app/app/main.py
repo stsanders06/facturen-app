@@ -70,6 +70,11 @@ MAANDEN = [
 # Aantal dagen dat de klant heeft om te betalen; komt als "Vóór ..." op de strook.
 BETAALTERMIJN_DAGEN = 14
 
+# Kleine voetregel onderaan elke rekening.
+BTW_REGEL = (
+    "Deze factuur is vrijgesteld van btw i.v.m. particuliere levering van diensten."
+)
+
 # De soorten regels. 'eenheid' komt achter het aantal op de factuur; bij een vaste
 # prijs per klus is er geen aantal, dan telt alleen het bedrag.
 SOORTEN = {
@@ -798,6 +803,11 @@ def maak_pdf(factuur_id):
         c.drawRightString(vak_x + vak_b - 5 * mm, vak_y + 5 * mm,
                           f"\u20ac {nl_bedrag(factuur['totaal'])}")
 
+    # ---- Voetregel ----
+    c.setFont("Helvetica", 7)
+    c.setFillColor(GRIJS)
+    c.drawString(links, 14 * mm, BTW_REGEL)
+
     c.save()
     return pad
 
@@ -859,6 +869,31 @@ def bekijk_pdf(factuur_id):
     pad, nummer = _pdf_pad(factuur_id)
     return send_file(pad, mimetype="application/pdf", as_attachment=False,
                      download_name=f"{nummer}.pdf")
+
+
+@app.route("/factuur/<int:factuur_id>/vernieuw", methods=["POST"])
+def vernieuw_pdf(factuur_id):
+    """Tekent de rekening opnieuw, bijvoorbeeld nadat je je logo of IBAN hebt gewijzigd."""
+    conn = get_db()
+    factuur = conn.execute("SELECT nummer FROM facturen WHERE id=?", (factuur_id,)).fetchone()
+    conn.close()
+    if factuur is None:
+        abort(404)
+    maak_pdf(factuur_id)
+    flash(f"Rekening {factuur['nummer']} is opnieuw gemaakt met je huidige instellingen.")
+    return redirect(request.referrer or url_for("index"))
+
+
+@app.route("/instellingen/vernieuw-alles", methods=["POST"])
+def vernieuw_alles():
+    conn = get_db()
+    ids = [rij["id"] for rij in conn.execute("SELECT id FROM facturen ORDER BY id")]
+    conn.close()
+    for factuur_id in ids:
+        maak_pdf(factuur_id)
+    flash(f"{len(ids)} rekening{'en' if len(ids) != 1 else ''} opnieuw gemaakt met je "
+          "huidige instellingen.")
+    return redirect(url_for("instellingen"))
 
 
 @app.route("/factuur/<int:factuur_id>/pdf")

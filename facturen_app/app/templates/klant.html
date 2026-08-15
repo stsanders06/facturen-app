@@ -32,9 +32,15 @@
     justify-content: space-between;
     gap: 12px;
     flex-wrap: wrap;
-    padding: 12px 0;
+    padding: 12px 8px;
+    margin: 0 -8px;
     border-bottom: 1px solid var(--divider);
+    position: relative;
+    border-radius: var(--radius-sm);
   }
+  .rekening:hover { background: var(--bg); }
+  .rekening .kaartlink { position: absolute; inset: 0; z-index: 1; border-radius: var(--radius-sm); }
+  .rekening .rechts { position: relative; z-index: 2; }
   .rekening:last-child { border-bottom: none; padding-bottom: 0; }
   .rekening .links { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
   .rekening .nr { font-variant-numeric: tabular-nums; }
@@ -90,6 +96,8 @@
     </div>
     {% for f in facturen %}
     <div class="rekening">
+      <a class="kaartlink" href="{{ url_for('bekijk_pdf', factuur_id=f.id) }}" target="_blank"
+         rel="noopener" aria-label="Rekening {{ f.nummer }} bekijken"></a>
       <div class="links">
         <span class="nr">{{ f.nummer }}</span>
         <span class="datum">{{ f.datum|datum_nl }}</span>
@@ -101,8 +109,6 @@
       </div>
       <div class="rechts">
         <span class="bedrag">&euro; {{ f.totaal|bedrag }}</span>
-        <a class="btn btn-text" href="{{ url_for('bekijk_pdf', factuur_id=f.id) }}"
-           target="_blank" rel="noopener">Bekijken</a>
         <a class="btn btn-text" href="{{ url_for('bewerk', factuur_id=f.id) }}">Bewerken</a>
       </div>
     </div>

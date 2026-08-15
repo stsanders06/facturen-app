@@ -2,19 +2,33 @@
 {% block title %}Klanten{% endblock %}
 {% block head %}
 <style>
+  /* De hele kaart opent de klant; de knoppen liggen erbovenop. */
   .klant {
     display: grid;
     grid-template-columns: 1fr auto;
     gap: 4px 16px;
     align-items: baseline;
+    position: relative;
+    transition: box-shadow .15s ease;
   }
+  .klant:hover { box-shadow: var(--shadow-raised); }
+  .klant:has(.kaartlink:focus-visible) {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+  .kaartlink {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    border-radius: var(--radius);
+    outline: none;
+  }
+  .klant .acties { position: relative; z-index: 2; }
   .klant .naam {
     font-size: 16px;
     font-weight: 500;
     letter-spacing: -.01em;
   }
-  .klant .naam a { color: inherit; text-decoration: none; }
-  .klant .naam a:hover { color: var(--primary); }
   .klant .contact {
     grid-column: 1;
     font-size: 13px;
@@ -67,7 +81,9 @@
 <div class="cards">
   {% for k in klanten %}
   <article class="card klant">
-    <div class="naam"><a href="{{ url_for('klant', klant_id=k.id) }}">{{ k.naam }}</a></div>
+    <a class="kaartlink" href="{{ url_for('klant', klant_id=k.id) }}"
+       aria-label="{{ k.naam }} bekijken"></a>
+    <div class="naam">{{ k.naam }}</div>
     <div class="cijfers">
       <b>&euro; {{ k.omzet|bedrag }}</b>
       gefactureerd
@@ -85,7 +101,6 @@
       </span>
       <div class="acties">
         <a class="btn btn-text" href="{{ url_for('nieuw') }}?klant={{ k.id }}">Nieuwe rekening</a>
-        <a class="btn btn-text" href="{{ url_for('klant', klant_id=k.id) }}">Bekijken</a>
         <a class="btn btn-text" href="{{ url_for('klant_bewerk', klant_id=k.id) }}">Bewerken</a>
       </div>
     </div>
