@@ -60,6 +60,30 @@ app = Flask(__name__)
 app.secret_key = _secret_key()
 app.wsgi_app = IngressMiddleware(app.wsgi_app)
 
+MAANDEN = [
+    "jan", "feb", "mrt", "apr", "mei", "jun",
+    "jul", "aug", "sep", "okt", "nov", "dec",
+]
+
+
+def nl_bedrag(waarde):
+    """1287.5 wordt '1.287,50' — punt als duizendtalscheiding, komma als decimaal."""
+    heel, _, decimalen = f"{float(waarde or 0):,.2f}".partition(".")
+    return f"{heel.replace(',', '.')},{decimalen}"
+
+
+app.add_template_filter(nl_bedrag, "bedrag")
+
+
+@app.template_filter("datum_nl")
+def filter_datum_nl(waarde):
+    """'2026-08-14' wordt '14 aug 2026'."""
+    try:
+        jaar, maand, dag = str(waarde).split("-")
+        return f"{int(dag)} {MAANDEN[int(maand) - 1]} {jaar}"
+    except (ValueError, IndexError):
+        return waarde
+
 
 def get_db():
     conn = sqlite3.connect(DB_PATH)
@@ -138,7 +162,7 @@ def index():
     conn = get_db()
     facturen = conn.execute("SELECT * FROM facturen ORDER BY id DESC").fetchall()
     conn.close()
-    return render_template("index.html", facturen=facturen)
+    return render_template("index.html", facturen=facturen, actief="index")
 
 
 @app.route("/instellingen", methods=["GET", "POST"])
@@ -175,7 +199,7 @@ def instellingen():
         flash("Instellingen opgeslagen.")
         return redirect(url_for("instellingen"))
 
-    return render_template("instellingen.html", s=get_settings())
+    return render_template("instellingen.html", s=get_settings(), actief="instellingen")
 
 
 @app.route("/nieuw", methods=["GET", "POST"])
@@ -229,7 +253,7 @@ def nieuw():
 
         return redirect(url_for("index"))
 
-    return render_template("nieuw.html", vandaag=date.today().isoformat())
+    return render_template("nieuw.html", vandaag=date.today().isoformat(), actief="nieuw")
 
 
 def maak_pdf(factuur_id):
@@ -257,7 +281,7 @@ def maak_pdf(factuur_id):
     c.setFont("Helvetica", 10)
     c.drawRightString(breedte - 20 * mm, y, f"Nummer: {factuur['nummer']}")
     y -= 5 * mm
-    c.drawRightString(breedte - 20 * mm, y, f"Datum: {factuur['datum']}")
+    c.drawRightString(breedte - 20 * mm, y, f"Datum: {filter_datum_nl(factuur['datum'])}")
 
     y -= 20 * mm
     c.setFont("Helvetica-Bold", 11)
@@ -301,8 +325,8 @@ def maak_pdf(factuur_id):
     for r in regels:
         c.drawString(20 * mm, y, r["omschrijving"][:45])
         c.drawString(110 * mm, y, f"{r['aantal']:g}")
-        c.drawString(135 * mm, y, f"\u20ac {r['prijs']:.2f}")
-        c.drawRightString(breedte - 20 * mm, y, f"\u20ac {r['subtotaal']:.2f}")
+        c.drawString(135 * mm, y, f"\u20ac {nl_bedrag(r['prijs'])}")
+        c.drawRightString(breedte - 20 * mm, y, f"\u20ac {nl_bedrag(r['subtotaal'])}")
         y -= 6 * mm
         if y < 40 * mm:
             c.showPage()
@@ -312,7 +336,7 @@ def maak_pdf(factuur_id):
     c.line(20 * mm, y, breedte - 20 * mm, y)
     y -= 8 * mm
     c.setFont("Helvetica-Bold", 12)
-    c.drawRightString(breedte - 20 * mm, y, f"Totaal: \u20ac {factuur['totaal']:.2f}")
+    c.drawRightString(breedte - 20 * mm, y, f"Totaal: \u20ac {nl_bedrag(factuur['totaal'])}")
 
     y -= 15 * mm
     c.setFont("Helvetica-Bold", 10)

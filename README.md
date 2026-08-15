@@ -13,7 +13,9 @@ Of handmatig:
 1. **Instellingen → Add-ons → Add-on Store**
 2. Rechtsboven de drie puntjes → **Repositories**
 3. Plak `https://github.com/stsanders06/facturen-app` en klik **Toevoegen**
-4. Installeer de add-on **Facturen App** uit de lijst
+4. Installeer de add-on **Facturen App** uit de lijst en start hem
+5. Open `http://<ip-van-home-assistant>:8099` in je browser, of zet **Show in sidebar**
+   aan om de app in het zijmenu van Home Assistant te gebruiken
 
 ## Add-ons in deze repository
 

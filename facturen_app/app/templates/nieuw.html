@@ -1,64 +1,210 @@
 {% extends "_layout.html" %}
 {% block title %}Nieuwe rekening{% endblock %}
+{% block head %}
+<style>
+  .regel {
+    display: grid;
+    grid-template-columns: 130px 1fr 90px 110px 40px;
+    gap: 10px;
+    align-items: end;
+    padding-bottom: 14px;
+    margin-bottom: 14px;
+    border-bottom: 1px solid var(--divider);
+  }
+  .regel:last-child { border-bottom: none; margin-bottom: 0; }
+  .regel .weg {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 20px;
+    line-height: 1;
+    padding: 9px 0;
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+  }
+  .regel .weg:hover { color: var(--danger); background: var(--danger-soft); }
+  /* Op smalle schermen wordt elke regel een blokje in plaats van een rij */
+  @media (max-width: 620px) {
+    .regel {
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      background: var(--bg);
+      border-radius: var(--radius-sm);
+      padding: 12px;
+      border-bottom: none;
+      margin-bottom: 12px;
+    }
+    .regel .omschrijving-veld { grid-column: 1 / -1; }
+    .regel .weg { justify-self: end; grid-column: 2; }
+  }
+  .totaalbalk {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 2px solid var(--divider);
+  }
+  .totaalbalk .label { font-size: 14px; color: var(--text-secondary); }
+  .totaalbalk .som {
+    font-size: 24px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.02em;
+  }
+  .checkregel { display: flex; align-items: flex-start; gap: 10px; }
+  .checkregel input { width: auto; margin-top: 3px; flex: none; }
+  .checkregel label { font-size: 15px; color: var(--text); font-weight: 400; }
+  .indienen { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+</style>
+{% endblock %}
 {% block content %}
-<h1>Nieuwe rekening</h1>
-<form method="post">
-  <div class="card">
-    <div class="row">
-      <div>
-        <label>Klantnaam</label>
-        <input type="text" name="klant_naam" required>
+
+<div class="page-head">
+  <h1>Nieuwe rekening</h1>
+</div>
+
+<form method="post" class="cards">
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Klant</h2>
+    </div>
+    <div class="fields">
+      <div class="row">
+        <div class="field">
+          <label for="klant_naam">Klantnaam</label>
+          <input type="text" id="klant_naam" name="klant_naam" required>
+        </div>
+        <div class="field">
+          <label for="datum">Datum</label>
+          <input type="date" id="datum" name="datum" value="{{ vandaag }}">
+        </div>
       </div>
-      <div>
-        <label>Datum</label>
-        <input type="date" name="datum" value="{{ vandaag }}">
+      <div class="field">
+        <label for="klant_adres">Adres</label>
+        <textarea id="klant_adres" name="klant_adres" rows="2"></textarea>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="klant_email">E-mailadres</label>
+          <input type="email" id="klant_email" name="klant_email">
+          <p class="hint">Nodig als je de rekening wilt mailen.</p>
+        </div>
+        <div class="field">
+          <label for="betaalmethode">Betaalmethode</label>
+          <select id="betaalmethode" name="betaalmethode">
+            <option value="bank">Bank</option>
+            <option value="cash">Contant</option>
+            <option value="tikkie">Tikkie</option>
+          </select>
+        </div>
       </div>
     </div>
-    <label>Adres klant</label>
-    <textarea name="klant_adres" rows="2"></textarea>
-    <label>E-mail klant (optioneel, nodig om te mailen)</label>
-    <input type="email" name="klant_email">
-    <label>Betaalmethode</label>
-    <select name="betaalmethode">
-      <option value="bank">Bank</option>
-      <option value="cash">Contant</option>
-      <option value="tikkie">Tikkie</option>
-    </select>
-  </div>
+  </section>
 
-  <div class="card">
-    <label style="margin-top:0;">Regels (materiaal / arbeid)</label>
+  <section class="card">
+    <div class="card-head">
+      <h2>Regels</h2>
+      <p>Materiaal per stuk, arbeid per uur.</p>
+    </div>
+
     <div id="regels">
-      <div class="regel-row">
-        <div class="type-col">
+      <div class="regel">
+        <div class="field">
+          <label>Soort</label>
           <select name="type">
             <option value="materiaal">Materiaal</option>
             <option value="arbeid">Arbeid</option>
           </select>
         </div>
-        <div><input type="text" name="omschrijving" placeholder="Omschrijving"></div>
-        <div class="num-col"><input type="number" step="0.01" name="aantal" placeholder="Aantal/uren" value="1"></div>
-        <div class="num-col"><input type="number" step="0.01" name="prijs" placeholder="Prijs p/st"></div>
+        <div class="field omschrijving-veld">
+          <label>Omschrijving</label>
+          <input type="text" name="omschrijving" placeholder="Bijv. buis 32 mm">
+        </div>
+        <div class="field">
+          <label>Aantal</label>
+          <input type="number" step="0.01" name="aantal" value="1">
+        </div>
+        <div class="field">
+          <label>Prijs</label>
+          <input type="number" step="0.01" name="prijs" placeholder="0,00">
+        </div>
+        <button type="button" class="weg" title="Regel verwijderen" aria-label="Regel verwijderen">&times;</button>
       </div>
     </div>
-    <button type="button" class="btn-secondary" onclick="voegRegelToe()">+ Regel toevoegen</button>
-  </div>
 
-  <div class="card">
-    <label style="margin-top:0;">
-      <input type="checkbox" name="verstuur" value="ja" style="width:auto;display:inline-block;margin-right:6px;">
-      Direct mailen naar klant na opslaan
-    </label>
-    <button type="submit">Rekening aanmaken</button>
-  </div>
+    <div style="margin-top:14px">
+      <button type="button" class="btn btn-outline" id="regel-erbij">+ Regel toevoegen</button>
+    </div>
+
+    <div class="totaalbalk">
+      <span class="label">Totaal</span>
+      <span class="som" id="totaal">&euro; 0,00</span>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="fields">
+      <div class="checkregel">
+        <input type="checkbox" id="verstuur" name="verstuur" value="ja">
+        <label for="verstuur">Direct naar de klant mailen na opslaan</label>
+      </div>
+      <div class="indienen">
+        <a class="btn btn-outline" href="{{ url_for('index') }}">Annuleren</a>
+        <button type="submit" class="btn">Rekening aanmaken</button>
+      </div>
+    </div>
+  </section>
+
 </form>
 
 <script>
-function voegRegelToe() {
-  const container = document.getElementById('regels');
-  const row = container.children[0].cloneNode(true);
-  row.querySelectorAll('input').forEach(i => { if (i.name !== 'aantal') i.value = ''; else i.value = '1'; });
-  container.appendChild(row);
-}
+  (function () {
+    var container = document.getElementById('regels');
+    var totaalveld = document.getElementById('totaal');
+
+    function berekenTotaal() {
+      var som = 0;
+      container.querySelectorAll('.regel').forEach(function (regel) {
+        var aantal = parseFloat(regel.querySelector('[name="aantal"]').value) || 0;
+        var prijs = parseFloat(regel.querySelector('[name="prijs"]').value) || 0;
+        som += aantal * prijs;
+      });
+      totaalveld.textContent = '€ ' + som.toLocaleString('nl-NL', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
+    }
+
+    document.getElementById('regel-erbij').addEventListener('click', function () {
+      var nieuw = container.children[0].cloneNode(true);
+      nieuw.querySelectorAll('input').forEach(function (veld) {
+        veld.value = veld.name === 'aantal' ? '1' : '';
+      });
+      container.appendChild(nieuw);
+      nieuw.querySelector('[name="omschrijving"]').focus();
+      berekenTotaal();
+    });
+
+    // Eén regel moet altijd blijven staan, anders kun je niets meer invullen.
+    container.addEventListener('click', function (e) {
+      if (!e.target.classList.contains('weg')) return;
+      if (container.children.length === 1) {
+        container.querySelectorAll('input').forEach(function (veld) {
+          veld.value = veld.name === 'aantal' ? '1' : '';
+        });
+      } else {
+        e.target.closest('.regel').remove();
+      }
+      berekenTotaal();
+    });
+
+    container.addEventListener('input', berekenTotaal);
+    berekenTotaal();
+  })();
 </script>
+
 {% endblock %}

@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.2.0
+
+- Compleet nieuwe interface in de vormgeving van Home Assistant zelf: kaarten in plaats
+  van een tabel, HA's blauw en typografie, en een donkere variant die meegaat met de
+  instelling van je systeem.
+- Poort 8099 staat nu standaard open, zodat je de app gewoon in je browser kunt openen
+  op `http://<ip-van-home-assistant>:8099`. Via de zijbalk van Home Assistant werkt hij
+  ook nog steeds.
+- Het invoerscherm telt het totaal mee terwijl je typt, regels zijn te verwijderen en
+  worden op een telefoon onder elkaar gezet in plaats van in een smalle rij.
+- Bedragen staan in Nederlandse notatie met een komma.
+
 ## 1.1.0
 
 - Omgebouwd tot een volwaardige Home Assistant add-on repository: toe te voegen via

@@ -1,6 +1,6 @@
 ---
 name: Facturen App
-version: "1.1.0"
+version: "1.2.0"
 slug: facturen_app
 description: >-
   Simpele facturatie: materiaal- en arbeidskosten optellen, PDF genereren en
@@ -14,11 +14,11 @@ ingress: true
 panel_icon: mdi:file-document-outline
 panel_title: Facturen
 ports:
-  8099/tcp: null
+  8099/tcp: 8099
 ports_description:
   8099/tcp: >-
-    Directe toegang tot de web interface buiten Home Assistant om (optioneel,
-    laat leeg om alleen Ingress te gebruiken)
+    Web interface. Open http://<ip-van-home-assistant>:8099 in je browser. Laat
+    leeg als je de app alleen via de zijbalk van Home Assistant wilt gebruiken.
 options:
   log_level: info
 schema:

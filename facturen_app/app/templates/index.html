@@ -1,53 +1,91 @@
 {% extends "_layout.html" %}
 {% block title %}Rekeningen{% endblock %}
+{% block head %}
+<style>
+  .factuur {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 2px 14px;
+    align-items: baseline;
+  }
+  .factuur .klant {
+    font-size: 16px;
+    font-weight: 500;
+    letter-spacing: -.01em;
+  }
+  .factuur .bedrag {
+    font-size: 17px;
+    font-weight: 500;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .factuur .meta {
+    grid-column: 1;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+  .factuur .onderkant {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--divider);
+  }
+  .acties { display: flex; gap: 4px; flex-wrap: wrap; }
+  .acties form { display: contents; }
+</style>
+{% endblock %}
 {% block content %}
-<h1>Rekeningen</h1>
+
+<div class="page-head">
+  <h1>Rekeningen</h1>
+  <a class="btn" href="{{ url_for('nieuw') }}">+ Nieuwe rekening</a>
+</div>
 
 {% if not facturen %}
-<div class="card">
-  <p class="muted">Nog geen rekeningen gemaakt. <a href="{{ url_for('nieuw') }}">Maak de eerste aan</a>.</p>
+<div class="card empty">
+  <p>Je hebt nog geen rekeningen gemaakt.</p>
+  <a class="btn" href="{{ url_for('nieuw') }}">Maak je eerste rekening</a>
 </div>
 {% else %}
-<div class="card">
-<table>
-  <thead>
-    <tr>
-      <th>Nummer</th>
-      <th>Datum</th>
-      <th>Klant</th>
-      <th>Bedrag</th>
-      <th>Status</th>
-      <th>Acties</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for f in facturen %}
-    <tr>
-      <td>{{ f.nummer }}</td>
-      <td>{{ f.datum }}</td>
-      <td>{{ f.klant_naam }}</td>
-      <td>&euro; {{ "%.2f"|format(f.totaal) }}</td>
-      <td><span class="status status-{{ f.status }}">{{ f.status }}</span></td>
-      <td class="actions">
-        <a class="btn btn-secondary" href="{{ url_for('download_pdf', factuur_id=f.id) }}">PDF</a>
+<div class="cards">
+  {% for f in facturen %}
+  <article class="card factuur">
+    <div class="klant">{{ f.klant_naam }}</div>
+    <div class="bedrag">&euro; {{ f.totaal|bedrag }}</div>
+    <div class="meta">{{ f.nummer }} · {{ f.datum|datum_nl }}</div>
+    <div class="onderkant">
+      <span class="chip chip-{{ f.status }}">
+        {% if f.status == 'concept' %}Concept
+        {% elif f.status == 'verzonden' %}Verzonden
+        {% else %}Betaald{% endif %}
+      </span>
+      <div class="acties">
+        <a class="btn btn-text" href="{{ url_for('download_pdf', factuur_id=f.id) }}">PDF</a>
         {% if f.klant_email %}
         <form method="post" action="{{ url_for('verstuur', factuur_id=f.id) }}">
-          <button type="submit">Mail</button>
+          <button type="submit" class="btn btn-text">Mailen</button>
         </form>
         {% endif %}
         {% if f.status != 'betaald' %}
         <form method="post" action="{{ url_for('markeer_betaald', factuur_id=f.id) }}">
-          <button type="submit" class="btn-secondary">Betaald</button>
+          <button type="submit" class="btn btn-text">Betaald</button>
         </form>
         {% endif %}
-        <form method="post" action="{{ url_for('verwijder', factuur_id=f.id) }}" onsubmit="return confirm('Weet je het zeker?');">
-          <button type="submit" class="btn-danger">Verwijder</button>
+        <form method="post" action="{{ url_for('verwijder', factuur_id=f.id) }}"
+              onsubmit="return confirm('Rekening {{ f.nummer }} verwijderen?');">
+          <button type="submit" class="btn btn-text danger">Verwijderen</button>
         </form>
-      </td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+      </div>
+    </div>
+  </article>
+  {% endfor %}
 </div>
 {% endif %}
+
 {% endblock %}

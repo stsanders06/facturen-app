@@ -11,8 +11,9 @@ materiaalkosten + arbeidsloon optellen, PDF maken en versturen.
 4. De add-on **Facturen App** verschijnt in de store. Klik erop en kies **Installeren**.
    De eerste keer duurt dit een paar minuten, omdat het image lokaal gebouwd wordt.
 5. Zet **Start on boot** en **Watchdog** aan als je dat wilt, en klik **Starten**.
-6. Zet **Show in sidebar** aan; de app is dan bereikbaar via het zijmenu van
-   Home Assistant (Ingress) — er is geen aparte poort nodig.
+6. Open de app op **`http://<ip-van-home-assistant>:8099`** in je browser. Zet daarnaast
+   **Show in sidebar** aan als je hem ook vanuit het zijmenu van Home Assistant wilt
+   openen; beide werken tegelijk.
 
 ## Configuratie
 
@@ -26,12 +27,18 @@ De app-instellingen zelf (bedrijfsnaam, IBAN, logo, SMTP) staan niet in de add-o
 configuratie maar in de app onder **Instellingen**. Dat scheelt herstarten bij elke
 wijziging.
 
-### Poort (optioneel)
+### De app openen
 
-Standaard is er geen poort opengezet en gaat alle verkeer via Ingress. Wil je de app
-ook buiten Home Assistant om benaderen, zet dan onder **Configuratie → Netwerk** poort
-`8099` open. Let op: op die poort zit geen authenticatie, dus doe dat alleen binnen je
-eigen netwerk.
+Er zijn twee manieren, die allebei standaard aanstaan:
+
+- **In je browser:** `http://<ip-van-home-assistant>:8099`. Handig om te bookmarken op je
+  telefoon of laptop, en je hoeft niet eerst in Home Assistant in te loggen.
+- **In de zijbalk van Home Assistant:** zet **Show in sidebar** aan bij de add-on.
+
+Let op: op poort 8099 zit geen wachtwoord, dus iedereen in je netwerk kan erbij. Gebruik
+hem dus alleen op je eigen netwerk en zet hem niet open naar internet. Wil je dat niet,
+maak dan het poortveld leeg onder **Configuratie → Netwerk**; dan werkt alleen de zijbalk
+van Home Assistant nog, die wél achter je HA-login zit.
 
 ## Eerste gebruik
 

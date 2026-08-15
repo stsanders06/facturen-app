@@ -1,53 +1,119 @@
 {% extends "_layout.html" %}
 {% block title %}Instellingen{% endblock %}
+{% block head %}
+<style>
+  .logo-huidig {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    background: var(--bg);
+    border-radius: var(--radius-sm);
+    padding: 8px 12px;
+  }
+  .opslaan { display: flex; justify-content: flex-end; }
+</style>
+{% endblock %}
 {% block content %}
-<h1>Instellingen</h1>
-<form method="post" enctype="multipart/form-data">
-  <div class="card">
-    <h3 style="margin-top:0;">Bedrijfsgegevens</h3>
-    <label>Naam</label>
-    <input type="text" name="naam" value="{{ s.naam }}">
-    <label>Adres (elke regel apart)</label>
-    <textarea name="adres" rows="3">{{ s.adres }}</textarea>
-    <label>Telefoon</label>
-    <input type="text" name="telefoon" value="{{ s.telefoon }}">
-    <label>E-mail</label>
-    <input type="email" name="email" value="{{ s.email }}">
-    <label>Logo</label>
-    <input type="file" name="logo" accept="image/*">
-    {% if s.logo_bestand %}<p class="muted">Huidig logo: {{ s.logo_bestand }}</p>{% endif %}
-    <input type="hidden" name="bestaand_logo" value="{{ s.logo_bestand }}">
-  </div>
 
-  <div class="card">
-    <h3 style="margin-top:0;">Betaalgegevens</h3>
-    <label>IBAN</label>
-    <input type="text" name="iban" value="{{ s.iban }}">
-    <label>Tikkie link</label>
-    <input type="text" name="tikkie_link" value="{{ s.tikkie_link }}" placeholder="https://tikkie.me/pay/...">
-  </div>
+<div class="page-head">
+  <h1>Instellingen</h1>
+</div>
 
-  <div class="card">
-    <h3 style="margin-top:0;">E-mail versturen (SMTP)</h3>
-    <p class="muted">Voor Gmail: smtp.gmail.com, poort 587, en een app-wachtwoord (niet je gewone wachtwoord).</p>
-    <div class="row">
-      <div>
-        <label>SMTP host</label>
-        <input type="text" name="smtp_host" value="{{ s.smtp_host }}">
+<form method="post" enctype="multipart/form-data" class="cards">
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Jouw gegevens</h2>
+      <p>Deze komen bovenaan op de rekening te staan.</p>
+    </div>
+    <div class="fields">
+      <div class="field">
+        <label for="naam">Naam</label>
+        <input type="text" id="naam" name="naam" value="{{ s.naam }}">
       </div>
-      <div>
-        <label>SMTP poort</label>
-        <input type="number" name="smtp_port" value="{{ s.smtp_port }}">
+      <div class="field">
+        <label for="adres">Adres</label>
+        <textarea id="adres" name="adres" rows="3">{{ s.adres }}</textarea>
+        <p class="hint">Elke regel komt onder elkaar op de rekening.</p>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="telefoon">Telefoon</label>
+          <input type="text" id="telefoon" name="telefoon" value="{{ s.telefoon }}">
+        </div>
+        <div class="field">
+          <label for="email">E-mail</label>
+          <input type="email" id="email" name="email" value="{{ s.email }}">
+        </div>
+      </div>
+      <div class="field">
+        <label for="logo">Logo</label>
+        <input type="file" id="logo" name="logo" accept="image/*">
+        {% if s.logo_bestand %}
+        <div class="logo-huidig">Huidig logo: {{ s.logo_bestand }}</div>
+        {% endif %}
+        <input type="hidden" name="bestaand_logo" value="{{ s.logo_bestand }}">
       </div>
     </div>
-    <label>SMTP gebruikersnaam</label>
-    <input type="text" name="smtp_user" value="{{ s.smtp_user }}">
-    <label>SMTP wachtwoord / app-wachtwoord</label>
-    <input type="password" name="smtp_pass" value="{{ s.smtp_pass }}">
-    <label>Afzender e-mail (leeg = zelfde als gebruikersnaam)</label>
-    <input type="email" name="smtp_van" value="{{ s.smtp_van }}">
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Betalen</h2>
+      <p>Wat de klant onderaan de rekening ziet staan.</p>
+    </div>
+    <div class="fields">
+      <div class="field">
+        <label for="iban">IBAN</label>
+        <input type="text" id="iban" name="iban" value="{{ s.iban }}">
+      </div>
+      <div class="field">
+        <label for="tikkie_link">Tikkie-link</label>
+        <input type="text" id="tikkie_link" name="tikkie_link" value="{{ s.tikkie_link }}"
+               placeholder="https://tikkie.me/pay/...">
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Mailen</h2>
+      <p>Voor Gmail: host smtp.gmail.com, poort 587, en een app-wachtwoord in plaats van je gewone wachtwoord.</p>
+    </div>
+    <div class="fields">
+      <div class="row">
+        <div class="field" style="flex: 2 1 260px">
+          <label for="smtp_host">Server</label>
+          <input type="text" id="smtp_host" name="smtp_host" value="{{ s.smtp_host }}"
+                 placeholder="smtp.gmail.com">
+        </div>
+        <div class="field" style="flex: 0 1 120px">
+          <label for="smtp_port">Poort</label>
+          <input type="number" id="smtp_port" name="smtp_port" value="{{ s.smtp_port }}">
+        </div>
+      </div>
+      <div class="field">
+        <label for="smtp_user">Gebruikersnaam</label>
+        <input type="text" id="smtp_user" name="smtp_user" value="{{ s.smtp_user }}">
+      </div>
+      <div class="field">
+        <label for="smtp_pass">Wachtwoord</label>
+        <input type="password" id="smtp_pass" name="smtp_pass" value="{{ s.smtp_pass }}">
+      </div>
+      <div class="field">
+        <label for="smtp_van">Afzender</label>
+        <input type="email" id="smtp_van" name="smtp_van" value="{{ s.smtp_van }}">
+        <p class="hint">Laat leeg om je gebruikersnaam te gebruiken.</p>
+      </div>
+    </div>
+  </section>
+
+  <div class="opslaan">
+    <button type="submit" class="btn">Opslaan</button>
   </div>
 
-  <button type="submit">Opslaan</button>
 </form>
+
 {% endblock %}
