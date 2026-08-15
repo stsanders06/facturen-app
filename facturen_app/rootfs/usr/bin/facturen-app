@@ -6,7 +6,7 @@ declare log_level
 
 # Buiten Home Assistant (bijvoorbeeld in een smoke test) is er geen Supervisor
 # om de opties bij op te halen; val dan terug op de standaardwaarde.
-if bashio::supervisor.ping > /dev/null 2>&1; then
+if [ -n "${SUPERVISOR_TOKEN:-}" ]; then
     log_level="$(bashio::config 'log_level' 'info')"
 else
     log_level="info"
