@@ -66,6 +66,13 @@ de add-on aanvinkt.
 gebruikt. De app meldt "Versturen mislukt" als de klant geen e-mailadres heeft of als
 er geen SMTP-host is ingevuld.
 
+**De pagina laadt niet in je browser.** Typ het adres voluit inclusief `http://` en met
+een schuine streep aan het eind: `http://192.168.1.50:8099/`. Browsers maken een
+ingetypt adres tegenwoordig vaak automatisch `https://`, en daar luistert de add-on niet
+op — je krijgt dan een lege pagina zonder duidelijke foutmelding. Werkt het daarna nog
+steeds niet, controleer dan of poort `8099` is ingevuld onder **Configuratie → Netwerk**
+en stop en start de add-on daarna (alleen opslaan is niet genoeg).
+
 **De pagina laadt niet in de sidebar.** Herstart de add-on; Ingress heeft een draaiende
 add-on nodig.
 
