@@ -4,7 +4,8 @@
 
 - Omgebouwd tot een volwaardige Home Assistant add-on repository: toe te voegen via
   **Add-on Store → Repositories** in plaats van handmatig kopiëren naar `/addons`.
-- Gebouwd op de officiële Home Assistant base images (aarch64, amd64, armv7).
+- Gebouwd op de officiële Home Assistant base images (aarch64, amd64). `armv7` is
+  vervallen: Home Assistant ondersteunt die architectuur niet meer sinds 2025.12.
 - Ingress-ondersteuning: de app draait nu in het Home Assistant zijmenu, zonder dat er
   een poort open hoeft.
 - Poort 8099 is standaard dicht en optioneel open te zetten.

@@ -25,8 +25,9 @@ Zie [de documentatie](./facturen_app/DOCS.md) voor installatie en gebruik.
 
 ## Ondersteunde architecturen
 
-`aarch64`, `amd64`, `armv7` — dus onder andere Raspberry Pi 3/4/5, Home Assistant
-Green, Yellow en x86-installaties.
+`aarch64` en `amd64` — dus onder andere Raspberry Pi 3/4/5 (64-bit), Home Assistant
+Green, Yellow en x86-installaties. `armv7` wordt niet ondersteund: Home Assistant
+heeft die architectuur per 2025.12 uitgefaseerd.
 
 ## Licentie
 
