@@ -237,26 +237,46 @@ def instellingen():
     return render_template("instellingen.html", s=get_settings(), actief="instellingen")
 
 
+def lees_regels(form):
+    """Haalt de ingevulde regels uit het formulier en telt het totaal op.
+    Regels zonder omschrijving worden overgeslagen."""
+    totaal = 0.0
+    regels = []
+    for o, t, a, p in zip(
+        form.getlist("omschrijving"),
+        form.getlist("type"),
+        form.getlist("aantal"),
+        form.getlist("prijs"),
+    ):
+        if not o:
+            continue
+        try:
+            a = float(a or 0)
+            p = float(p or 0)
+        except ValueError:
+            continue
+        subtotaal = a * p
+        totaal += subtotaal
+        regels.append((o, t, a, p, subtotaal))
+    return regels, totaal
+
+
+def bewaar_regels(conn, factuur_id, regels):
+    conn.execute("DELETE FROM regels WHERE factuur_id=?", (factuur_id,))
+    for o, t, a, p, subtotaal in regels:
+        conn.execute(
+            """INSERT INTO regels (factuur_id, omschrijving, type, aantal, prijs, subtotaal)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (factuur_id, o, t, a, p, subtotaal),
+        )
+
+
 @app.route("/nieuw", methods=["GET", "POST"])
 def nieuw():
     if request.method == "POST":
         conn = get_db()
         nummer = volgend_nummer()
-        omschrijvingen = request.form.getlist("omschrijving")
-        types = request.form.getlist("type")
-        aantallen = request.form.getlist("aantal")
-        prijzen = request.form.getlist("prijs")
-
-        totaal = 0.0
-        regels = []
-        for o, t, a, p in zip(omschrijvingen, types, aantallen, prijzen):
-            if not o:
-                continue
-            a = float(a or 0)
-            p = float(p or 0)
-            subtotaal = a * p
-            totaal += subtotaal
-            regels.append((o, t, a, p, subtotaal))
+        regels, totaal = lees_regels(request.form)
 
         cur = conn.execute(
             """INSERT INTO facturen (nummer, datum, klant_naam, klant_adres, klant_email,
@@ -272,12 +292,7 @@ def nieuw():
             ),
         )
         factuur_id = cur.lastrowid
-        for o, t, a, p, subtotaal in regels:
-            conn.execute(
-                """INSERT INTO regels (factuur_id, omschrijving, type, aantal, prijs, subtotaal)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (factuur_id, o, t, a, p, subtotaal),
-            )
+        bewaar_regels(conn, factuur_id, regels)
         conn.commit()
         conn.close()
 
@@ -288,7 +303,54 @@ def nieuw():
 
         return redirect(url_for("index"))
 
-    return render_template("nieuw.html", vandaag=date.today().isoformat(), actief="nieuw")
+    return render_template(
+        "nieuw.html", vandaag=date.today().isoformat(), actief="nieuw",
+        factuur=None, regels=[],
+    )
+
+
+@app.route("/factuur/<int:factuur_id>/bewerk", methods=["GET", "POST"])
+def bewerk(factuur_id):
+    conn = get_db()
+    factuur = conn.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
+    if factuur is None:
+        conn.close()
+        abort(404)
+
+    if request.method == "POST":
+        regels, totaal = lees_regels(request.form)
+        conn.execute(
+            """UPDATE facturen SET datum=?, klant_naam=?, klant_adres=?, klant_email=?,
+               betaalmethode=?, totaal=? WHERE id=?""",
+            (
+                request.form.get("datum") or factuur["datum"],
+                request.form.get("klant_naam", ""),
+                request.form.get("klant_adres", ""),
+                request.form.get("klant_email", ""),
+                request.form.get("betaalmethode", "bank"),
+                totaal,
+                factuur_id,
+            ),
+        )
+        bewaar_regels(conn, factuur_id, regels)
+        conn.commit()
+        conn.close()
+
+        # De PDF hoort bij de oude gegevens, dus opnieuw tekenen.
+        maak_pdf(factuur_id)
+
+        if request.form.get("verstuur") == "ja":
+            verstuur_email(factuur_id)
+
+        flash(f"Rekening {factuur['nummer']} bijgewerkt.")
+        return redirect(url_for("index"))
+
+    regels = conn.execute(
+        "SELECT * FROM regels WHERE factuur_id=? ORDER BY id", (factuur_id,)
+    ).fetchall()
+    conn.close()
+    return render_template("nieuw.html", vandaag=factuur["datum"], actief="nieuw",
+                           factuur=factuur, regels=regels)
 
 
 def maak_pdf(factuur_id):
@@ -484,7 +546,6 @@ def maak_pdf(factuur_id):
         for naam, waarde in [
             ("IBAN", s.get("iban", "")),
             ("T.n.v.", tenaamstelling(s)),
-            ("O.v.v.", factuur["nummer"]),
             ("V\u00f3\u00f3r", filter_datum_nl(vervalt)),
         ]:
             c.setFont("Helvetica", 9)

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.0
+
+- Rekeningen zijn nu aan te passen: naast elke rekening staat **Bewerken**, waarmee je
+  klantgegevens, datum, betaalmethode en regels kunt wijzigen. Het factuurnummer en de
+  status blijven staan, en de PDF wordt meteen opnieuw getekend.
+- De regel "O.v.v." is van de betaalstrook gehaald.
+
 ## 1.4.0
 
 - Nieuw ontwerp voor de rekening zelf: ruime opzet met een oranje bies langs de zijkant,

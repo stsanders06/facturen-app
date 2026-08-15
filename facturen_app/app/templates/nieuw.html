@@ -63,7 +63,7 @@
 {% block content %}
 
 <div class="page-head">
-  <h1>Nieuwe rekening</h1>
+  <h1>{% if factuur %}Rekening {{ factuur.nummer }} bewerken{% else %}Nieuwe rekening{% endif %}</h1>
 </div>
 
 <form method="post" class="cards">
@@ -76,7 +76,8 @@
       <div class="row">
         <div class="field">
           <label for="klant_naam">Klantnaam</label>
-          <input type="text" id="klant_naam" name="klant_naam" required>
+          <input type="text" id="klant_naam" name="klant_naam" required
+                 value="{{ factuur.klant_naam if factuur else '' }}">
         </div>
         <div class="field">
           <label for="datum">Datum</label>
@@ -85,19 +86,20 @@
       </div>
       <div class="field">
         <label for="klant_adres">Adres</label>
-        <textarea id="klant_adres" name="klant_adres" rows="2"></textarea>
+        <textarea id="klant_adres" name="klant_adres" rows="2">{{ factuur.klant_adres if factuur else '' }}</textarea>
       </div>
       <div class="row">
         <div class="field">
           <label for="klant_email">E-mailadres</label>
-          <input type="email" id="klant_email" name="klant_email">
+          <input type="email" id="klant_email" name="klant_email"
+                 value="{{ factuur.klant_email if factuur else '' }}">
           <p class="hint">Nodig als je de rekening wilt mailen.</p>
         </div>
         <div class="field">
           <label for="betaalmethode">Betaalmethode</label>
           <select id="betaalmethode" name="betaalmethode">
-            <option value="bank">Bank</option>
-            <option value="cash">Contant</option>
+            <option value="bank" {% if factuur and factuur.betaalmethode != 'cash' %}selected{% endif %}>Bank</option>
+            <option value="cash" {% if factuur and factuur.betaalmethode == 'cash' %}selected{% endif %}>Contant</option>
           </select>
         </div>
       </div>
@@ -111,28 +113,33 @@
     </div>
 
     <div id="regels">
+      {% for r in regels or [none] %}
       <div class="regel">
         <div class="field">
           <label>Soort</label>
           <select name="type">
-            <option value="materiaal">Materiaal</option>
-            <option value="arbeid">Arbeid</option>
+            <option value="materiaal" {% if r and r.type == 'materiaal' %}selected{% endif %}>Materiaal</option>
+            <option value="arbeid" {% if r and r.type == 'arbeid' %}selected{% endif %}>Arbeid</option>
           </select>
         </div>
         <div class="field omschrijving-veld">
           <label>Omschrijving</label>
-          <input type="text" name="omschrijving" placeholder="Bijv. buis 32 mm">
+          <input type="text" name="omschrijving" placeholder="Bijv. buis 32 mm"
+                 value="{{ r.omschrijving if r else '' }}">
         </div>
         <div class="field">
           <label>Aantal</label>
-          <input type="number" step="0.01" name="aantal" value="1">
+          <input type="number" step="0.01" name="aantal"
+                 value="{{ '%g'|format(r.aantal) if r else '1' }}">
         </div>
         <div class="field">
           <label>Prijs</label>
-          <input type="number" step="0.01" name="prijs" placeholder="0,00">
+          <input type="number" step="0.01" name="prijs" placeholder="0,00"
+                 value="{{ '%.2f'|format(r.prijs) if r else '' }}">
         </div>
         <button type="button" class="weg" title="Regel verwijderen" aria-label="Regel verwijderen">&times;</button>
       </div>
+      {% endfor %}
     </div>
 
     <div style="margin-top:14px">
@@ -149,11 +156,15 @@
     <div class="fields">
       <div class="checkregel">
         <input type="checkbox" id="verstuur" name="verstuur" value="ja">
-        <label for="verstuur">Direct naar de klant mailen na opslaan</label>
+        <label for="verstuur">
+          {% if factuur %}Opnieuw naar de klant mailen na opslaan{% else %}Direct naar de klant mailen na opslaan{% endif %}
+        </label>
       </div>
       <div class="indienen">
         <a class="btn btn-outline" href="{{ url_for('index') }}">Annuleren</a>
-        <button type="submit" class="btn">Rekening aanmaken</button>
+        <button type="submit" class="btn">
+          {% if factuur %}Wijzigingen opslaan{% else %}Rekening aanmaken{% endif %}
+        </button>
       </div>
     </div>
   </section>
