@@ -12,6 +12,10 @@
     border-bottom: 1px solid var(--divider);
   }
   .regel:last-child { border-bottom: none; margin-bottom: 0; }
+  /* .field is een flexbox, dus het hidden-attribuut moet expliciet winnen */
+  .regel .field[hidden] { display: none; }
+  /* Zonder aantalveld neemt het bedrag die ruimte in, zodat het kruisje op zijn plek blijft */
+  .regel.vaste-prijs .prijs-veld { grid-column: 3 / 5; }
   .regel .weg {
     background: transparent;
     border: none;
@@ -36,6 +40,7 @@
     }
     .regel .omschrijving-veld { grid-column: 1 / -1; }
     .regel .weg { justify-self: end; grid-column: 2; }
+    .regel.vaste-prijs .prijs-veld { grid-column: auto; }
   }
   .totaalbalk {
     display: flex;
@@ -109,7 +114,8 @@
   <section class="card">
     <div class="card-head">
       <h2>Regels</h2>
-      <p>Materiaal per stuk, arbeid per uur.</p>
+      <p>Materiaal reken je per stuk. Arbeid kan per uur, per dag of als vaste prijs
+        voor de hele klus.</p>
     </div>
 
     <div id="regels">
@@ -117,9 +123,11 @@
       <div class="regel">
         <div class="field">
           <label>Soort</label>
-          <select name="type">
+          <select name="type" class="soort">
             <option value="materiaal" {% if r and r.type == 'materiaal' %}selected{% endif %}>Materiaal</option>
-            <option value="arbeid" {% if r and r.type == 'arbeid' %}selected{% endif %}>Arbeid</option>
+            <option value="arbeid_uur" {% if r and r.type == 'arbeid_uur' %}selected{% endif %}>Arbeid per uur</option>
+            <option value="arbeid_dag" {% if r and r.type == 'arbeid_dag' %}selected{% endif %}>Arbeid per dag</option>
+            <option value="arbeid_klus" {% if r and r.type == 'arbeid_klus' %}selected{% endif %}>Arbeid per klus</option>
           </select>
         </div>
         <div class="field omschrijving-veld">
@@ -127,13 +135,13 @@
           <input type="text" name="omschrijving" placeholder="Bijv. buis 32 mm"
                  value="{{ r.omschrijving if r else '' }}">
         </div>
-        <div class="field">
-          <label>Aantal</label>
+        <div class="field aantal-veld">
+          <label class="aantal-label">Aantal</label>
           <input type="number" step="0.01" name="aantal"
                  value="{{ '%g'|format(r.aantal) if r else '1' }}">
         </div>
-        <div class="field">
-          <label>Prijs</label>
+        <div class="field prijs-veld">
+          <label class="prijs-label">Prijs</label>
           <input type="number" step="0.01" name="prijs" placeholder="0,00"
                  value="{{ '%.2f'|format(r.prijs) if r else '' }}">
         </div>
@@ -176,6 +184,27 @@
     var container = document.getElementById('regels');
     var totaalveld = document.getElementById('totaal');
 
+    // Per soort andere woorden boven de velden. Bij een vaste prijs per klus is er
+    // geen aantal: dan telt alleen het bedrag.
+    var SOORTEN = {
+      materiaal:   { aantal: 'Aantal', prijs: 'Prijs per stuk', metAantal: true },
+      arbeid_uur:  { aantal: 'Uren',   prijs: 'Uurtarief',      metAantal: true },
+      arbeid_dag:  { aantal: 'Dagen',  prijs: 'Dagtarief',      metAantal: true },
+      arbeid_klus: { aantal: 'Aantal', prijs: 'Bedrag',         metAantal: false }
+    };
+
+    function pasRegelAan(regel) {
+      var keuze = SOORTEN[regel.querySelector('.soort').value] || SOORTEN.materiaal;
+      var aantalVeld = regel.querySelector('.aantal-veld');
+      regel.querySelector('.aantal-label').textContent = keuze.aantal;
+      regel.querySelector('.prijs-label').textContent = keuze.prijs;
+      aantalVeld.hidden = !keuze.metAantal;
+      regel.classList.toggle('vaste-prijs', !keuze.metAantal);
+      if (!keuze.metAantal) {
+        regel.querySelector('[name="aantal"]').value = '1';
+      }
+    }
+
     function berekenTotaal() {
       var som = 0;
       container.querySelectorAll('.regel').forEach(function (regel) {
@@ -195,7 +224,14 @@
         veld.value = veld.name === 'aantal' ? '1' : '';
       });
       container.appendChild(nieuw);
+      pasRegelAan(nieuw);
       nieuw.querySelector('[name="omschrijving"]').focus();
+      berekenTotaal();
+    });
+
+    container.addEventListener('change', function (e) {
+      if (!e.target.classList.contains('soort')) return;
+      pasRegelAan(e.target.closest('.regel'));
       berekenTotaal();
     });
 
@@ -213,6 +249,7 @@
     });
 
     container.addEventListener('input', berekenTotaal);
+    container.querySelectorAll('.regel').forEach(pasRegelAan);
     berekenTotaal();
   })();
 </script>

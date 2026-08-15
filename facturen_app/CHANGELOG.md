@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.6.0
+
+- Arbeid kan nu op drie manieren op de rekening: **per uur**, **per dag** of als **vaste
+  prijs voor de hele klus**. De velden passen zich aan je keuze aan: je vult uren met een
+  uurtarief in, dagen met een dagtarief, of alleen een bedrag bij een vaste prijs.
+- Op de factuur staat de eenheid achter het aantal (3 st, 2,5 u, 2 dg) en eronder waar
+  het om gaat: Materiaal, Arbeid per uur, Arbeid per dag of Arbeid, vaste prijs.
+- Bij een vaste prijs staat er geen aantal en geen tarief op de regel, alleen het bedrag.
+- Bestaande arbeidsregels zijn automatisch omgezet naar arbeid per uur, want zo werden
+  ze eerder gerekend.
+
 ## 1.5.0
 
 - Rekeningen zijn nu aan te passen: naast elke rekening staat **Bewerken**, waarmee je

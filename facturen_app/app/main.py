@@ -70,6 +70,40 @@ MAANDEN = [
 # Aantal dagen dat de klant heeft om te betalen; komt als "Vóór ..." op de strook.
 BETAALTERMIJN_DAGEN = 14
 
+# De soorten regels. 'eenheid' komt achter het aantal op de factuur; bij een vaste
+# prijs per klus is er geen aantal, dan telt alleen het bedrag.
+SOORTEN = {
+    "materiaal": {
+        "naam": "Materiaal",
+        "eenheid": "st",
+        "aantal_label": "Aantal",
+        "prijs_label": "Prijs per stuk",
+    },
+    "arbeid_uur": {
+        "naam": "Arbeid per uur",
+        "eenheid": "u",
+        "aantal_label": "Uren",
+        "prijs_label": "Uurtarief",
+    },
+    "arbeid_dag": {
+        "naam": "Arbeid per dag",
+        "eenheid": "dg",
+        "aantal_label": "Dagen",
+        "prijs_label": "Dagtarief",
+    },
+    "arbeid_klus": {
+        "naam": "Arbeid, vaste prijs",
+        "eenheid": None,
+        "aantal_label": "Aantal",
+        "prijs_label": "Bedrag",
+    },
+}
+
+
+def soort(sleutel):
+    """Gegevens van een regelsoort, met materiaal als terugval voor onbekende waarden."""
+    return SOORTEN.get(sleutel or "", SOORTEN["materiaal"])
+
 # Kleuren van de factuur.
 ORANJE = colors.HexColor("#DD6B0D")
 INKT = colors.HexColor("#17212B")
@@ -165,6 +199,9 @@ def init_db():
         if kolom not in bestaand:
             conn.execute(f"ALTER TABLE settings ADD COLUMN {kolom} {definitie}")
 
+    # Arbeid was er in één smaak en werd per uur gerekend; die regels houden dat.
+    conn.execute("UPDATE regels SET type='arbeid_uur' WHERE type='arbeid'")
+
     conn.commit()
     conn.close()
 
@@ -255,6 +292,9 @@ def lees_regels(form):
             p = float(p or 0)
         except ValueError:
             continue
+        if t == "arbeid_klus":
+            # Vaste prijs voor de hele klus: het bedrag is de prijs, geen aantal keer tarief.
+            a = 1.0
         subtotaal = a * p
         totaal += subtotaal
         regels.append((o, t, a, p, subtotaal))
@@ -475,7 +515,6 @@ def maak_pdf(factuur_id):
 
     y = kolomkoppen(y)
 
-    soorten = {"materiaal": "Materiaal", "arbeid": "Arbeid"}
     for r in regels:
         if y < 78 * mm:
             c.showPage()
@@ -487,16 +526,20 @@ def maak_pdf(factuur_id):
                          f"Factuur {factuur['nummer']} · vervolg")
             y = kolomkoppen(hoogte - 28 * mm)
 
+        soort_info = soort(r["type"])
         c.setFillColor(INKT)
         c.setFont("Helvetica", 9.5)
         c.drawString(links, y, kort(r["omschrijving"], "Helvetica", 9.5, kolom_aantal - links - 6 * mm))
-        c.drawRightString(kolom_aantal, y, f"{r['aantal']:g}".replace(".", ","))
-        c.drawRightString(kolom_prijs, y, nl_bedrag(r["prijs"]))
+        # Bij een vaste prijs per klus zeggen aantal en tarief niets; alleen het bedrag.
+        if soort_info["eenheid"]:
+            aantal = f"{r['aantal']:g}".replace(".", ",")
+            c.drawRightString(kolom_aantal, y, f"{aantal} {soort_info['eenheid']}")
+            c.drawRightString(kolom_prijs, y, nl_bedrag(r["prijs"]))
         c.drawRightString(rechts, y, nl_bedrag(r["subtotaal"]))
 
         c.setFont("Helvetica", 7.5)
         c.setFillColor(GRIJS)
-        c.drawString(links, y - 4 * mm, soorten.get(r["type"], r["type"] or ""))
+        c.drawString(links, y - 4 * mm, soort_info["naam"])
 
         y -= 9 * mm
         c.setStrokeColor(LIJN)
