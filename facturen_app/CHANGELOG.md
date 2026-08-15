@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.3.0
+
+- De tenaamstelling van je bankrekening is nu een eigen instelling. Stond er eerst
+  altijd je bedrijfsnaam bij "T.n.v.", nu kun je invullen op wiens naam de rekening
+  echt staat. Laat je het leeg, dan blijft je eigen naam staan.
+- Tikkie is eruit gehaald: de link uit de instellingen en de betaalmethode uit het
+  formulier. Bestaande rekeningen die op Tikkie stonden, tonen voortaan gewoon je
+  bankgegevens.
+- Nieuwe knop **Bekijken** opent de rekening in een tabblad van je browser, zonder de
+  PDF eerst te moeten downloaden. **Downloaden** blijft ernaast staan.
+- Het tabblad **Nieuw** is uit de menubalk gehaald; de knop "+ Nieuwe rekening" op de
+  rekeningenpagina doet hetzelfde.
+
 ## 1.2.0
 
 - Compleet nieuwe interface in de vormgeving van Home Assistant zelf: kaarten in plaats

@@ -5,7 +5,9 @@ import sqlite3
 import smtplib
 from datetime import date
 from email.message import EmailMessage
-from flask import Flask, request, redirect, url_for, render_template, send_file, flash
+from flask import (
+    Flask, abort, request, redirect, url_for, render_template, send_file, flash
+)
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.lib import colors
@@ -136,8 +138,21 @@ def init_db():
         """
     )
     conn.execute("INSERT OR IGNORE INTO settings (id) VALUES (1)")
+
+    # Kolommen die later zijn toegevoegd, bijzetten in bestaande databases.
+    bestaand = {rij["name"] for rij in conn.execute("PRAGMA table_info(settings)")}
+    for kolom, definitie in [("tenaamstelling", "TEXT DEFAULT ''")]:
+        if kolom not in bestaand:
+            conn.execute(f"ALTER TABLE settings ADD COLUMN {kolom} {definitie}")
+
     conn.commit()
     conn.close()
+
+
+def tenaamstelling(s):
+    """Naam van de rekeninghouder voor op de factuur. Vaak dezelfde als je eigen
+    naam, maar bij een en/of-rekening of een rekening op naam van je partner niet."""
+    return (s.get("tenaamstelling") or "").strip() or s.get("naam", "")
 
 
 def get_settings():
@@ -177,7 +192,7 @@ def instellingen():
             logo_bestand = filename
         conn.execute(
             """UPDATE settings SET naam=?, adres=?, telefoon=?, email=?, iban=?,
-               tikkie_link=?, logo_bestand=?, smtp_host=?, smtp_port=?, smtp_user=?,
+               tenaamstelling=?, logo_bestand=?, smtp_host=?, smtp_port=?, smtp_user=?,
                smtp_pass=?, smtp_van=? WHERE id=1""",
             (
                 request.form.get("naam", ""),
@@ -185,7 +200,7 @@ def instellingen():
                 request.form.get("telefoon", ""),
                 request.form.get("email", ""),
                 request.form.get("iban", ""),
-                request.form.get("tikkie_link", ""),
+                request.form.get("tenaamstelling", ""),
                 logo_bestand,
                 request.form.get("smtp_host", ""),
                 int(request.form.get("smtp_port") or 587),
@@ -340,23 +355,19 @@ def maak_pdf(factuur_id):
 
     y -= 15 * mm
     c.setFont("Helvetica-Bold", 10)
-    betaalmethode = factuur["betaalmethode"]
-    if betaalmethode == "bank":
+    # Alles behalve contant wordt per bank afgerekend. Oude rekeningen kunnen nog
+    # 'tikkie' als methode hebben; die krijgen nu gewoon de bankgegevens.
+    if factuur["betaalmethode"] == "cash":
+        c.drawString(20 * mm, y, "Contant afgehandeld.")
+    else:
         c.drawString(20 * mm, y, "Te betalen per bank:")
         y -= 5 * mm
         c.setFont("Helvetica", 10)
         c.drawString(20 * mm, y, f"IBAN: {s.get('iban', '')}")
         y -= 5 * mm
-        c.drawString(20 * mm, y, f"T.n.v.: {s.get('naam', '')}")
+        c.drawString(20 * mm, y, f"T.n.v.: {tenaamstelling(s)}")
         y -= 5 * mm
         c.drawString(20 * mm, y, f"O.v.v.: {factuur['nummer']}")
-    elif betaalmethode == "tikkie":
-        c.drawString(20 * mm, y, "Te betalen via Tikkie:")
-        y -= 5 * mm
-        c.setFont("Helvetica", 10)
-        c.drawString(20 * mm, y, s.get("tikkie_link", ""))
-    else:
-        c.drawString(20 * mm, y, "Contant afgehandeld.")
 
     c.save()
     return pad
@@ -401,15 +412,30 @@ def verstuur_email(factuur_id):
     return True
 
 
-@app.route("/factuur/<int:factuur_id>/pdf")
-def download_pdf(factuur_id):
+def _pdf_pad(factuur_id):
     conn = get_db()
     factuur = conn.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
     conn.close()
+    if factuur is None:
+        abort(404)
     pad = os.path.join(PDF_DIR, f"{factuur['nummer']}.pdf")
     if not os.path.exists(pad):
         maak_pdf(factuur_id)
-    return send_file(pad, as_attachment=True, download_name=f"{factuur['nummer']}.pdf")
+    return pad, factuur["nummer"]
+
+
+@app.route("/factuur/<int:factuur_id>/bekijk")
+def bekijk_pdf(factuur_id):
+    """Toont de rekening in de browser zelf, zonder hem te downloaden."""
+    pad, nummer = _pdf_pad(factuur_id)
+    return send_file(pad, mimetype="application/pdf", as_attachment=False,
+                     download_name=f"{nummer}.pdf")
+
+
+@app.route("/factuur/<int:factuur_id>/pdf")
+def download_pdf(factuur_id):
+    pad, nummer = _pdf_pad(factuur_id)
+    return send_file(pad, as_attachment=True, download_name=f"{nummer}.pdf")
 
 
 @app.route("/factuur/<int:factuur_id>/verstuur", methods=["POST"])

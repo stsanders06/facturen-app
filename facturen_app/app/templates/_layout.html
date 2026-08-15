@@ -286,8 +286,7 @@
       Facturen
     </a>
     <nav class="tabs">
-      <a href="{{ url_for('index') }}" {% if actief == 'index' %}class="active"{% endif %}>Rekeningen</a>
-      <a href="{{ url_for('nieuw') }}" {% if actief == 'nieuw' %}class="active"{% endif %}>Nieuw</a>
+      <a href="{{ url_for('index') }}" {% if actief in ['index', 'nieuw'] %}class="active"{% endif %}>Rekeningen</a>
       <a href="{{ url_for('instellingen') }}" {% if actief == 'instellingen' %}class="active"{% endif %}>Instellingen</a>
     </nav>
   </div>

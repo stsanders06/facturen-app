@@ -66,7 +66,9 @@
         {% else %}Betaald{% endif %}
       </span>
       <div class="acties">
-        <a class="btn btn-text" href="{{ url_for('download_pdf', factuur_id=f.id) }}">PDF</a>
+        <a class="btn btn-text" href="{{ url_for('bekijk_pdf', factuur_id=f.id) }}" target="_blank"
+           rel="noopener">Bekijken</a>
+        <a class="btn btn-text" href="{{ url_for('download_pdf', factuur_id=f.id) }}">Downloaden</a>
         {% if f.klant_email %}
         <form method="post" action="{{ url_for('verstuur', factuur_id=f.id) }}">
           <button type="submit" class="btn btn-text">Mailen</button>

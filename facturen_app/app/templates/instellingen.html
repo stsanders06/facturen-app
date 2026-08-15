@@ -70,9 +70,11 @@
         <input type="text" id="iban" name="iban" value="{{ s.iban }}">
       </div>
       <div class="field">
-        <label for="tikkie_link">Tikkie-link</label>
-        <input type="text" id="tikkie_link" name="tikkie_link" value="{{ s.tikkie_link }}"
-               placeholder="https://tikkie.me/pay/...">
+        <label for="tenaamstelling">Ten name van</label>
+        <input type="text" id="tenaamstelling" name="tenaamstelling"
+               value="{{ s.tenaamstelling or '' }}" placeholder="{{ s.naam }}">
+        <p class="hint">De naam waarop de bankrekening staat. Laat leeg als dat je eigen
+          naam is.</p>
       </div>
     </div>
   </section>
