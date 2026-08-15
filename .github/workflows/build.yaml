@@ -22,10 +22,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # De add-on heeft bewust geen 'image' in config.yaml, zodat de Supervisor
+      # hem lokaal bouwt bij installatie. De builder wil wel een naam voor de
+      # test-tag; die geven we hier mee. Met --test wordt er niets gepusht.
       - name: Test build voor ${{ matrix.arch }}
         uses: home-assistant/builder@master
         with:
           args: |
             --test \
             --${{ matrix.arch }} \
-            --target /data/facturen_app
+            --target /data/facturen_app \
+            --docker-hub local \
+            --image "{arch}-addon-facturen-app"
