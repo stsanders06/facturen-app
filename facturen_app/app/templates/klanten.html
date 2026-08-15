@@ -1,0 +1,97 @@
+{% extends "_layout.html" %}
+{% block title %}Klanten{% endblock %}
+{% block head %}
+<style>
+  .klant {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 4px 16px;
+    align-items: baseline;
+  }
+  .klant .naam {
+    font-size: 16px;
+    font-weight: 500;
+    letter-spacing: -.01em;
+  }
+  .klant .naam a { color: inherit; text-decoration: none; }
+  .klant .naam a:hover { color: var(--primary); }
+  .klant .contact {
+    grid-column: 1;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+  .klant .cijfers {
+    text-align: right;
+    font-size: 13px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+  .klant .cijfers b {
+    display: block;
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  .klant .onderkant {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--divider);
+  }
+  .klant .telling { font-size: 13px; color: var(--text-secondary); }
+  .klant .openstaand { color: var(--info); font-weight: 500; }
+  .acties { display: flex; gap: 4px; flex-wrap: wrap; }
+  .acties form { display: contents; }
+</style>
+{% endblock %}
+{% block content %}
+
+<div class="page-head">
+  <h1>Klanten</h1>
+  <a class="btn" href="{{ url_for('klant_nieuw') }}">+ Nieuwe klant</a>
+</div>
+
+{% if not klanten %}
+<div class="card empty">
+  <p>Je hebt nog geen klanten opgeslagen. Zodra je er een bewaart, kun je hem kiezen
+    bij een nieuwe rekening.</p>
+  <a class="btn" href="{{ url_for('klant_nieuw') }}">Klant toevoegen</a>
+</div>
+{% else %}
+<div class="cards">
+  {% for k in klanten %}
+  <article class="card klant">
+    <div class="naam"><a href="{{ url_for('klant', klant_id=k.id) }}">{{ k.naam }}</a></div>
+    <div class="cijfers">
+      <b>&euro; {{ k.omzet|bedrag }}</b>
+      gefactureerd
+    </div>
+    <div class="contact">
+      {% if k.email %}{{ k.email }}{% endif %}
+      {%- if k.email and k.telefoon %} · {% endif -%}
+      {% if k.telefoon %}{{ k.telefoon }}{% endif %}
+      {% if not k.email and not k.telefoon %}Geen contactgegevens{% endif %}
+    </div>
+    <div class="onderkant">
+      <span class="telling">
+        {{ k.aantal_facturen }} rekening{{ 'en' if k.aantal_facturen != 1 }}
+        {%- if k.openstaand > 0 %} · <span class="openstaand">&euro; {{ k.openstaand|bedrag }} openstaand</span>{% endif %}
+      </span>
+      <div class="acties">
+        <a class="btn btn-text" href="{{ url_for('nieuw') }}?klant={{ k.id }}">Nieuwe rekening</a>
+        <a class="btn btn-text" href="{{ url_for('klant', klant_id=k.id) }}">Bekijken</a>
+        <a class="btn btn-text" href="{{ url_for('klant_bewerk', klant_id=k.id) }}">Bewerken</a>
+      </div>
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% endblock %}

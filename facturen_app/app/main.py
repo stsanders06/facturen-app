@@ -171,6 +171,7 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             nummer TEXT NOT NULL,
             datum TEXT NOT NULL,
+            klant_id INTEGER,
             klant_naam TEXT NOT NULL,
             klant_adres TEXT DEFAULT '',
             klant_email TEXT DEFAULT '',
@@ -189,6 +190,15 @@ def init_db():
             subtotaal REAL NOT NULL,
             FOREIGN KEY (factuur_id) REFERENCES facturen (id)
         );
+
+        CREATE TABLE IF NOT EXISTS klanten (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            naam TEXT NOT NULL,
+            adres TEXT DEFAULT '',
+            email TEXT DEFAULT '',
+            telefoon TEXT DEFAULT '',
+            notitie TEXT DEFAULT ''
+        );
         """
     )
     conn.execute("INSERT OR IGNORE INTO settings (id) VALUES (1)")
@@ -201,6 +211,30 @@ def init_db():
 
     # Arbeid was er in één smaak en werd per uur gerekend; die regels houden dat.
     conn.execute("UPDATE regels SET type='arbeid_uur' WHERE type='arbeid'")
+
+    factuurkolommen = {rij["name"] for rij in conn.execute("PRAGMA table_info(facturen)")}
+    if "klant_id" not in factuurkolommen:
+        conn.execute("ALTER TABLE facturen ADD COLUMN klant_id INTEGER")
+
+        # Eenmalig, precies op het moment dat het klantenbestand erbij komt: maak van
+        # elke bestaande klantnaam één klant en koppel de rekeningen eraan. Dit mag
+        # niet bij elke start draaien, anders komen losse of verwijderde klanten terug.
+        losse = conn.execute(
+            """SELECT klant_naam, MAX(id) AS laatste FROM facturen
+               WHERE TRIM(klant_naam) <> '' GROUP BY klant_naam"""
+        ).fetchall()
+        for rij in losse:
+            laatste = conn.execute(
+                "SELECT klant_adres, klant_email FROM facturen WHERE id=?", (rij["laatste"],)
+            ).fetchone()
+            klant_id = conn.execute(
+                "INSERT INTO klanten (naam, adres, email) VALUES (?, ?, ?)",
+                (rij["klant_naam"], laatste["klant_adres"] or "", laatste["klant_email"] or ""),
+            ).lastrowid
+            conn.execute(
+                "UPDATE facturen SET klant_id=? WHERE klant_naam=?",
+                (klant_id, rij["klant_naam"]),
+            )
 
     conn.commit()
     conn.close()
@@ -274,6 +308,124 @@ def instellingen():
     return render_template("instellingen.html", s=get_settings(), actief="instellingen")
 
 
+def klantenlijst():
+    """Alle klanten met hoeveel er per klant is gefactureerd en wat er nog openstaat."""
+    conn = get_db()
+    klanten = conn.execute(
+        """SELECT k.*,
+                  COUNT(f.id) AS aantal_facturen,
+                  COALESCE(SUM(f.totaal), 0) AS omzet,
+                  COALESCE(SUM(CASE WHEN f.status <> 'betaald' THEN f.totaal ELSE 0 END), 0)
+                      AS openstaand
+           FROM klanten k
+           LEFT JOIN facturen f ON f.klant_id = k.id
+           GROUP BY k.id
+           ORDER BY k.naam COLLATE NOCASE"""
+    ).fetchall()
+    conn.close()
+    return klanten
+
+
+def klant_uit_form(form):
+    return (
+        form.get("naam", "").strip(),
+        form.get("adres", "").strip(),
+        form.get("email", "").strip(),
+        form.get("telefoon", "").strip(),
+        form.get("notitie", "").strip(),
+    )
+
+
+@app.route("/klanten")
+def klanten():
+    return render_template("klanten.html", klanten=klantenlijst(), actief="klanten")
+
+
+@app.route("/klanten/nieuw", methods=["GET", "POST"])
+def klant_nieuw():
+    if request.method == "POST":
+        naam, adres, email, telefoon, notitie = klant_uit_form(request.form)
+        if not naam:
+            flash("Vul een naam in om de klant op te slaan.")
+            return redirect(url_for("klant_nieuw"))
+        conn = get_db()
+        cur = conn.execute(
+            """INSERT INTO klanten (naam, adres, email, telefoon, notitie)
+               VALUES (?, ?, ?, ?, ?)""",
+            (naam, adres, email, telefoon, notitie),
+        )
+        conn.commit()
+        klant_id = cur.lastrowid
+        conn.close()
+        flash(f"Klant {naam} opgeslagen.")
+        return redirect(url_for("klant", klant_id=klant_id))
+
+    return render_template("klant_form.html", klant=None, actief="klanten")
+
+
+@app.route("/klant/<int:klant_id>")
+def klant(klant_id):
+    conn = get_db()
+    gegevens = conn.execute("SELECT * FROM klanten WHERE id=?", (klant_id,)).fetchone()
+    if gegevens is None:
+        conn.close()
+        abort(404)
+    facturen = conn.execute(
+        "SELECT * FROM facturen WHERE klant_id=? ORDER BY id DESC", (klant_id,)
+    ).fetchall()
+    conn.close()
+
+    omzet = sum(f["totaal"] for f in facturen)
+    openstaand = sum(f["totaal"] for f in facturen if f["status"] != "betaald")
+    return render_template("klant.html", klant=gegevens, facturen=facturen,
+                           omzet=omzet, openstaand=openstaand, actief="klanten")
+
+
+@app.route("/klant/<int:klant_id>/bewerk", methods=["GET", "POST"])
+def klant_bewerk(klant_id):
+    conn = get_db()
+    gegevens = conn.execute("SELECT * FROM klanten WHERE id=?", (klant_id,)).fetchone()
+    if gegevens is None:
+        conn.close()
+        abort(404)
+
+    if request.method == "POST":
+        naam, adres, email, telefoon, notitie = klant_uit_form(request.form)
+        if not naam:
+            conn.close()
+            flash("Vul een naam in om de klant op te slaan.")
+            return redirect(url_for("klant_bewerk", klant_id=klant_id))
+        conn.execute(
+            """UPDATE klanten SET naam=?, adres=?, email=?, telefoon=?, notitie=?
+               WHERE id=?""",
+            (naam, adres, email, telefoon, notitie, klant_id),
+        )
+        conn.commit()
+        conn.close()
+        flash("Klantgegevens bijgewerkt.")
+        return redirect(url_for("klant", klant_id=klant_id))
+
+    conn.close()
+    return render_template("klant_form.html", klant=gegevens, actief="klanten")
+
+
+@app.route("/klant/<int:klant_id>/verwijder", methods=["POST"])
+def klant_verwijder(klant_id):
+    conn = get_db()
+    gegevens = conn.execute("SELECT naam FROM klanten WHERE id=?", (klant_id,)).fetchone()
+    if gegevens is None:
+        conn.close()
+        abort(404)
+    # De rekeningen zelf blijven staan: daar hoort de klantnaam bij zoals hij
+    # op de factuur is gedrukt. Alleen de koppeling gaat weg.
+    conn.execute("UPDATE facturen SET klant_id=NULL WHERE klant_id=?", (klant_id,))
+    conn.execute("DELETE FROM klanten WHERE id=?", (klant_id,))
+    conn.commit()
+    conn.close()
+    flash(f"Klant {gegevens['naam']} verwijderd. De rekeningen zijn blijven staan.")
+    return redirect(url_for("klanten"))
+
+
 def lees_regels(form):
     """Haalt de ingevulde regels uit het formulier en telt het totaal op.
     Regels zonder omschrijving worden overgeslagen."""
@@ -301,6 +453,29 @@ def lees_regels(form):
     return regels, totaal
 
 
+def bepaal_klant(conn, form):
+    """Geeft het klant-id terug dat bij deze rekening hoort. Is er geen klant gekozen
+    maar wel gevraagd om op te slaan, dan wordt de klant hier aangemaakt."""
+    gekozen = (form.get("klant_id") or "").strip()
+    if gekozen.isdigit():
+        bestaat = conn.execute("SELECT id FROM klanten WHERE id=?", (gekozen,)).fetchone()
+        if bestaat:
+            return int(gekozen)
+
+    naam = form.get("klant_naam", "").strip()
+    if form.get("klant_opslaan") == "ja" and naam:
+        bestaand = conn.execute(
+            "SELECT id FROM klanten WHERE naam=? COLLATE NOCASE", (naam,)
+        ).fetchone()
+        if bestaand:
+            return bestaand["id"]
+        return conn.execute(
+            "INSERT INTO klanten (naam, adres, email) VALUES (?, ?, ?)",
+            (naam, form.get("klant_adres", "").strip(), form.get("klant_email", "").strip()),
+        ).lastrowid
+    return None
+
+
 def bewaar_regels(conn, factuur_id, regels):
     conn.execute("DELETE FROM regels WHERE factuur_id=?", (factuur_id,))
     for o, t, a, p, subtotaal in regels:
@@ -317,13 +492,16 @@ def nieuw():
         conn = get_db()
         nummer = volgend_nummer()
         regels, totaal = lees_regels(request.form)
+        klant_id = bepaal_klant(conn, request.form)
 
         cur = conn.execute(
-            """INSERT INTO facturen (nummer, datum, klant_naam, klant_adres, klant_email,
-               betaalmethode, status, totaal) VALUES (?, ?, ?, ?, ?, ?, 'concept', ?)""",
+            """INSERT INTO facturen (nummer, datum, klant_id, klant_naam, klant_adres,
+               klant_email, betaalmethode, status, totaal)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'concept', ?)""",
             (
                 nummer,
                 request.form.get("datum") or date.today().isoformat(),
+                klant_id,
                 request.form.get("klant_naam", ""),
                 request.form.get("klant_adres", ""),
                 request.form.get("klant_email", ""),
@@ -343,9 +521,17 @@ def nieuw():
 
         return redirect(url_for("index"))
 
+    # Vanuit een klantpagina kun je meteen een rekening voor die klant beginnen.
+    vooraf = request.args.get("klant", "")
+    gekozen = None
+    if vooraf.isdigit():
+        conn = get_db()
+        gekozen = conn.execute("SELECT * FROM klanten WHERE id=?", (vooraf,)).fetchone()
+        conn.close()
+
     return render_template(
         "nieuw.html", vandaag=date.today().isoformat(), actief="nieuw",
-        factuur=None, regels=[],
+        factuur=None, regels=[], klanten=klantenlijst(), gekozen_klant=gekozen,
     )
 
 
@@ -359,11 +545,13 @@ def bewerk(factuur_id):
 
     if request.method == "POST":
         regels, totaal = lees_regels(request.form)
+        klant_id = bepaal_klant(conn, request.form)
         conn.execute(
-            """UPDATE facturen SET datum=?, klant_naam=?, klant_adres=?, klant_email=?,
-               betaalmethode=?, totaal=? WHERE id=?""",
+            """UPDATE facturen SET datum=?, klant_id=?, klant_naam=?, klant_adres=?,
+               klant_email=?, betaalmethode=?, totaal=? WHERE id=?""",
             (
                 request.form.get("datum") or factuur["datum"],
+                klant_id,
                 request.form.get("klant_naam", ""),
                 request.form.get("klant_adres", ""),
                 request.form.get("klant_email", ""),
@@ -390,7 +578,8 @@ def bewerk(factuur_id):
     ).fetchall()
     conn.close()
     return render_template("nieuw.html", vandaag=factuur["datum"], actief="nieuw",
-                           factuur=factuur, regels=regels)
+                           factuur=factuur, regels=regels, klanten=klantenlijst(),
+                           gekozen_klant=None)
 
 
 def maak_pdf(factuur_id):

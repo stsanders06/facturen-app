@@ -1,0 +1,125 @@
+{% extends "_layout.html" %}
+{% block title %}{{ klant.naam }}{% endblock %}
+{% block head %}
+<style>
+  .tegels {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+  }
+  .tegel { text-align: left; }
+  .tegel small {
+    display: block;
+    font-size: 12px;
+    color: var(--text-secondary);
+    letter-spacing: .02em;
+  }
+  .tegel b {
+    display: block;
+    font-size: 22px;
+    font-weight: 500;
+    margin-top: 2px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.02em;
+  }
+  .tegel.open b { color: var(--info); }
+  .gegevens { display: grid; grid-template-columns: 110px 1fr; gap: 8px 16px; font-size: 15px; }
+  .gegevens dt { color: var(--text-secondary); font-size: 13.5px; }
+  .gegevens dd { margin: 0; white-space: pre-line; }
+  .rekening {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--divider);
+  }
+  .rekening:last-child { border-bottom: none; padding-bottom: 0; }
+  .rekening .links { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .rekening .nr { font-variant-numeric: tabular-nums; }
+  .rekening .datum { font-size: 13px; color: var(--text-secondary); }
+  .rekening .rechts { display: flex; align-items: center; gap: 14px; }
+  .rekening .bedrag { font-variant-numeric: tabular-nums; font-weight: 500; }
+  .kop-acties { display: flex; gap: 8px; flex-wrap: wrap; }
+</style>
+{% endblock %}
+{% block content %}
+
+<div class="page-head">
+  <h1>{{ klant.naam }}</h1>
+  <div class="kop-acties">
+    <a class="btn btn-outline" href="{{ url_for('klant_bewerk', klant_id=klant.id) }}">Bewerken</a>
+    <a class="btn" href="{{ url_for('nieuw') }}?klant={{ klant.id }}">+ Nieuwe rekening</a>
+  </div>
+</div>
+
+<div class="cards">
+
+  <section class="card">
+    <div class="tegels">
+      <div class="tegel">
+        <small>Rekeningen</small>
+        <b>{{ facturen|length }}</b>
+      </div>
+      <div class="tegel">
+        <small>Gefactureerd</small>
+        <b>&euro; {{ omzet|bedrag }}</b>
+      </div>
+      <div class="tegel open">
+        <small>Openstaand</small>
+        <b>&euro; {{ openstaand|bedrag }}</b>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>Gegevens</h2></div>
+    <dl class="gegevens">
+      <dt>Adres</dt><dd>{{ klant.adres or '—' }}</dd>
+      <dt>E-mail</dt><dd>{{ klant.email or '—' }}</dd>
+      <dt>Telefoon</dt><dd>{{ klant.telefoon or '—' }}</dd>
+      {% if klant.notitie %}<dt>Notitie</dt><dd>{{ klant.notitie }}</dd>{% endif %}
+    </dl>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Rekeningen</h2>
+      {% if not facturen %}<p>Nog geen rekeningen voor deze klant.</p>{% endif %}
+    </div>
+    {% for f in facturen %}
+    <div class="rekening">
+      <div class="links">
+        <span class="nr">{{ f.nummer }}</span>
+        <span class="datum">{{ f.datum|datum_nl }}</span>
+        <span class="chip chip-{{ f.status }}">
+          {% if f.status == 'concept' %}Concept
+          {% elif f.status == 'verzonden' %}Verzonden
+          {% else %}Betaald{% endif %}
+        </span>
+      </div>
+      <div class="rechts">
+        <span class="bedrag">&euro; {{ f.totaal|bedrag }}</span>
+        <a class="btn btn-text" href="{{ url_for('bekijk_pdf', factuur_id=f.id) }}"
+           target="_blank" rel="noopener">Bekijken</a>
+        <a class="btn btn-text" href="{{ url_for('bewerk', factuur_id=f.id) }}">Bewerken</a>
+      </div>
+    </div>
+    {% endfor %}
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Klant verwijderen</h2>
+      <p>De rekeningen van deze klant blijven bestaan; alleen de koppeling verdwijnt.</p>
+    </div>
+    <form method="post" action="{{ url_for('klant_verwijder', klant_id=klant.id) }}"
+          onsubmit="return confirm('{{ klant.naam }} verwijderen uit je klantenbestand?');">
+      <button type="submit" class="btn btn-text danger">Verwijderen</button>
+    </form>
+  </section>
+
+</div>
+
+{% endblock %}

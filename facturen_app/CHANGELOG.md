@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.7.0
+
+- Nieuw tabblad **Klanten**. Je bewaart per klant naam, adres, e-mail, telefoon en een
+  notitie voor jezelf. Per klant zie je hoeveel rekeningen er zijn, wat er in totaal is
+  gefactureerd en wat er nog openstaat.
+- Bij een nieuwe rekening kies je een bestaande klant uit een lijst; de gegevens worden
+  dan vanzelf ingevuld. Vul je een onbekende klant in, dan wordt die standaard bewaard
+  voor de volgende keer — dat vinkje kun je uitzetten voor een eenmalige klus.
+- Vanaf een klantpagina start je met één klik een nieuwe rekening voor die klant, en de
+  klantnaam in de rekeningenlijst linkt naar de klant.
+- Bestaande rekeningen worden eenmalig omgezet: per klantnaam wordt een klant aangemaakt
+  en de rekeningen worden eraan gekoppeld, inclusief adres en e-mailadres.
+- Een klant verwijderen laat zijn rekeningen staan; alleen de koppeling verdwijnt. De
+  naam op een al gemaakte rekening verandert niet mee als je de klant hernoemt.
+- De pijltjes bij aantal en prijs lopen nu met hele stappen in plaats van met stapjes van
+  een cent. Halve uren of centen typen kan nog gewoon.
+
 ## 1.6.0
 
 - Arbeid kan nu op drie manieren op de rekening: **per uur**, **per dag** of als **vaste

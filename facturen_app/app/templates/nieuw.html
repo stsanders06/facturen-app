@@ -60,6 +60,7 @@
     letter-spacing: -.02em;
   }
   .checkregel { display: flex; align-items: flex-start; gap: 10px; }
+  .checkregel[hidden] { display: none; }
   .checkregel input { width: auto; margin-top: 3px; flex: none; }
   .checkregel label { font-size: 15px; color: var(--text); font-weight: 400; }
   .indienen { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
@@ -78,11 +79,27 @@
       <h2>Klant</h2>
     </div>
     <div class="fields">
+      <div class="field">
+        <label for="klant_id">Bestaande klant</label>
+        <select id="klant_id" name="klant_id">
+          <option value="">— Nieuwe klant, gegevens hieronder —</option>
+          {% for k in klanten %}
+          <option value="{{ k.id }}"
+                  data-naam="{{ k.naam }}"
+                  data-adres="{{ k.adres }}"
+                  data-email="{{ k.email }}"
+                  {% if (factuur and factuur.klant_id == k.id) or (gekozen_klant and gekozen_klant.id == k.id) %}selected{% endif %}>
+            {{ k.naam }}{% if k.aantal_facturen %} · {{ k.aantal_facturen }} rekening{{ 'en' if k.aantal_facturen != 1 }}{% endif %}
+          </option>
+          {% endfor %}
+        </select>
+        <p class="hint">Kies een klant en de gegevens hieronder worden ingevuld.</p>
+      </div>
       <div class="row">
         <div class="field">
           <label for="klant_naam">Klantnaam</label>
           <input type="text" id="klant_naam" name="klant_naam" required
-                 value="{{ factuur.klant_naam if factuur else '' }}">
+                 value="{{ factuur.klant_naam if factuur else (gekozen_klant.naam if gekozen_klant else '') }}">
         </div>
         <div class="field">
           <label for="datum">Datum</label>
@@ -91,13 +108,13 @@
       </div>
       <div class="field">
         <label for="klant_adres">Adres</label>
-        <textarea id="klant_adres" name="klant_adres" rows="2">{{ factuur.klant_adres if factuur else '' }}</textarea>
+        <textarea id="klant_adres" name="klant_adres" rows="2">{{ factuur.klant_adres if factuur else (gekozen_klant.adres if gekozen_klant else '') }}</textarea>
       </div>
       <div class="row">
         <div class="field">
           <label for="klant_email">E-mailadres</label>
           <input type="email" id="klant_email" name="klant_email"
-                 value="{{ factuur.klant_email if factuur else '' }}">
+                 value="{{ factuur.klant_email if factuur else (gekozen_klant.email if gekozen_klant else '') }}">
           <p class="hint">Nodig als je de rekening wilt mailen.</p>
         </div>
         <div class="field">
@@ -107,6 +124,11 @@
             <option value="cash" {% if factuur and factuur.betaalmethode == 'cash' %}selected{% endif %}>Contant</option>
           </select>
         </div>
+      </div>
+      <div class="checkregel" id="opslaan-regel">
+        <input type="checkbox" id="klant_opslaan" name="klant_opslaan" value="ja" checked>
+        <label for="klant_opslaan">Deze klant bewaren, zodat je hem de volgende keer
+          kunt kiezen</label>
       </div>
     </div>
   </section>
@@ -137,12 +159,12 @@
         </div>
         <div class="field aantal-veld">
           <label class="aantal-label">Aantal</label>
-          <input type="number" step="0.01" name="aantal"
+          <input type="number" step="any" name="aantal"
                  value="{{ '%g'|format(r.aantal) if r else '1' }}">
         </div>
         <div class="field prijs-veld">
           <label class="prijs-label">Prijs</label>
-          <input type="number" step="0.01" name="prijs" placeholder="0,00"
+          <input type="number" step="any" name="prijs" placeholder="0,00"
                  value="{{ '%.2f'|format(r.prijs) if r else '' }}">
         </div>
         <button type="button" class="weg" title="Regel verwijderen" aria-label="Regel verwijderen">&times;</button>
@@ -251,6 +273,25 @@
     container.addEventListener('input', berekenTotaal);
     container.querySelectorAll('.regel').forEach(pasRegelAan);
     berekenTotaal();
+
+    // Klant kiezen vult de gegevens in. Bij een bestaande klant heeft "bewaren"
+    // geen zin, dus dat vinkje verdwijnt dan.
+    var klantKeuze = document.getElementById('klant_id');
+    var opslaanRegel = document.getElementById('opslaan-regel');
+
+    function pasKlantAan(vulIn) {
+      var optie = klantKeuze.options[klantKeuze.selectedIndex];
+      var bestaand = !!klantKeuze.value;
+      if (bestaand && vulIn) {
+        document.getElementById('klant_naam').value = optie.dataset.naam || '';
+        document.getElementById('klant_adres').value = optie.dataset.adres || '';
+        document.getElementById('klant_email').value = optie.dataset.email || '';
+      }
+      opslaanRegel.hidden = bestaand;
+    }
+
+    klantKeuze.addEventListener('change', function () { pasKlantAan(true); });
+    pasKlantAan(false);
   })();
 </script>
 

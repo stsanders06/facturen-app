@@ -13,6 +13,8 @@
     font-weight: 500;
     letter-spacing: -.01em;
   }
+  .factuur .klant a { color: inherit; text-decoration: none; }
+  .factuur .klant a:hover { color: var(--primary); }
   .factuur .bedrag {
     font-size: 17px;
     font-weight: 500;
@@ -56,7 +58,10 @@
 <div class="cards">
   {% for f in facturen %}
   <article class="card factuur">
-    <div class="klant">{{ f.klant_naam }}</div>
+    <div class="klant">
+      {% if f.klant_id %}<a href="{{ url_for('klant', klant_id=f.klant_id) }}">{{ f.klant_naam }}</a>
+      {%- else %}{{ f.klant_naam }}{% endif %}
+    </div>
     <div class="bedrag">&euro; {{ f.totaal|bedrag }}</div>
     <div class="meta">{{ f.nummer }} · {{ f.datum|datum_nl }}</div>
     <div class="onderkant">

@@ -287,6 +287,7 @@
     </a>
     <nav class="tabs">
       <a href="{{ url_for('index') }}" {% if actief in ['index', 'nieuw'] %}class="active"{% endif %}>Rekeningen</a>
+      <a href="{{ url_for('klanten') }}" {% if actief == 'klanten' %}class="active"{% endif %}>Klanten</a>
       <a href="{{ url_for('instellingen') }}" {% if actief == 'instellingen' %}class="active"{% endif %}>Instellingen</a>
     </nav>
   </div>

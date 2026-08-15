@@ -1,0 +1,57 @@
+{% extends "_layout.html" %}
+{% block title %}{% if klant %}{{ klant.naam }} bewerken{% else %}Nieuwe klant{% endif %}{% endblock %}
+{% block head %}
+<style>
+  .indienen { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+</style>
+{% endblock %}
+{% block content %}
+
+<div class="page-head">
+  <h1>{% if klant %}{{ klant.naam }} bewerken{% else %}Nieuwe klant{% endif %}</h1>
+</div>
+
+<form method="post" class="cards">
+
+  <section class="card">
+    <div class="fields">
+      <div class="field">
+        <label for="naam">Naam</label>
+        <input type="text" id="naam" name="naam" required value="{{ klant.naam if klant else '' }}">
+      </div>
+      <div class="field">
+        <label for="adres">Adres</label>
+        <textarea id="adres" name="adres" rows="3">{{ klant.adres if klant else '' }}</textarea>
+        <p class="hint">Elke regel komt onder elkaar op de rekening.</p>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="email">E-mailadres</label>
+          <input type="email" id="email" name="email" value="{{ klant.email if klant else '' }}">
+          <p class="hint">Hiernaartoe wordt de rekening gemaild.</p>
+        </div>
+        <div class="field">
+          <label for="telefoon">Telefoon</label>
+          <input type="text" id="telefoon" name="telefoon" value="{{ klant.telefoon if klant else '' }}">
+        </div>
+      </div>
+      <div class="field">
+        <label for="notitie">Notitie</label>
+        <textarea id="notitie" name="notitie" rows="2">{{ klant.notitie if klant else '' }}</textarea>
+        <p class="hint">Voor jezelf, bijvoorbeeld een poortcode of vaste afspraken. Komt
+          niet op de rekening.</p>
+      </div>
+    </div>
+  </section>
+
+  <div class="indienen">
+    <a class="btn btn-outline"
+       href="{% if klant %}{{ url_for('klant', klant_id=klant.id) }}{% else %}{{ url_for('klanten') }}{% endif %}">Annuleren</a>
+    <button type="submit" class="btn">
+      {% if klant %}Wijzigingen opslaan{% else %}Klant opslaan{% endif %}
+    </button>
+  </div>
+
+</form>
+
+{% endblock %}
