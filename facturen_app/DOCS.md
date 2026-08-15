@@ -46,9 +46,9 @@ eigen netwerk.
 ## Data en back-up
 
 Alle data (database, PDF's, logo) staat in de persistente `/data` map van de add-on.
-Die overleeft add-on updates en herstarts. De add-on staat op `backup: hot`, dus een
-Home Assistant back-up neemt de data mee zonder dat de add-on gestopt hoeft te worden.
-Controleer wel dat je bij het maken van een back-up de add-on aanvinkt.
+Die overleeft add-on updates en herstarts. Een Home Assistant back-up neemt de data
+mee zonder dat de add-on gestopt hoeft te worden, mits je bij het maken van de back-up
+de add-on aanvinkt.
 
 ## Problemen oplossen
 

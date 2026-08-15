@@ -13,7 +13,6 @@
 - De sessiesleutel wordt eenmalig gegenereerd en bewaard in `/data` in plaats van een
   vaste standaardwaarde.
 - Configureerbaar log-niveau.
-- Add-on data wordt meegenomen in Home Assistant back-ups (`backup: hot`).
 
 ## 1.0.0
 
