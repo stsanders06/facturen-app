@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.10.6
+
+- **De oorzaak van het uitstekende tijdveld gevonden, dankzij de meting op het toestel.**
+  Het veld werd steeds precies 22 pixels te breed: 187 in een vak van 165, en eerder 360
+  in een vak van 338. Die 22 zijn de marge van 10 pixels aan weerszijden plus 2 pixels
+  rand. Safari op de iPhone telt die namelijk bóvenop de opgegeven breedte in plaats van
+  erin, ook al staat `box-sizing: border-box` ingesteld. Daarom hielp geen enkele
+  breedte-instructie. De rand en de marge zitten nu op het vakje eromheen en het veld
+  zelf is kaal, zodat 100% ook echt 100% is. Aan de buitenkant ziet het er hetzelfde uit.
+- De meetpagina test nu vier manieren naast elkaar en zegt welke jouw toestel
+  respecteert, zodat dit niet meer op gissen aankomt.
+
 ## 1.10.5
 
 - **Het uitstekende tijdveld op de iPhone is nu bij de wortel aangepakt.** Uit de meting

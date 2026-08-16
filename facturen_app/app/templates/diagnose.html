@@ -40,6 +40,34 @@
   }
   .uitkomst-blok.goed { background: var(--ok-soft); color: var(--ok); }
   .uitkomst-blok.fout { background: var(--danger-soft); color: var(--danger); }
+
+  /* Vier manieren om een tijdveld in een vak van 165px te krijgen, om te zien welke
+     jouw toestel respecteert. Elk vak is even breed; wat eruit steekt, is fout. */
+  .proefvak { width: 165px; box-sizing: border-box; margin-bottom: 10px; }
+  .proefvak input { font-size: 16px; font-family: inherit; }
+
+  /* A — zoals het was: rand en marge op het veld zelf */
+  .v-a input {
+    width: 100%; box-sizing: border-box; padding: 10px;
+    border: 1px solid var(--border); border-radius: 8px;
+  }
+  /* B — rand en marge op het vakje, veld kaal */
+  .v-b {
+    padding: 10px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--input-bg);
+  }
+  .v-b input { display: block; width: 100%; padding: 0; border: 0; background: transparent; }
+  /* C — de eigen opmaak van iOS uitzetten */
+  .v-c input {
+    width: 100%; box-sizing: border-box; padding: 10px;
+    border: 1px solid var(--border); border-radius: 8px;
+    -webkit-appearance: none; appearance: none;
+  }
+  /* D — breedte uitrekenen met de marge erafgetrokken */
+  .v-d input {
+    width: calc(100% - 22px); padding: 10px;
+    border: 1px solid var(--border); border-radius: 8px;
+  }
 </style>
 {% endblock %}
 {% block content %}
@@ -64,6 +92,21 @@
       </div>
     </div>
     <div class="uitkomst-blok" id="oordeel">Meten…</div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Welke aanpak past wel?</h2>
+      <p>Vier keer hetzelfde tijdveld in een vak van 165 pixels breed. De regel die
+        "past" zegt, is de manier die jouw toestel respecteert.</p>
+    </div>
+    <div id="proeven">
+      <div class="proefvak v-a"><input type="time" value="15:16" aria-label="Proef A"></div>
+      <div class="proefvak v-b"><input type="time" value="15:16" aria-label="Proef B"></div>
+      <div class="proefvak v-c"><input type="time" value="15:16" aria-label="Proef C"></div>
+      <div class="proefvak v-d"><input type="time" value="15:16" aria-label="Proef D"></div>
+    </div>
+    <dl class="meting" id="proefcijfers" style="margin-top:14px"></dl>
   </section>
 
   <section class="card">
@@ -135,6 +178,30 @@
       ['Van en Tot naast elkaar', naastElkaar ? 'ja' : 'nee, onder elkaar'],
       ['Steekt er iets uit', uitsteek > 0 ? 'ja, ' + uitsteek + ' px' : 'nee']
     ];
+
+    // Welke van de vier manieren houdt het veld binnen zijn vak van 165 px?
+    var namen = {
+      'v-a': 'A · rand op het veld',
+      'v-b': 'B · rand op het vakje',
+      'v-c': 'C · opmaak van iOS uit',
+      'v-d': 'D · breedte uitgerekend'
+    };
+    var proefLijst = document.getElementById('proefcijfers');
+    document.querySelectorAll('#proeven .proefvak').forEach(function (vak) {
+      var soort = vak.classList[1];
+      var veld = vak.querySelector('input');
+      var s = getComputedStyle(vak);
+      var binnen = vak.getBoundingClientRect().right -
+                   parseFloat(s.paddingRight) - parseFloat(s.borderRightWidth);
+      var over = Math.round(veld.getBoundingClientRect().right - binnen);
+      var dt = document.createElement('dt');
+      dt.textContent = namen[soort];
+      var dd = document.createElement('dd');
+      dd.textContent = over > 1 ? 'steekt ' + over + ' px uit' : 'past';
+      dd.className = over > 1 ? 'fout' : 'goed';
+      proefLijst.appendChild(dt);
+      proefLijst.appendChild(dd);
+    });
 
     var lijst = document.getElementById('cijfers');
     regels.forEach(function (r) {

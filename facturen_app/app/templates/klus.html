@@ -134,16 +134,35 @@
     .dag.vast .tijden { order: 4; flex: 1 1 100%; }
     .dag.vast .notitie-veld { order: 5; }
 
-    /* iOS zet de waarde van een datum- of tijdveld standaard in het midden; links
-       uitgelijnd staat het in één lijn met de notitie eronder. De max-width is de
-       harde grens: een veld kan nooit breder worden dan zijn eigen vak. */
-    .dag input {
+    /* Op de iPhone telt Safari de rand en de marge van een datum- of tijdveld bóvenop
+       de breedte die je opgeeft: bij 165px ruimte werd het veld 165 + 20 + 2 = 187px,
+       en die 22px staken eruit. Daarom dragen de vakjes hier de rand en de marge, en
+       is het veld zelf kaal — dan is 100% ook echt 100%. */
+    .dag .datum-veld,
+    .dag .tijd-paar > div {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--input-bg);
       padding: 10px;
+    }
+    .dag .datum-veld:focus-within,
+    .dag .tijd-paar > div:focus-within {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px var(--primary-soft);
+    }
+    .dag .datum-veld input,
+    .dag .tijd-paar input {
+      display: block;
       width: 100%;
-      max-width: 100%;
-      min-width: 0;
+      padding: 0;
+      border: 0;
+      background: transparent;
       text-align: left;
     }
+    .dag .datum-veld input:focus,
+    .dag .tijd-paar input:focus { outline: none; box-shadow: none; }
+
+    .dag .notitie-veld input { padding: 10px; width: 100%; }
   }
 
   .kop-acties { display: flex; gap: 8px; flex-wrap: wrap; }
