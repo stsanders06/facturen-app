@@ -1,17 +1,20 @@
 import logging
 import os
 import secrets
+import socket
 import sqlite3
 import smtplib
 from datetime import date, timedelta
 from email.message import EmailMessage
+from itertools import zip_longest
 from flask import (
-    Flask, abort, request, redirect, url_for, render_template, send_file, flash
+    Flask, abort, request, redirect, url_for, render_template, send_file, flash, session
 )
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.lib import colors
 from reportlab.pdfgen import canvas
+from reportlab.lib.utils import ImageReader
 from werkzeug.utils import secure_filename
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
@@ -62,6 +65,39 @@ app = Flask(__name__)
 app.secret_key = _secret_key()
 app.wsgi_app = IngressMiddleware(app.wsgi_app)
 
+# Een logo is hooguit een paar honderd kilobyte. Zonder grens kan één upload de
+# opslag van Home Assistant volschrijven.
+app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
+
+
+def csrf_token():
+    """Kenmerk dat meegaat met elk formulier, zodat de app opdrachten van andere
+    websites herkent en weigert. Poort 8099 heeft geen wachtwoord, dus zonder dit
+    kan elke site die je bezoekt in de achtergrond iets laten verwijderen."""
+    if "csrf_token" not in session:
+        session["csrf_token"] = secrets.token_urlsafe(32)
+    return session["csrf_token"]
+
+
+app.jinja_env.globals["csrf_token"] = csrf_token
+
+
+@app.before_request
+def controleer_csrf():
+    if request.method != "POST":
+        return None
+    verwacht = session.get("csrf_token")
+    gekregen = request.form.get("csrf_token", "")
+    if not verwacht or not secrets.compare_digest(verwacht, gekregen):
+        abort(400, "Deze opdracht kwam niet van de app zelf.")
+    return None
+
+
+@app.errorhandler(413)
+def te_groot(_fout):
+    flash("Dat bestand is te groot. Kies een afbeelding van hooguit 8 MB.")
+    return redirect(url_for("instellingen"))
+
 MAANDEN = [
     "jan", "feb", "mrt", "apr", "mei", "jun",
     "jul", "aug", "sep", "okt", "nov", "dec",
@@ -70,9 +106,12 @@ MAANDEN = [
 # Aantal dagen dat de klant heeft om te betalen; komt als "Vóór ..." op de strook.
 BETAALTERMIJN_DAGEN = 14
 
+# Wat er bij het opstarten is rechtgezet; wordt één keer aan de gebruiker getoond.
+OPSTARTMELDINGEN = []
+
 # Kleine voetregel onderaan elke rekening.
 BTW_REGEL = (
-    "Deze factuur is vrijgesteld van btw i.v.m. particuliere levering van diensten."
+    "Deze rekening is vrijgesteld van btw i.v.m. particuliere levering van diensten."
 )
 
 # De soorten regels. 'eenheid' komt achter het aantal op de factuur; bij een vaste
@@ -166,6 +205,26 @@ def filter_uren(waarde):
     return f"{float(waarde or 0):g}".replace(".", ",")
 
 
+@app.template_global()
+def periode_nl(van, tot):
+    """'10 – 12 aug 2026' in plaats van '10 aug 2026 t/m 12 aug 2026'; het jaar en
+    de maand worden alleen herhaald als ze verschillen."""
+    if not van:
+        return ""
+    if not tot or tot == van:
+        return filter_datum_nl(van)
+    try:
+        v_jaar, v_maand, v_dag = str(van).split("-")
+        t_jaar, t_maand, t_dag = str(tot).split("-")
+    except ValueError:
+        return f"{filter_datum_nl(van)} t/m {filter_datum_nl(tot)}"
+    if v_jaar == t_jaar and v_maand == t_maand:
+        return f"{int(v_dag)} – {filter_datum_nl(tot)}"
+    if v_jaar == t_jaar:
+        return f"{int(v_dag)} {MAANDEN[int(v_maand) - 1]} – {filter_datum_nl(tot)}"
+    return f"{filter_datum_nl(van)} – {filter_datum_nl(tot)}"
+
+
 def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -213,6 +272,7 @@ def init_db():
             aantal REAL NOT NULL,
             prijs REAL NOT NULL,
             subtotaal REAL NOT NULL,
+            klus_id INTEGER,
             FOREIGN KEY (factuur_id) REFERENCES facturen (id)
         );
 
@@ -242,6 +302,7 @@ def init_db():
             van TEXT NOT NULL,
             tot TEXT NOT NULL,
             notitie TEXT DEFAULT '',
+            factuur_id INTEGER,
             FOREIGN KEY (klus_id) REFERENCES klussen (id)
         );
         """
@@ -256,6 +317,14 @@ def init_db():
 
     # Arbeid was er in één smaak en werd per uur gerekend; die regels houden dat.
     conn.execute("UPDATE regels SET type='arbeid_uur' WHERE type='arbeid'")
+
+    # Welke regel bij welke klus hoort, en welke gewerkte dagen al gefactureerd zijn.
+    regelkolommen = {rij["name"] for rij in conn.execute("PRAGMA table_info(regels)")}
+    if "klus_id" not in regelkolommen:
+        conn.execute("ALTER TABLE regels ADD COLUMN klus_id INTEGER")
+    urenkolommen = {rij["name"] for rij in conn.execute("PRAGMA table_info(uren)")}
+    if "factuur_id" not in urenkolommen:
+        conn.execute("ALTER TABLE uren ADD COLUMN factuur_id INTEGER")
 
     factuurkolommen = {rij["name"] for rij in conn.execute("PRAGMA table_info(facturen)")}
     # Wat de rekening was voordat hij op betaald werd gezet, zodat "toch niet betaald"
@@ -296,6 +365,15 @@ def tenaamstelling(s):
     return (s.get("tenaamstelling") or "").strip() or s.get("naam", "")
 
 
+def bruikbaar_logo(pad):
+    """Of reportlab deze afbeelding op de rekening kan tekenen."""
+    try:
+        ImageReader(pad).getSize()
+        return True
+    except Exception:
+        return False
+
+
 def get_settings():
     conn = get_db()
     row = conn.execute("SELECT * FROM settings WHERE id = 1").fetchone()
@@ -303,22 +381,105 @@ def get_settings():
     return dict(row) if row else {}
 
 
-def volgend_nummer():
-    conn = get_db()
+def _volgnummer(nummer):
+    """Het cijferdeel achter het jaartal, of 0 als het nummer er anders uitziet."""
+    staart = str(nummer or "").split("-", 1)[-1]
+    return int(staart) if staart.isdigit() else 0
+
+
+def volgend_nummer(conn=None):
+    """Het eerstvolgende vrije nummer van dit jaar.
+
+    Doortellen op het hóógste bestaande nummer, niet op het aantal rekeningen:
+    anders levert een verwijderde rekening een nummer op dat al bestaat, en
+    overschrijft de nieuwe PDF die van de oude rekening."""
+    eigen = conn is None
+    if eigen:
+        conn = get_db()
     jaar = date.today().year
-    count = conn.execute(
-        "SELECT COUNT(*) FROM facturen WHERE nummer LIKE ?", (f"{jaar}-%",)
-    ).fetchone()[0]
+    nummers = conn.execute(
+        "SELECT nummer FROM facturen WHERE nummer LIKE ?", (f"{jaar}-%",)
+    ).fetchall()
+    if eigen:
+        conn.close()
+    hoogste = max((_volgnummer(rij["nummer"]) for rij in nummers), default=0)
+    return f"{jaar}-{hoogste + 1:03d}"
+
+
+def herstel_dubbele_nummers():
+    """Repareert rekeningen die door de oude telling hetzelfde nummer kregen.
+
+    De oudste houdt zijn nummer, de nieuwere krijgen een vrij nummer. Daarna
+    worden beide PDF's opnieuw getekend, want die van de oudste is destijds
+    overschreven door de nieuwere."""
+    conn = get_db()
+    dubbel = conn.execute(
+        """SELECT nummer FROM facturen GROUP BY nummer HAVING COUNT(*) > 1
+           ORDER BY nummer"""
+    ).fetchall()
+    if not dubbel:
+        conn.close()
+        return []
+
+    hersteld = []
+    for rij in dubbel:
+        facturen = conn.execute(
+            "SELECT id, nummer FROM facturen WHERE nummer=? ORDER BY id", (rij["nummer"],)
+        ).fetchall()
+        for factuur in facturen[1:]:
+            jaar = factuur["nummer"].split("-", 1)[0]
+            gebruikt = {
+                _volgnummer(r["nummer"])
+                for r in conn.execute(
+                    "SELECT nummer FROM facturen WHERE nummer LIKE ?", (f"{jaar}-%",)
+                )
+            }
+            vrij = max(gebruikt) + 1
+            nieuw_nummer = f"{jaar}-{vrij:03d}"
+            conn.execute(
+                "UPDATE facturen SET nummer=? WHERE id=?", (nieuw_nummer, factuur["id"])
+            )
+            hersteld.append((factuur["nummer"], nieuw_nummer))
+        conn.commit()
+    ids = [r["id"] for r in conn.execute("SELECT id FROM facturen ORDER BY id")]
     conn.close()
-    return f"{jaar}-{count + 1:03d}"
+
+    # Alle PDF's opnieuw tekenen: de overschreven exemplaren kloppen weer.
+    for factuur_id in ids:
+        maak_pdf(factuur_id)
+    return hersteld
 
 
 @app.route("/")
 def index():
+    # Wat er bij het opstarten is rechtgezet, hoort de gebruiker één keer te zien.
+    while OPSTARTMELDINGEN:
+        flash(OPSTARTMELDINGEN.pop(0))
+
     conn = get_db()
     facturen = conn.execute("SELECT * FROM facturen ORDER BY id DESC").fetchall()
     conn.close()
-    return render_template("index.html", facturen=facturen, actief="index")
+
+    jaar = str(date.today().year)
+    openstaand = [f for f in facturen if f["status"] != "betaald"]
+    overzicht = {
+        "openstaand": sum(f["totaal"] for f in openstaand),
+        "openstaand_aantal": len(openstaand),
+        "jaar": jaar,
+        "jaar_totaal": sum(f["totaal"] for f in facturen if str(f["datum"]).startswith(jaar)),
+        "aantal": len(facturen),
+    }
+
+    keuze = request.args.get("status", "alles")
+    if keuze == "openstaand":
+        zichtbaar = openstaand
+    elif keuze == "betaald":
+        zichtbaar = [f for f in facturen if f["status"] == "betaald"]
+    else:
+        keuze, zichtbaar = "alles", facturen
+
+    return render_template("index.html", facturen=zichtbaar, overzicht=overzicht,
+                           keuze=keuze, totaal_aantal=len(facturen), actief="index")
 
 
 @app.route("/instellingen", methods=["GET", "POST"])
@@ -329,8 +490,15 @@ def instellingen():
         logo_file = request.files.get("logo")
         if logo_file and logo_file.filename:
             filename = secure_filename(logo_file.filename)
-            logo_file.save(os.path.join(LOGO_DIR, filename))
-            logo_bestand = filename
+            doel = os.path.join(LOGO_DIR, filename)
+            logo_file.save(doel)
+            if bruikbaar_logo(doel):
+                logo_bestand = filename
+            else:
+                # Anders staat er straks een factuur zonder logo zonder dat je weet waarom.
+                os.remove(doel)
+                flash(f"{filename} kan niet op de rekening worden getekend. Gebruik een "
+                      "PNG of JPG; een HEIC-foto van een iPhone of een SVG werkt niet.")
         conn.execute(
             """UPDATE settings SET naam=?, adres=?, telefoon=?, email=?, iban=?,
                tenaamstelling=?, logo_bestand=?, smtp_host=?, smtp_port=?, smtp_user=?,
@@ -427,8 +595,10 @@ def klant(klant_id):
 
     omzet = sum(f["totaal"] for f in facturen)
     openstaand = sum(f["totaal"] for f in facturen if f["status"] != "betaald")
+    klussen_van_klant = [k for k in klussenlijst() if k["klant_id"] == klant_id]
     return render_template("klant.html", klant=gegevens, facturen=facturen,
-                           omzet=omzet, openstaand=openstaand, actief="klanten")
+                           klussen=klussen_van_klant, omzet=omzet,
+                           openstaand=openstaand, actief="klanten")
 
 
 @app.route("/klant/<int:klant_id>/bewerk", methods=["GET", "POST"])
@@ -467,8 +637,10 @@ def klant_verwijder(klant_id):
         conn.close()
         abort(404)
     # De rekeningen zelf blijven staan: daar hoort de klantnaam bij zoals hij
-    # op de factuur is gedrukt. Alleen de koppeling gaat weg.
+    # op de rekening is gedrukt. Alleen de koppeling gaat weg — ook die van klussen,
+    # anders houden die een klantnummer dat nergens meer heen wijst.
     conn.execute("UPDATE facturen SET klant_id=NULL WHERE klant_id=?", (klant_id,))
+    conn.execute("UPDATE klussen SET klant_id=NULL WHERE klant_id=?", (klant_id,))
     conn.execute("DELETE FROM klanten WHERE id=?", (klant_id,))
     conn.commit()
     conn.close()
@@ -489,7 +661,10 @@ def klus_met_uren(conn, klus_id):
     dagen = []
     totaal = 0.0
     for rij in conn.execute(
-        "SELECT * FROM uren WHERE klus_id=? ORDER BY datum, van", (klus_id,)
+        """SELECT u.*, f.nummer AS factuur_nummer FROM uren u
+           LEFT JOIN facturen f ON f.id = u.factuur_id
+           WHERE u.klus_id=? ORDER BY u.datum, u.van""",
+        (klus_id,),
     ):
         dag = dict(rij)
         dag["uren"] = duur_in_uren(rij["van"], rij["tot"])
@@ -510,12 +685,14 @@ def klussenlijst():
     uren = conn.execute("SELECT * FROM uren ORDER BY datum").fetchall()
     conn.close()
 
+    leeg = {"uren": 0.0, "open": 0.0, "dagen": 0, "van": None, "tot": None}
     per_klus = {}
     for rij in uren:
-        gegevens = per_klus.setdefault(
-            rij["klus_id"], {"uren": 0.0, "dagen": 0, "van": None, "tot": None}
-        )
-        gegevens["uren"] += duur_in_uren(rij["van"], rij["tot"])
+        gegevens = per_klus.setdefault(rij["klus_id"], dict(leeg))
+        duur = duur_in_uren(rij["van"], rij["tot"])
+        gegevens["uren"] += duur
+        if rij["factuur_id"] is None:
+            gegevens["open"] += duur
         gegevens["dagen"] += 1
         if gegevens["van"] is None:
             gegevens["van"] = rij["datum"]
@@ -523,13 +700,16 @@ def klussenlijst():
 
     lijst = []
     for kl in klussen:
-        gegevens = per_klus.get(kl["id"], {"uren": 0.0, "dagen": 0, "van": None, "tot": None})
+        gegevens = per_klus.get(kl["id"], leeg)
         rij = dict(kl)
         rij["uren"] = round(gegevens["uren"], 2)
+        rij["uren_open"] = round(gegevens["open"], 2)
+        rij["uren_gefactureerd"] = round(gegevens["uren"] - gegevens["open"], 2)
         rij["dagen"] = gegevens["dagen"]
         rij["eerste_datum"] = gegevens["van"]
         rij["laatste_datum"] = gegevens["tot"]
         rij["bedrag"] = round(rij["uren"] * (kl["uurtarief"] or 0), 2)
+        rij["bedrag_open"] = round(rij["uren_open"] * (kl["uurtarief"] or 0), 2)
         lijst.append(rij)
     return lijst
 
@@ -550,7 +730,14 @@ def klus_uit_form(form):
 
 @app.route("/klussen")
 def klussen():
-    return render_template("klussen.html", klussen=klussenlijst(), actief="klussen")
+    lijst = klussenlijst()
+    overzicht = {
+        "open_uren": round(sum(k["uren_open"] for k in lijst), 2),
+        "open_bedrag": round(sum(k["bedrag_open"] for k in lijst), 2),
+        "lopend": sum(1 for k in lijst if k["status"] != "afgerond"),
+    }
+    return render_template("klussen.html", klussen=lijst, overzicht=overzicht,
+                           actief="klussen")
 
 
 @app.route("/klussen/nieuw", methods=["GET", "POST"])
@@ -583,8 +770,9 @@ def klus(klus_id):
     conn.close()
     if gegevens is None:
         abort(404)
+    open_uren = round(sum(d["uren"] for d in dagen if d["factuur_id"] is None), 2)
     return render_template(
-        "klus.html", klus=gegevens, dagen=dagen, totaal=totaal,
+        "klus.html", klus=gegevens, dagen=dagen, totaal=totaal, open_uren=open_uren,
         bedrag=round(totaal * (gegevens["uurtarief"] or 0), 2),
         vandaag=date.today().isoformat(), actief="klussen",
     )
@@ -669,7 +857,7 @@ def dag_erbij(klus_id):
         "INSERT INTO uren (klus_id, datum, van, tot, notitie) VALUES (?, ?, ?, ?, ?)",
         (
             klus_id,
-            request.form.get("datum") or date.today().isoformat(),
+            geldige_datum(request.form.get("datum")),
             van,
             tot,
             request.form.get("notitie", "").strip(),
@@ -698,7 +886,7 @@ def dag_bewerk(uur_id):
     conn.execute(
         "UPDATE uren SET datum=?, van=?, tot=?, notitie=? WHERE id=?",
         (
-            request.form.get("datum") or date.today().isoformat(),
+            geldige_datum(request.form.get("datum")),
             van,
             tot,
             request.form.get("notitie", "").strip(),
@@ -728,11 +916,13 @@ def lees_regels(form):
     Regels zonder omschrijving worden overgeslagen."""
     totaal = 0.0
     regels = []
-    for o, t, a, p in zip(
+    for o, t, a, p, klus in zip_longest(
         form.getlist("omschrijving"),
         form.getlist("type"),
         form.getlist("aantal"),
         form.getlist("prijs"),
+        form.getlist("regel_klus"),
+        fillvalue="",
     ):
         if not o:
             continue
@@ -746,13 +936,37 @@ def lees_regels(form):
             a = 1.0
         subtotaal = a * p
         totaal += subtotaal
-        regels.append((o, t, a, p, subtotaal))
-    return regels, totaal
+        regels.append((o, t, a, p, subtotaal, int(klus) if str(klus).isdigit() else None))
+    return regels, round(totaal, 2)
 
 
-def geboekte_klussen():
-    """De klussen waar uren op staan, om als één regel op een rekening te zetten."""
-    return [k for k in klussenlijst() if k["uren"] > 0]
+def geldige_datum(waarde, terugval=None):
+    """Een datum die niet als jaar-maand-dag te lezen is, breekt later de sortering
+    en de weergave. Zo'n waarde vervangen we door de terugval."""
+    try:
+        return date.fromisoformat(str(waarde)).isoformat()
+    except (TypeError, ValueError):
+        return terugval or date.today().isoformat()
+
+
+def geboekte_klussen(factuur_id=None):
+    """De klussen met uren die nog niet op een rekening staan, om als één regel toe
+    te voegen. Bij het bewerken van een rekening tellen de uren die er al op staan
+    gewoon mee, anders zou de klus daar verdwijnen."""
+    lijst = []
+    for klus in klussenlijst():
+        if factuur_id is not None:
+            conn = get_db()
+            eigen = conn.execute(
+                """SELECT COUNT(*) FROM uren WHERE klus_id=? AND factuur_id=?""",
+                (klus["id"], factuur_id),
+            ).fetchone()[0]
+            conn.close()
+            if eigen:
+                klus = dict(klus, uren_open=klus["uren"], bedrag_open=klus["bedrag"])
+        if klus["uren_open"] > 0:
+            lijst.append(klus)
+    return lijst
 
 
 def bepaal_klant(conn, form):
@@ -780,20 +994,37 @@ def bepaal_klant(conn, form):
 
 def bewaar_regels(conn, factuur_id, regels):
     conn.execute("DELETE FROM regels WHERE factuur_id=?", (factuur_id,))
-    for o, t, a, p, subtotaal in regels:
+    for o, t, a, p, subtotaal, klus_id in regels:
         conn.execute(
-            """INSERT INTO regels (factuur_id, omschrijving, type, aantal, prijs, subtotaal)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (factuur_id, o, t, a, p, subtotaal),
+            """INSERT INTO regels (factuur_id, omschrijving, type, aantal, prijs, subtotaal,
+               klus_id) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (factuur_id, o, t, a, p, subtotaal, klus_id),
+        )
+    boek_uren(conn, factuur_id, [r[5] for r in regels if r[5]])
+
+
+def boek_uren(conn, factuur_id, klus_ids):
+    """Legt vast welke gewerkte dagen op deze rekening staan, zodat dezelfde uren
+    niet per ongeluk een tweede keer worden gefactureerd."""
+    conn.execute("UPDATE uren SET factuur_id=NULL WHERE factuur_id=?", (factuur_id,))
+    for klus_id in klus_ids:
+        conn.execute(
+            """UPDATE uren SET factuur_id=? WHERE klus_id=? AND factuur_id IS NULL""",
+            (factuur_id, klus_id),
         )
 
 
 @app.route("/nieuw", methods=["GET", "POST"])
 def nieuw():
     if request.method == "POST":
-        conn = get_db()
-        nummer = volgend_nummer()
         regels, totaal = lees_regels(request.form)
+        if not regels:
+            flash("Vul minstens één regel in met een omschrijving; anders is er niets "
+                  "te factureren.")
+            return redirect(url_for("nieuw"))
+
+        conn = get_db()
+        nummer = volgend_nummer(conn)
         klant_id = bepaal_klant(conn, request.form)
 
         cur = conn.execute(
@@ -802,7 +1033,7 @@ def nieuw():
                VALUES (?, ?, ?, ?, ?, ?, ?, 'concept', ?)""",
             (
                 nummer,
-                request.form.get("datum") or date.today().isoformat(),
+                geldige_datum(request.form.get("datum")),
                 klant_id,
                 request.form.get("klant_naam", ""),
                 request.form.get("klant_adres", ""),
@@ -817,9 +1048,10 @@ def nieuw():
         conn.close()
 
         maak_pdf(factuur_id)
+        flash(f"Rekening {nummer} aangemaakt.")
 
         if request.form.get("verstuur") == "ja":
-            verstuur_email(factuur_id)
+            flash(verstuur_email(factuur_id)[1])
 
         return redirect(url_for("index"))
 
@@ -848,12 +1080,18 @@ def bewerk(factuur_id):
 
     if request.method == "POST":
         regels, totaal = lees_regels(request.form)
+        if not regels:
+            conn.close()
+            flash("Vul minstens één regel in met een omschrijving; anders is er niets "
+                  "te factureren.")
+            return redirect(url_for("bewerk", factuur_id=factuur_id))
+
         klant_id = bepaal_klant(conn, request.form)
         conn.execute(
             """UPDATE facturen SET datum=?, klant_id=?, klant_naam=?, klant_adres=?,
                klant_email=?, betaalmethode=?, totaal=? WHERE id=?""",
             (
-                request.form.get("datum") or factuur["datum"],
+                geldige_datum(request.form.get("datum"), factuur["datum"]),
                 klant_id,
                 request.form.get("klant_naam", ""),
                 request.form.get("klant_adres", ""),
@@ -869,11 +1107,11 @@ def bewerk(factuur_id):
 
         # De PDF hoort bij de oude gegevens, dus opnieuw tekenen.
         maak_pdf(factuur_id)
+        flash(f"Rekening {factuur['nummer']} bijgewerkt.")
 
         if request.form.get("verstuur") == "ja":
-            verstuur_email(factuur_id)
+            flash(verstuur_email(factuur_id)[1])
 
-        flash(f"Rekening {factuur['nummer']} bijgewerkt.")
         return redirect(url_for("index"))
 
     regels = conn.execute(
@@ -882,7 +1120,7 @@ def bewerk(factuur_id):
     conn.close()
     return render_template("nieuw.html", vandaag=factuur["datum"], actief="nieuw",
                            factuur=factuur, regels=regels, klanten=klantenlijst(),
-                           gekozen_klant=None, klussen=geboekte_klussen(),
+                           gekozen_klant=None, klussen=geboekte_klussen(factuur_id),
                            vooraf_klus="")
 
 
@@ -958,7 +1196,7 @@ def maak_pdf(factuur_id):
     y -= 30 * mm
     c.setFillColor(ORANJE)
     c.setFont("Helvetica", 30)
-    c.drawString(links, y, "Factuur")
+    c.drawString(links, y, "Rekening")
 
     y -= 7 * mm
     c.setFillColor(GRIJS_DONKER)
@@ -1016,7 +1254,7 @@ def maak_pdf(factuur_id):
             c.setFillColor(GRIJS)
             c.setFont("Helvetica", 8.5)
             c.drawString(links, hoogte - 18 * mm,
-                         f"Factuur {factuur['nummer']} · vervolg")
+                         f"Rekening {factuur['nummer']} · vervolg")
             y = kolomkoppen(hoogte - 28 * mm)
 
         soort_info = soort(r["type"])
@@ -1112,13 +1350,19 @@ def maak_pdf(factuur_id):
 
 
 def verstuur_email(factuur_id):
+    """Mailt de rekening. Geeft (gelukt, melding) terug; de melding is bedoeld om
+    aan de gebruiker te tonen en zegt wat er precies misging."""
     conn = get_db()
     factuur = conn.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
     s = get_settings()
     conn.close()
 
-    if not factuur["klant_email"] or not s.get("smtp_host"):
-        return False
+    if not factuur["klant_email"]:
+        return False, ("Deze klant heeft geen e-mailadres. Vul dat in bij de rekening "
+                       "of bij de klant.")
+    if not s.get("smtp_host"):
+        return False, ("Er is nog geen mailserver ingesteld. Vul die in onder "
+                       "Instellingen → Mailen.")
 
     pad = os.path.join(PDF_DIR, f"{factuur['nummer']}.pdf")
     if not os.path.exists(pad):
@@ -1138,16 +1382,34 @@ def verstuur_email(factuur_id):
             f.read(), maintype="application", subtype="pdf", filename=f"{factuur['nummer']}.pdf"
         )
 
-    with smtplib.SMTP(s["smtp_host"], int(s["smtp_port"])) as server:
-        server.starttls()
-        server.login(s["smtp_user"], s["smtp_pass"])
-        server.send_message(msg)
+    try:
+        with smtplib.SMTP(s["smtp_host"], int(s["smtp_port"]), timeout=20) as server:
+            server.starttls()
+            if s.get("smtp_user"):
+                server.login(s["smtp_user"], s["smtp_pass"])
+            server.send_message(msg)
+    except smtplib.SMTPAuthenticationError:
+        return False, ("De mailserver weigert je gebruikersnaam of wachtwoord. Bij iCloud "
+                       "en Gmail heb je een app-specifiek wachtwoord nodig, niet je gewone.")
+    except smtplib.SMTPRecipientsRefused:
+        return False, f"De mailserver weigert het adres {factuur['klant_email']}."
+    except smtplib.SMTPSenderRefused:
+        return False, ("De mailserver staat niet toe dat je vanaf dit afzenderadres mailt. "
+                       "Vul bij Afzender een adres in dat bij deze mailbox hoort.")
+    except socket.gaierror:
+        return False, (f"De server {s['smtp_host']} is niet gevonden. Controleer de "
+                       "servernaam onder Instellingen → Mailen.")
+    except (socket.timeout, TimeoutError, ConnectionError, OSError) as fout:
+        return False, (f"Geen verbinding met {s['smtp_host']} op poort {s['smtp_port']} "
+                       f"({fout}). Gebruik poort 587.")
+    except smtplib.SMTPException as fout:
+        return False, f"De mailserver gaf een fout terug: {fout}"
 
     conn = get_db()
     conn.execute("UPDATE facturen SET status='verzonden' WHERE id=?", (factuur_id,))
     conn.commit()
     conn.close()
-    return True
+    return True, f"Rekening {factuur['nummer']} gemaild naar {factuur['klant_email']}."
 
 
 def _pdf_pad(factuur_id):
@@ -1203,12 +1465,9 @@ def download_pdf(factuur_id):
 
 @app.route("/factuur/<int:factuur_id>/verstuur", methods=["POST"])
 def verstuur(factuur_id):
-    ok = verstuur_email(factuur_id)
-    if ok:
-        flash("Rekening verzonden.")
-    else:
-        flash("Versturen mislukt: check klant e-mail en SMTP instellingen.")
-    return redirect(url_for("index"))
+    _, melding = verstuur_email(factuur_id)
+    flash(melding)
+    return redirect(request.referrer or url_for("index"))
 
 
 @app.route("/factuur/<int:factuur_id>/betaald", methods=["POST"])
@@ -1252,14 +1511,33 @@ def markeer_niet_betaald(factuur_id):
 @app.route("/factuur/<int:factuur_id>/verwijder", methods=["POST"])
 def verwijder(factuur_id):
     conn = get_db()
+    factuur = conn.execute("SELECT nummer FROM facturen WHERE id=?", (factuur_id,)).fetchone()
+    if factuur is None:
+        conn.close()
+        abort(404)
+    # Uren die op deze rekening stonden komen weer vrij om te factureren.
+    conn.execute("UPDATE uren SET factuur_id=NULL WHERE factuur_id=?", (factuur_id,))
     conn.execute("DELETE FROM regels WHERE factuur_id=?", (factuur_id,))
     conn.execute("DELETE FROM facturen WHERE id=?", (factuur_id,))
     conn.commit()
     conn.close()
-    return redirect(url_for("index"))
+
+    # Het PDF-bestand hoort mee te gaan; anders blijft het als los bestand achter.
+    pdf = os.path.join(PDF_DIR, f"{factuur['nummer']}.pdf")
+    if os.path.exists(pdf):
+        os.remove(pdf)
+
+    flash(f"Rekening {factuur['nummer']} verwijderd.")
+    return redirect(request.referrer or url_for("index"))
 
 
 init_db()
+
+for _oud, _nieuw in herstel_dubbele_nummers():
+    OPSTARTMELDINGEN.append(
+        f"Rekening {_oud} bestond twee keer door een fout in de nummering. De nieuwste "
+        f"heeft nu nummer {_nieuw} gekregen en beide PDF's zijn opnieuw gemaakt."
+    )
 
 if __name__ == "__main__":
     # De add-on kent log-niveaus die Python niet heeft (trace/notice/fatal).

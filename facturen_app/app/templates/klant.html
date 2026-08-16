@@ -89,6 +89,36 @@
     </dl>
   </section>
 
+  {% if klussen %}
+  <section class="card">
+    <div class="card-head">
+      <h2>Klussen</h2>
+      <p>De uren die je voor deze klant bijhoudt.</p>
+    </div>
+    {% for kl in klussen %}
+    <div class="rekening">
+      <a class="kaartlink" href="{{ url_for('klus', klus_id=kl.id) }}"
+         aria-label="Klus {{ kl.naam }} openen"></a>
+      <div class="links">
+        <span>{{ kl.naam }}</span>
+        {% if kl.eerste_datum %}
+        <span class="datum">{{ periode_nl(kl.eerste_datum, kl.laatste_datum) }}</span>
+        {% endif %}
+        <span class="chip chip-{{ kl.status }}">
+          {% if kl.status == 'afgerond' %}Afgerond{% else %}Lopend{% endif %}</span>
+      </div>
+      <div class="rechts">
+        <span class="bedrag">{{ kl.uren|uren }} u</span>
+        {% if kl.uren_open %}
+        <a class="btn btn-text" href="{{ url_for('nieuw') }}?klus={{ kl.id }}&klant={{ klant.id }}">
+          {{ kl.uren_open|uren }} u factureren</a>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
+
   <section class="card">
     <div class="card-head">
       <h2>Rekeningen</h2>
@@ -111,11 +141,13 @@
         <span class="bedrag">&euro; {{ f.totaal|bedrag }}</span>
         {% if f.status == 'betaald' %}
         <form method="post" action="{{ url_for('markeer_niet_betaald', factuur_id=f.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="btn btn-text"
                   title="Zet de rekening terug op openstaand">Toch niet betaald</button>
         </form>
         {% else %}
         <form method="post" action="{{ url_for('markeer_betaald', factuur_id=f.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="btn btn-text">Betaald</button>
         </form>
         {% endif %}
@@ -131,7 +163,8 @@
       <p>De rekeningen van deze klant blijven bestaan; alleen de koppeling verdwijnt.</p>
     </div>
     <form method="post" action="{{ url_for('klant_verwijder', klant_id=klant.id) }}"
-          onsubmit="return confirm('{{ klant.naam }} verwijderen uit je klantenbestand?');">
+          data-bevestig="{{ klant.naam }} verwijderen uit je klantenbestand?">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button type="submit" class="btn btn-text danger">Verwijderen</button>
     </form>
   </section>

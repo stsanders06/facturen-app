@@ -59,8 +59,10 @@
     border-top: 1px solid var(--divider);
   }
   .klus.afgerond .naam { color: var(--text-secondary); }
-  .acties { display: flex; gap: 4px; flex-wrap: wrap; }
-  .acties form { display: contents; }
+  .klus .gefactureerd { color: var(--text-secondary); font-size: 13px; }
+  @media (max-width: 620px) {
+    .klus .onderkant { flex-direction: column; align-items: flex-start; gap: 8px; }
+  }
 </style>
 {% endblock %}
 {% block content %}
@@ -69,6 +71,20 @@
   <h1>Uren</h1>
   <a class="btn" href="{{ url_for('klus_nieuw') }}">+ Nieuwe klus</a>
 </div>
+
+{% if klussen %}
+<div class="overzicht">
+  <div class="let-op">
+    <small>Nog niet gefactureerd</small>
+    <b>{{ overzicht.open_uren|uren }} u</b>
+    {% if overzicht.open_bedrag %}<small>&euro; {{ overzicht.open_bedrag|bedrag }}</small>{% endif %}
+  </div>
+  <div>
+    <small>Lopende klussen</small>
+    <b>{{ overzicht.lopend }}</b>
+  </div>
+</div>
+{% endif %}
 
 {% if not klussen %}
 <div class="card empty">
@@ -89,18 +105,23 @@
     </div>
     <div class="periode">
       {% if kl.klant_naam %}{{ kl.klant_naam }}{% else %}Geen klant{% endif %}
-      {%- if kl.eerste_datum %} · {{ kl.eerste_datum|datum_nl }}
-        {%- if kl.laatste_datum != kl.eerste_datum %} t/m {{ kl.laatste_datum|datum_nl }}{% endif %}
-      {%- endif %}
+      {%- if kl.eerste_datum %} · {{ periode_nl(kl.eerste_datum, kl.laatste_datum) }}{% endif %}
     </div>
     <div class="onderkant">
       <span class="chip chip-{{ kl.status }}">
         {% if kl.status == 'afgerond' %}Afgerond{% else %}Lopend{% endif %}
         {%- if kl.dagen %} · {{ kl.dagen }} dag{{ 'en' if kl.dagen != 1 }}{% endif %}
       </span>
+      {% if kl.uren_gefactureerd %}
+      <span class="gefactureerd">{{ kl.uren_gefactureerd|uren }} u gefactureerd</span>
+      {% endif %}
       <div class="acties">
-        <a class="btn btn-text" href="{{ url_for('klus', klus_id=kl.id) }}">Uren bijhouden</a>
+        {% if kl.uren_open %}
+        <a class="btn btn-text" href="{{ url_for('nieuw') }}?klus={{ kl.id }}{% if kl.klant_id %}&klant={{ kl.klant_id }}{% endif %}">
+          Op rekening zetten</a>
+        {% endif %}
         <form method="post" action="{{ url_for('klus_status', klus_id=kl.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="btn btn-text">
             {% if kl.status == 'afgerond' %}Heropenen{% else %}Afronden{% endif %}
           </button>

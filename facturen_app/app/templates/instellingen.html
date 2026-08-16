@@ -22,6 +22,7 @@
 </div>
 
 <form method="post" enctype="multipart/form-data" class="cards">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
   <section class="card">
     <div class="card-head">
@@ -126,7 +127,8 @@
       en regels blijven ongewijzigd.</p>
   </div>
   <form method="post" action="{{ url_for('vernieuw_alles') }}"
-        onsubmit="return confirm('Alle rekeningen opnieuw maken met je huidige instellingen?');">
+        data-bevestig="Alle rekeningen opnieuw maken met je huidige instellingen?">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button type="submit" class="btn btn-outline">Alle rekeningen opnieuw maken</button>
   </form>
 </section>

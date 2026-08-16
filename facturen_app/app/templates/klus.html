@@ -4,7 +4,7 @@
 <style>
   .tegels {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
     gap: 12px;
   }
   .tegel small {
@@ -23,22 +23,34 @@
   }
   .tegel.geld b { color: var(--info); }
 
-  /* Eén rij per gewerkte dag; de velden zijn meteen aanpasbaar. */
+  /* ---------- Kolomkoppen: één keer boven de lijst ---------- */
+  .dagkoppen {
+    display: grid;
+    grid-template-columns: 150px 96px 96px 1fr 66px 34px;
+    gap: 10px;
+    padding-bottom: 8px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid var(--divider);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+  }
+  .dagkoppen .uren-kop { text-align: right; }
+
+  /* ---------- Eén rij per gewerkte dag ---------- */
   .dag {
     display: grid;
-    grid-template-columns: 150px 100px 100px 1fr 62px auto 34px;
+    grid-template-columns: 150px 96px 96px 1fr 66px 34px;
     gap: 10px;
-    align-items: end;
-    padding-bottom: 12px;
-    margin-bottom: 12px;
-    border-bottom: 1px solid var(--divider);
+    align-items: center;
+    padding: 7px 0;
   }
-  .dag:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+  .dag + .dag { border-top: 1px solid var(--divider); }
+  .dag form { display: contents; }
   .dag .uitkomst {
     font-variant-numeric: tabular-nums;
     font-weight: 500;
     text-align: right;
-    padding-bottom: 10px;
     white-space: nowrap;
   }
   .dag .weg {
@@ -47,26 +59,70 @@
     color: var(--text-secondary);
     font-size: 20px;
     line-height: 1;
-    padding: 9px 0;
+    padding: 8px 0;
     cursor: pointer;
     border-radius: var(--radius-sm);
+    justify-self: center;
   }
   .dag .weg:hover { color: var(--danger); background: var(--danger-soft); }
-  .dag form { display: contents; }
-  /* Op smalle schermen wordt elke dag een blokje in plaats van een rij */
+  @media (pointer: coarse), (max-width: 720px) {
+    .dag .weg { min-height: 44px; min-width: 44px; }
+  }
+  .bewaard {
+    font-size: 12px;
+    color: var(--ok);
+    grid-column: 1 / -1;
+    margin-top: -2px;
+  }
+  .bewaard[hidden] { display: none; }
+
+  /* Al gefactureerde dagen zijn niet meer aan te passen: het bedrag staat op een
+     rekening die de klant al heeft. */
+  .dag.vast {
+    grid-template-columns: 150px 200px 1fr 66px 34px;
+    color: var(--text-secondary);
+    font-size: 14.5px;
+  }
+  .dag.vast .tijden { font-variant-numeric: tabular-nums; }
+
+  /* ---------- Telefoon: van vier regels naar twee ---------- */
   @media (max-width: 720px) {
+    .dagkoppen { display: none; }
     .dag {
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1fr 66px 34px;
+      grid-template-areas:
+        "datum uren weg"
+        "van   tot  tot"
+        "notitie notitie notitie";
+      gap: 8px;
       background: var(--bg);
       border-radius: var(--radius-sm);
-      padding: 12px;
-      border-bottom: none;
+      padding: 10px;
+      margin-bottom: 8px;
     }
-    .dag .datum-veld, .dag .notitie-veld { grid-column: 1 / -1; }
-    .dag .uitkomst { text-align: left; padding-bottom: 0; align-self: center; }
+    .dag + .dag { border-top: none; }
+    .dag .datum-veld { grid-area: datum; }
+    .dag .van-veld { grid-area: van; }
+    .dag .tot-veld { grid-area: tot; }
+    .dag .notitie-veld { grid-area: notitie; }
+    .dag .uitkomst { grid-area: uren; }
+    .dag .weg { grid-area: weg; }
+    .dag.vast {
+      grid-template-columns: 1fr 66px;
+      grid-template-areas:
+        "datum uren"
+        "tijden tijden"
+        "notitie notitie";
+    }
+    .dag.vast .tijden { grid-area: tijden; }
+    .dag input { padding: 10px; }
   }
+
   .kop-acties { display: flex; gap: 8px; flex-wrap: wrap; }
   .lege-lijst { color: var(--text-secondary); font-size: 14px; margin: 0; }
+  .opsomming { margin: 14px 0 0; color: var(--text-secondary); font-size: 14px; }
+  .opsomming a { color: var(--primary); }
+  html.js .opslaan-knop { display: none; }
 </style>
 {% endblock %}
 {% block content %}
@@ -75,8 +131,10 @@
   <h1>{{ klus.naam }}</h1>
   <div class="kop-acties">
     <a class="btn btn-outline" href="{{ url_for('klus_bewerk', klus_id=klus.id) }}">Bewerken</a>
+    {% if open_uren %}
     <a class="btn" href="{{ url_for('nieuw') }}?klus={{ klus.id }}{% if klus.klant_id %}&klant={{ klus.klant_id }}{% endif %}">
       Op rekening zetten</a>
+    {% endif %}
   </div>
 </div>
 
@@ -86,19 +144,19 @@
     <div class="tegels">
       <div class="tegel">
         <small>Totaal uren</small>
-        <b>{{ totaal|uren }}</b>
+        <b id="tegel-totaal">{{ totaal|uren }}</b>
       </div>
       <div class="tegel">
-        <small>Gewerkte dagen</small>
-        <b>{{ dagen|length }}</b>
+        <small>Nog niet gefactureerd</small>
+        <b id="tegel-open">{{ open_uren|uren }}</b>
       </div>
       <div class="tegel geld">
         <small>{% if klus.uurtarief %}Tegen &euro; {{ klus.uurtarief|bedrag }} per uur{% else %}Geen uurtarief{% endif %}</small>
-        <b>&euro; {{ bedrag|bedrag }}</b>
+        <b id="tegel-bedrag">&euro; {{ bedrag|bedrag }}</b>
       </div>
     </div>
-    <p class="hint" style="margin-top:14px">
-      {% if klus.klant_naam %}Klant: <a class="link" href="{{ url_for('klant', klant_id=klus.klant_id) }}">{{ klus.klant_naam }}</a> ·
+    <p class="opsomming">
+      {% if klus.klant_naam %}Klant: <a href="{{ url_for('klant', klant_id=klus.klant_id) }}">{{ klus.klant_naam }}</a> ·
       {% endif %}
       <span class="chip chip-{{ klus.status }}">
         {% if klus.status == 'afgerond' %}Afgerond{% else %}Lopend{% endif %}</span>
@@ -109,30 +167,30 @@
   <section class="card">
     <div class="card-head">
       <h2>Dag erbij</h2>
-      <p>Vul in wanneer je hebt gewerkt. Loopt de eindtijd over middernacht, dan telt
-        dat gewoon door.</p>
+      <p>Vul in wanneer je hebt gewerkt. Loopt de eindtijd over middernacht, dan telt dat
+        gewoon door.</p>
     </div>
     <form method="post" action="{{ url_for('dag_erbij', klus_id=klus.id) }}">
-      <div class="dag">
-        <div class="field datum-veld">
-          <label for="datum">Datum</label>
-          <input type="date" id="datum" name="datum" value="{{ vandaag }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="dag" id="nieuwe-dag">
+        <div class="datum-veld">
+          <input type="date" name="datum" value="{{ vandaag }}" aria-label="Datum">
         </div>
-        <div class="field">
-          <label for="van">Van</label>
-          <input type="time" id="van" name="van" required>
+        <div class="van-veld">
+          <input type="time" name="van" required aria-label="Begintijd" placeholder="Van">
         </div>
-        <div class="field">
-          <label for="tot">Tot</label>
-          <input type="time" id="tot" name="tot" required>
+        <div class="tot-veld">
+          <input type="time" name="tot" required aria-label="Eindtijd" placeholder="Tot">
         </div>
-        <div class="field notitie-veld">
-          <label for="notitie">Notitie</label>
-          <input type="text" id="notitie" name="notitie" placeholder="Bijv. leiding vervangen">
+        <div class="notitie-veld">
+          <input type="text" name="notitie" placeholder="Notitie, bijv. leiding vervangen"
+                 aria-label="Notitie">
         </div>
         <span class="uitkomst">0 u</span>
-        <button type="submit" class="btn">Toevoegen</button>
         <span></span>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:10px">
+        <button type="submit" class="btn">Dag toevoegen</button>
       </div>
     </form>
   </section>
@@ -143,34 +201,56 @@
       {% if not dagen %}<p class="lege-lijst">Nog geen uren bijgehouden voor deze klus.</p>{% endif %}
     </div>
 
-    {% for d in dagen %}
-    <div class="dag">
-      <form method="post" action="{{ url_for('dag_bewerk', uur_id=d.id) }}">
-        <div class="field datum-veld">
-          <label for="datum-{{ d.id }}">Datum</label>
-          <input type="date" id="datum-{{ d.id }}" name="datum" value="{{ d.datum }}">
-        </div>
-        <div class="field">
-          <label for="van-{{ d.id }}">Van</label>
-          <input type="time" id="van-{{ d.id }}" name="van" value="{{ d.van }}" required>
-        </div>
-        <div class="field">
-          <label for="tot-{{ d.id }}">Tot</label>
-          <input type="time" id="tot-{{ d.id }}" name="tot" value="{{ d.tot }}" required>
-        </div>
-        <div class="field notitie-veld">
-          <label for="notitie-{{ d.id }}">Notitie</label>
-          <input type="text" id="notitie-{{ d.id }}" name="notitie" value="{{ d.notitie }}">
-        </div>
-        <span class="uitkomst">{{ d.uren|uren }} u</span>
-        <button type="submit" class="btn btn-text">Opslaan</button>
-      </form>
-      <form method="post" action="{{ url_for('dag_verwijder', uur_id=d.id) }}"
-            onsubmit="return confirm('Deze dag verwijderen?');">
-        <button type="submit" class="weg" title="Dag verwijderen" aria-label="Dag verwijderen">&times;</button>
-      </form>
+    {% if dagen %}
+    <div class="dagkoppen">
+      <span>Datum</span><span>Van</span><span>Tot</span><span>Notitie</span>
+      <span class="uren-kop">Uren</span><span></span>
     </div>
-    {% endfor %}
+    {% endif %}
+
+    <div id="dagen" data-tarief="{{ klus.uurtarief or 0 }}">
+      {% for d in dagen %}
+      {% if d.factuur_id %}
+      <div class="dag vast" data-uren="{{ d.uren }}" data-gefactureerd="1">
+        <span class="datum-veld">{{ d.datum|datum_nl }}</span>
+        <span class="tijden">{{ d.van }} – {{ d.tot }}</span>
+        <span class="notitie-veld">
+          {{ d.notitie }}
+          <span class="chip chip-betaald">op {{ d.factuur_nummer or 'rekening' }}</span>
+        </span>
+        <span class="uitkomst">{{ d.uren|uren }} u</span>
+        <span></span>
+      </div>
+      {% else %}
+      <div class="dag" data-uren="{{ d.uren }}">
+        <form method="post" action="{{ url_for('dag_bewerk', uur_id=d.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="datum-veld">
+            <input type="date" name="datum" value="{{ d.datum }}" aria-label="Datum">
+          </div>
+          <div class="van-veld">
+            <input type="time" name="van" value="{{ d.van }}" required aria-label="Begintijd">
+          </div>
+          <div class="tot-veld">
+            <input type="time" name="tot" value="{{ d.tot }}" required aria-label="Eindtijd">
+          </div>
+          <div class="notitie-veld">
+            <input type="text" name="notitie" value="{{ d.notitie }}" placeholder="Notitie"
+                   aria-label="Notitie">
+          </div>
+          <span class="uitkomst">{{ d.uren|uren }} u</span>
+          <span class="opslaan-knop"><button type="submit" class="btn btn-text">Opslaan</button></span>
+          <span class="bewaard" hidden>Opgeslagen</span>
+        </form>
+        <form method="post" action="{{ url_for('dag_verwijder', uur_id=d.id) }}"
+              data-bevestig="Deze dag verwijderen?">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="weg" title="Dag verwijderen" aria-label="Dag verwijderen">&times;</button>
+        </form>
+      </div>
+      {% endif %}
+      {% endfor %}
+    </div>
   </section>
 
   <section class="card">
@@ -179,7 +259,8 @@
       <p>De bijgehouden uren van deze klus gaan mee. Rekeningen blijven staan.</p>
     </div>
     <form method="post" action="{{ url_for('klus_verwijder', klus_id=klus.id) }}"
-          onsubmit="return confirm('Klus {{ klus.naam }} en alle uren verwijderen?');">
+          data-bevestig="Klus {{ klus.naam }} en alle uren verwijderen?">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button type="submit" class="btn btn-text danger">Verwijderen</button>
     </form>
   </section>
@@ -187,28 +268,89 @@
 </div>
 
 <script>
+  document.documentElement.className += ' js';
+
   (function () {
-    // Terwijl je tijden intikt meteen laten zien hoeveel uur dat is.
+    var lijst = document.getElementById('dagen');
+    var tarief = parseFloat(lijst.dataset.tarief) || 0;
+
     function urenTussen(van, tot) {
       var a = van.split(':'), b = tot.split(':');
-      if (a.length < 2 || b.length < 2) return null;
+      if (a.length < 2 || b.length < 2) return 0;
       var minuten = (b[0] * 60 + +b[1]) - (a[0] * 60 + +a[1]);
       if (minuten < 0) minuten += 24 * 60;
       return Math.round(minuten / 60 * 100) / 100;
     }
 
-    function toon(rij) {
-      var van = rij.querySelector('[name="van"]').value;
-      var tot = rij.querySelector('[name="tot"]').value;
-      var uitkomst = rij.querySelector('.uitkomst');
-      if (!van || !tot) { uitkomst.textContent = '0 u'; return; }
-      var uren = urenTussen(van, tot);
-      uitkomst.textContent = (uren === null ? 0 : uren).toLocaleString('nl-NL') + ' u';
+    function toonUren(waarde) {
+      return waarde.toLocaleString('nl-NL', { maximumFractionDigits: 2 });
     }
 
-    document.querySelectorAll('.dag').forEach(function (rij) {
-      rij.addEventListener('input', function () { toon(rij); });
+    // De uren van één rij bijwerken en de tegels bovenaan opnieuw optellen.
+    function verversRij(rij) {
+      var van = rij.querySelector('[name="van"]');
+      var tot = rij.querySelector('[name="tot"]');
+      if (!van || !tot) return;
+      var uren = (van.value && tot.value) ? urenTussen(van.value, tot.value) : 0;
+      rij.dataset.uren = uren;
+      rij.querySelector('.uitkomst').textContent = toonUren(uren) + ' u';
+    }
+
+    function verversTotalen() {
+      var totaal = 0, open = 0;
+      lijst.querySelectorAll('.dag').forEach(function (rij) {
+        var uren = parseFloat(rij.dataset.uren) || 0;
+        totaal += uren;
+        if (!rij.dataset.gefactureerd) open += uren;
+      });
+      totaal = Math.round(totaal * 100) / 100;
+      open = Math.round(open * 100) / 100;
+      document.getElementById('tegel-totaal').textContent = toonUren(totaal);
+      document.getElementById('tegel-open').textContent = toonUren(open);
+      document.getElementById('tegel-bedrag').textContent = '€ ' +
+        (totaal * tarief).toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    // Zodra je een veld verlaat wordt de dag bewaard. Zonder dit ging een
+    // wijziging verloren als je vergat op Opslaan te klikken.
+    function bewaar(formulier) {
+      var melding = formulier.querySelector('.bewaard');
+      fetch(formulier.action, { method: 'POST', body: new FormData(formulier) })
+        .then(function (antwoord) {
+          if (!antwoord.ok) throw new Error(antwoord.status);
+          if (!melding) return;
+          melding.textContent = 'Opgeslagen';
+          melding.hidden = false;
+          clearTimeout(melding.timer);
+          melding.timer = setTimeout(function () { melding.hidden = true; }, 1600);
+        })
+        .catch(function () {
+          if (!melding) return;
+          melding.textContent = 'Niet opgeslagen — klik op Opslaan';
+          melding.style.color = 'var(--danger)';
+          melding.hidden = false;
+          formulier.querySelector('.opslaan-knop').style.display = 'inline';
+        });
+    }
+
+    lijst.addEventListener('input', function (e) {
+      var rij = e.target.closest('.dag');
+      if (!rij) return;
+      verversRij(rij);
+      verversTotalen();
     });
+
+    lijst.addEventListener('change', function (e) {
+      var formulier = e.target.closest('form');
+      if (!formulier || !formulier.action || formulier.action.indexOf('/bewerk') === -1) return;
+      if (!formulier.querySelector('[name="van"]').value ||
+          !formulier.querySelector('[name="tot"]').value) return;
+      bewaar(formulier);
+    });
+
+    // De rij "Dag erbij" telt live mee terwijl je tijden intikt.
+    var nieuwe = document.getElementById('nieuwe-dag');
+    nieuwe.addEventListener('input', function () { verversRij(nieuwe); });
   })();
 </script>
 

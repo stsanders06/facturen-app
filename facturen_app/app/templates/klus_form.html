@@ -12,6 +12,7 @@
 </div>
 
 <form method="post" class="cards">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
   <section class="card">
     <div class="fields">

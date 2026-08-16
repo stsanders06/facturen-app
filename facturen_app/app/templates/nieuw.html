@@ -27,6 +27,9 @@
     border-radius: var(--radius-sm);
   }
   .regel .weg:hover { color: var(--danger); background: var(--danger-soft); }
+  @media (pointer: coarse), (max-width: 620px) {
+    .regel .weg { min-height: 44px; min-width: 44px; }
+  }
   /* Op smalle schermen wordt elke regel een blokje in plaats van een rij */
   @media (max-width: 620px) {
     .regel {
@@ -79,7 +82,13 @@
   <h1>{% if factuur %}Rekening {{ factuur.nummer }} bewerken{% else %}Nieuwe rekening{% endif %}</h1>
 </div>
 
+{% if factuur and factuur.status == 'betaald' %}
+<div class="flash">Deze rekening staat op betaald. Wijzig je het bedrag, dan klopt hij niet
+  meer met wat er is overgemaakt — zet hem dan eerst terug op openstaand.</div>
+{% endif %}
+
 <form method="post" class="cards">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
   <section class="card">
     <div class="card-head">
@@ -102,40 +111,44 @@
         </select>
         <p class="hint">Kies een klant en de gegevens hieronder worden ingevuld.</p>
       </div>
-      <div class="row">
-        <div class="field">
-          <label for="klant_naam">Klantnaam</label>
-          <input type="text" id="klant_naam" name="klant_naam" required
-                 value="{{ factuur.klant_naam if factuur else (gekozen_klant.naam if gekozen_klant else '') }}">
-        </div>
-        <div class="field">
-          <label for="datum">Datum</label>
-          <input type="date" id="datum" name="datum" value="{{ vandaag }}">
-        </div>
+      <div class="field">
+        <label for="klant_naam">Klantnaam</label>
+        <input type="text" id="klant_naam" name="klant_naam" required
+               value="{{ factuur.klant_naam if factuur else (gekozen_klant.naam if gekozen_klant else '') }}">
       </div>
       <div class="field">
         <label for="klant_adres">Adres</label>
         <textarea id="klant_adres" name="klant_adres" rows="2">{{ factuur.klant_adres if factuur else (gekozen_klant.adres if gekozen_klant else '') }}</textarea>
       </div>
-      <div class="row">
-        <div class="field">
-          <label for="klant_email">E-mailadres</label>
-          <input type="email" id="klant_email" name="klant_email"
-                 value="{{ factuur.klant_email if factuur else (gekozen_klant.email if gekozen_klant else '') }}">
-          <p class="hint">Nodig als je de rekening wilt mailen.</p>
-        </div>
-        <div class="field">
-          <label for="betaalmethode">Betaalmethode</label>
-          <select id="betaalmethode" name="betaalmethode">
-            <option value="bank" {% if factuur and factuur.betaalmethode != 'cash' %}selected{% endif %}>Bank</option>
-            <option value="cash" {% if factuur and factuur.betaalmethode == 'cash' %}selected{% endif %}>Contant</option>
-          </select>
-        </div>
+      <div class="field">
+        <label for="klant_email">E-mailadres</label>
+        <input type="email" id="klant_email" name="klant_email"
+               value="{{ factuur.klant_email if factuur else (gekozen_klant.email if gekozen_klant else '') }}">
+        <p class="hint">Nodig als je de rekening wilt mailen.</p>
       </div>
       <div class="checkregel" id="opslaan-regel">
         <input type="checkbox" id="klant_opslaan" name="klant_opslaan" value="ja" checked>
         <label for="klant_opslaan">Deze klant bewaren, zodat je hem de volgende keer
           kunt kiezen</label>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>De rekening</h2>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label for="datum">Datum</label>
+        <input type="date" id="datum" name="datum" value="{{ vandaag }}">
+      </div>
+      <div class="field">
+        <label for="betaalmethode">Betaalmethode</label>
+        <select id="betaalmethode" name="betaalmethode">
+          <option value="bank" {% if factuur and factuur.betaalmethode != 'cash' %}selected{% endif %}>Bank</option>
+          <option value="cash" {% if factuur and factuur.betaalmethode == 'cash' %}selected{% endif %}>Contant</option>
+        </select>
       </div>
     </div>
   </section>
@@ -155,14 +168,16 @@
         {% for kl in klussen %}
         <option value="{{ kl.id }}"
                 data-naam="{{ kl.naam }}"
-                data-uren="{{ kl.uren }}"
-                data-tarief="{{ '%.2f'|format(kl.uurtarief or 0) }}">
-          {{ kl.naam }} · {{ kl.uren|uren }} u{% if kl.klant_naam %} · {{ kl.klant_naam }}{% endif %}
+                data-uren="{{ kl.uren_open }}"
+                data-tarief="{{ '%.2f'|format(kl.uurtarief or 0) }}"
+                data-klant="{{ kl.klant_id or '' }}">
+          {{ kl.naam }} · {{ kl.uren_open|uren }} u{% if kl.klant_naam %} · {{ kl.klant_naam }}{% endif %}
         </option>
         {% endfor %}
       </select>
-      <p class="hint">Zet het totaal aantal uren als één arbeidsregel op de rekening;
-        de losse dagen blijven op de <a class="link" href="{{ url_for('klussen') }}">Uren-tab</a>.</p>
+      <p class="hint">Zet de nog niet gefactureerde uren als één arbeidsregel op de rekening;
+        de losse dagen blijven op de <a class="link" href="{{ url_for('klussen') }}">Uren-tab</a>.
+        Ze tellen daarna niet nog een keer mee.</p>
     </div>
     {% endif %}
 
@@ -193,6 +208,7 @@
           <input type="number" step="any" name="prijs" placeholder="0,00"
                  value="{{ '%.2f'|format(r.prijs) if r else '' }}">
         </div>
+        <input type="hidden" name="regel_klus" value="{{ r.klus_id if r and r.klus_id else '' }}">
         <button type="button" class="weg" title="Regel verwijderen" aria-label="Regel verwijderen">&times;</button>
       </div>
       {% endfor %}
@@ -284,8 +300,7 @@
     // Uren van een klus komen als één arbeidsregel op de rekening: het totaal
     // aantal uren maal het uurtarief van die klus, niet elke dag apart.
     var klusKeuze = document.getElementById('klus_uren');
-    if (klusKeuze) {
-      function zetKlusOpRekening(optie) {
+    var zetKlusOpRekening = function (optie) {
         if (!optie || !optie.value) return;
         var regel = regelErbij();
         regel.querySelector('.soort').value = 'arbeid_uur';
@@ -293,6 +308,9 @@
         regel.querySelector('[name="omschrijving"]').value = optie.dataset.naam || '';
         regel.querySelector('[name="aantal"]').value = optie.dataset.uren || '0';
         regel.querySelector('[name="prijs"]').value = optie.dataset.tarief || '';
+        // Onthouden bij welke klus deze regel hoort, zodat die uren daarna als
+        // gefactureerd gelden en niet nog een keer meetellen.
+        regel.querySelector('[name="regel_klus"]').value = optie.value;
 
         // Een lege beginregel is dan alleen nog in de weg.
         var eerste = container.children[0];
@@ -300,19 +318,22 @@
             && !eerste.querySelector('[name="prijs"]').value) {
           eerste.remove();
         }
+
+        // De klus kent zijn klant al; die hoef je niet nog eens te kiezen.
+        var klant = optie.dataset.klant;
+        if (klant && !klantKeuze.value) {
+          klantKeuze.value = klant;
+          pasKlantAan(true);
+        }
+
         klusKeuze.value = '';
         berekenTotaal();
-      }
+    };
 
+    if (klusKeuze) {
       klusKeuze.addEventListener('change', function () {
         zetKlusOpRekening(klusKeuze.options[klusKeuze.selectedIndex]);
       });
-
-      // Kom je vanaf een klus binnen ("Op rekening zetten"), dan staat hij er al op.
-      var vooraf = klusKeuze.dataset.vooraf;
-      if (vooraf) {
-        zetKlusOpRekening(klusKeuze.querySelector('option[value="' + vooraf + '"]'));
-      }
     }
 
     container.addEventListener('change', function (e) {
@@ -356,6 +377,25 @@
 
     klantKeuze.addEventListener('change', function () { pasKlantAan(true); });
     pasKlantAan(false);
+
+    // Kom je vanaf een klus binnen ("Op rekening zetten"), dan staat hij er al op.
+    // Dit gebeurt als laatste, want het vult ook de klant in.
+    if (klusKeuze && klusKeuze.dataset.vooraf) {
+      zetKlusOpRekening(
+        klusKeuze.querySelector('option[value="' + klusKeuze.dataset.vooraf + '"]'));
+    }
+
+    // Een rekening zonder regels levert een PDF van € 0,00 op en verbruikt wel een
+    // factuurnummer; daar waarschuwen we voor voordat het formulier weggaat.
+    document.querySelector('form.cards').addEventListener('submit', function (e) {
+      var ingevuld = [...container.querySelectorAll('[name="omschrijving"]')]
+        .some(function (veld) { return veld.value.trim() !== ''; });
+      if (!ingevuld) {
+        e.preventDefault();
+        alert('Vul minstens één regel in met een omschrijving; anders is er niets te factureren.');
+        container.querySelector('[name="omschrijving"]').focus();
+      }
+    });
   })();
 </script>
 

@@ -133,6 +133,15 @@
   .tabs a:hover { color: var(--text); }
   .tabs a.active { color: var(--primary); border-bottom-color: var(--primary); }
 
+  /* Op een telefoon kostten merknaam én tabbladen samen twee regels. De naam mag
+     daar weg: je weet welke app je open hebt. */
+  @media (max-width: 620px) {
+    .appbar-inner { gap: 0; min-height: 48px; padding: 0 8px; }
+    .brand { display: none; }
+    .tabs { width: 100%; justify-content: space-around; }
+    .tabs a { padding: 14px 8px 12px; }
+  }
+
   /* ---------- Inhoud ---------- */
   .container {
     max-width: 940px;
@@ -229,6 +238,12 @@
     border-radius: var(--radius-sm);
     font-size: 13px;
   }
+  /* Op een aanraakscherm moet elke knop met een duim te raken zijn: 44px is de
+     richtlijn van zowel Apple als Google. */
+  @media (pointer: coarse), (max-width: 620px) {
+    .btn { padding: 12px 20px; min-height: 44px; }
+    .btn-text { padding: 12px 14px; min-height: 44px; font-size: 14px; }
+  }
   .btn-text:hover { background: var(--primary-soft); }
   .btn-text.danger { color: var(--danger); }
   .btn-text.danger:hover { background: var(--danger-soft); }
@@ -269,6 +284,62 @@
   .empty { text-align: center; padding: 40px 20px; }
   .empty p { color: var(--text-secondary); margin: 0 0 18px; }
 
+  /* ---------- Acties onder een kaart ---------- */
+  .acties { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+  .acties form { display: contents; }
+  /* Verwijderen hoort niet naast de knop die je het vaakst gebruikt: duw hem
+     naar de overkant, zodat je er niet per ongeluk op tikt. */
+  .acties .gevaar { margin-left: 22px; }
+  @media (max-width: 620px) {
+    .acties { gap: 2px 4px; width: 100%; }
+    .acties .gevaar { margin-left: auto; }
+  }
+
+  /* ---------- Overzichtsbalk ---------- */
+  .overzicht {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 32px;
+    align-items: baseline;
+    background: var(--card);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-card);
+    padding: 14px 20px;
+    margin-bottom: 12px;
+  }
+  .overzicht div { display: flex; align-items: baseline; gap: 8px; }
+  .overzicht small { font-size: 13px; color: var(--text-secondary); }
+  .overzicht b {
+    font-size: 19px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.01em;
+  }
+  .overzicht .let-op b { color: var(--info); }
+
+  /* ---------- Filterknoppen ---------- */
+  .filters { display: flex; gap: 6px; flex-wrap: wrap; }
+  .filters a {
+    padding: 7px 14px;
+    border-radius: 20px;
+    font-size: 13.5px;
+    text-decoration: none;
+    color: var(--text-secondary);
+    background: var(--card);
+    border: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .filters a:hover { color: var(--text); }
+  .filters a.aan {
+    background: var(--primary-soft);
+    border-color: var(--primary);
+    color: var(--primary);
+    font-weight: 500;
+  }
+  @media (pointer: coarse), (max-width: 620px) {
+    .filters a { padding: 11px 16px; }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     * { transition: none !important; animation: none !important; }
   }
@@ -306,6 +377,18 @@
   {% endwith %}
   {% block content %}{% endblock %}
 </main>
+
+<script>
+  // Bevestiging vragen voor onomkeerbare acties. De vraag staat in een
+  // data-attribuut en niet in de HTML-regel zelf: een apostrof in een naam
+  // ("Anne d'Hondt") brak anders de code, waarna er zonder vragen werd verwijderd.
+  document.addEventListener('submit', function (e) {
+    var vraag = e.target.dataset ? e.target.dataset.bevestig : null;
+    if (vraag && !window.confirm(vraag)) {
+      e.preventDefault();
+    }
+  });
+</script>
 
 </body>
 </html>

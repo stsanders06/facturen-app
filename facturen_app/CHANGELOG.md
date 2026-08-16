@@ -1,5 +1,70 @@
 # Changelog
 
+## 1.10.0
+
+De hele app is nagelopen op fouten, op de weergave op een telefoon en op
+kwetsbaarheden. Wat daaruit kwam, is hier opgelost.
+
+### Rechtgezet
+
+- **Factuurnummers liepen terug na het verwijderen van een rekening.** Het volgende
+  nummer werd geteld op het aantal rekeningen in plaats van op het hoogste nummer, dus
+  na een verwijdering kreeg een nieuwe rekening een nummer dat al bestond — en omdat de
+  PDF naar het nummer heet, werd de PDF van de oude rekening overschreven. Er wordt nu
+  doorgeteld op het hoogste nummer. Staan er al dubbele nummers in je administratie, dan
+  worden die bij de eerste start hersteld: de oudste houdt zijn nummer, de nieuwere
+  krijgt een vrij nummer, en alle PDF's worden opnieuw getekend. Je krijgt daar een
+  melding van te zien.
+- **Een naam met een apostrof ('t Huys, d'Hondt) brak de bevestigingsvraag**, waardoor
+  een klant of klus zonder enige vraag werd verwijderd zodra je op Verwijderen klikte.
+- **Mislukt mailen gaf een lege foutpagina.** Nu krijg je te lezen wat er misgaat:
+  server niet gevonden, wachtwoord geweigerd, afzender niet toegestaan, en zo verder.
+  Bij "direct mailen na opslaan" blijft de rekening gewoon bewaard.
+- **PDF's van verwijderde rekeningen bleven als los bestand achter.** Die gaan nu mee.
+- **Een logo dat niet op de rekening getekend kan worden** (een HEIC-foto van een
+  iPhone, een SVG) werd geaccepteerd waarna het logo stilletjes van de factuur verdween.
+  Zo'n bestand wordt nu geweigerd met uitleg.
+- **Dezelfde uren konden twee keer op een rekening.** Gefactureerde dagen worden nu
+  vastgelegd bij die rekening: de keuzelijst toont alleen nog wat openstaat, en op de
+  kluspagina zie je bij zo'n dag het rekeningnummer staan. Verwijder je de rekening, dan
+  komen de uren weer vrij.
+- Een klus hield een verwijderde klant vast; een rekening zonder regels kon worden
+  aangemaakt; een onleesbare datum werd rauw opgeslagen. Alle drie opgelost.
+- Bij het bewerken van een betaalde rekening verschijnt een waarschuwing.
+
+### Op de telefoon
+
+- De kopbalk was 101 pixels hoog en nam twee regels; nu 49 pixels op één regel.
+- **Verwijderen lag vier pixels naast Betaald**, allebei 30 pixels hoog. Alle knoppen
+  zijn nu minstens 44 pixels (de richtlijn van Apple en Google) en Verwijderen staat
+  apart, aan de andere kant.
+- Een gewerkte dag was een blok van zo'n 300 pixels; dat is gehalveerd. De kolomkoppen
+  staan één keer boven de lijst in plaats van bij elke regel, en het kruisje om een dag
+  te verwijderen staat niet meer verweesd op een eigen regel.
+
+### Makkelijker
+
+- Bovenaan de rekeningen staat wat er **openstaat** en wat er dit jaar is gefactureerd,
+  met knoppen om te filteren op alles, openstaand of betaald.
+- Uren worden **automatisch bewaard** zodra je een veld verlaat; je hoeft niet meer per
+  dag op Opslaan te klikken.
+- De Uren-tab toont hoeveel uur er in totaal nog niet gefactureerd is.
+- Kies je een klus bij een nieuwe rekening, dan wordt de klant van die klus meteen
+  ingevuld. Op de klantpagina staan nu ook zijn klussen.
+- **Mailen vraagt om een bevestiging**, met het e-mailadres erbij.
+- Op de rekening zelf staat nu "Rekening" in plaats van "Factuur".
+- Periodes lezen korter: "10 – 12 aug 2026" in plaats van "10 aug 2026 t/m 12 aug 2026".
+
+### Veiligheid
+
+- Opdrachten van andere websites worden geweigerd: elk formulier krijgt een kenmerk mee
+  dat gecontroleerd wordt. Zonder dat kon elke site die je bezocht in de achtergrond een
+  rekening laten verwijderen, omdat poort 8099 geen wachtwoord heeft.
+- Uploads zijn begrensd op 8 MB, zodat de opslag van Home Assistant niet vol te
+  schrijven is via het logoveld.
+- Flask, Werkzeug, waitress en reportlab zijn bijgewerkt. Daarmee zijn acht bekende
+  kwetsbaarheden weg, waaronder twee in de webserver zelf.
+
 ## 1.9.0
 
 - Nieuw tabblad **Uren**. Je maakt een klus aan (met eventueel een klant en een
