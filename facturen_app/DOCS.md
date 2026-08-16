@@ -50,6 +50,22 @@ van Home Assistant nog, die wél achter je HA-login zit.
 3. Ga naar **Nieuw** om een rekening te maken: klantgegevens, regels voor materiaal en
    arbeid, betaalmethode kiezen. Bij opslaan wordt automatisch een PDF gegenereerd.
 
+## Uren bijhouden
+
+Onder het tabblad **Uren** maak je een klus aan, bijvoorbeeld "badkamer Kerkstraat". Geef
+er eventueel een klant en een uurtarief bij. Op de kluspagina zet je per gewerkte dag een
+regel neer: de datum, van hoe laat tot hoe laat en een notitie voor jezelf. De uren worden
+opgeteld; werk je door tot na middernacht, dan telt dat gewoon door.
+
+Ga je de klus factureren, kies hem dan bij een nieuwe rekening onder **Regels** bij "Uren
+van een klus toevoegen". Er komt één arbeidsregel op de rekening met het totaal aantal
+uren maal het uurtarief. De losse dagen en je notities blijven op het Uren-tabblad en
+komen dus niet op de factuur te staan. Vanaf de kluspagina kan het ook andersom, met de
+knop **Op rekening zetten**.
+
+Een klus die klaar is zet je op afgerond. Hij zakt dan naar onderen in de lijst, maar de
+uren blijven bewaard.
+
 ## Data en back-up
 
 Alle data (database, PDF's, logo) staat in de persistente `/data` map van de add-on.

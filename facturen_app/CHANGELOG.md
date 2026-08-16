@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.9.0
+
+- Nieuw tabblad **Uren**. Je maakt een klus aan (met eventueel een klant en een
+  uurtarief) en houdt daar per dag bij hoelang je hebt gewerkt: datum, van-tot en een
+  notitie voor jezelf. De uren worden vanzelf opgeteld; een eindtijd na middernacht
+  telt gewoon door.
+- Gewerkte dagen zijn direct in de lijst aan te passen of te verwijderen, en terwijl je
+  tijden intikt zie je meteen hoeveel uur dat is.
+- Klussen zijn af te ronden; afgeronde klussen zakken naar onderen maar blijven staan.
+- Bij een rekening kies je onder **Regels** een klus om de uren toe te voegen. Er komt
+  één arbeidsregel op met het totaal aantal uren maal het uurtarief — de losse dagen
+  blijven op het Uren-tabblad en komen dus niet op de factuur. Vanaf een klus kun je met
+  **Op rekening zetten** ook meteen een rekening beginnen.
+- Een rekening die per ongeluk op betaald staat, zet je met **Toch niet betaald** weer
+  open. Hij komt terug op de status van daarvoor: concept of verzonden.
+
 ## 1.8.0
 
 - Onderaan elke rekening staat nu in kleine letters: "Deze factuur is vrijgesteld van btw

@@ -59,6 +59,13 @@
     font-variant-numeric: tabular-nums;
     letter-spacing: -.02em;
   }
+  .urenkiezer {
+    background: var(--bg);
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+    margin-bottom: 18px;
+  }
+  .urenkiezer .hint { margin-top: 2px; }
   .checkregel { display: flex; align-items: flex-start; gap: 10px; }
   .checkregel[hidden] { display: none; }
   .checkregel input { width: auto; margin-top: 3px; flex: none; }
@@ -139,6 +146,25 @@
       <p>Materiaal reken je per stuk. Arbeid kan per uur, per dag of als vaste prijs
         voor de hele klus.</p>
     </div>
+
+    {% if klussen %}
+    <div class="field urenkiezer">
+      <label for="klus_uren">Uren van een klus toevoegen</label>
+      <select id="klus_uren" data-vooraf="{{ vooraf_klus or '' }}">
+        <option value="">— Kies een klus —</option>
+        {% for kl in klussen %}
+        <option value="{{ kl.id }}"
+                data-naam="{{ kl.naam }}"
+                data-uren="{{ kl.uren }}"
+                data-tarief="{{ '%.2f'|format(kl.uurtarief or 0) }}">
+          {{ kl.naam }} · {{ kl.uren|uren }} u{% if kl.klant_naam %} · {{ kl.klant_naam }}{% endif %}
+        </option>
+        {% endfor %}
+      </select>
+      <p class="hint">Zet het totaal aantal uren als één arbeidsregel op de rekening;
+        de losse dagen blijven op de <a class="link" href="{{ url_for('klussen') }}">Uren-tab</a>.</p>
+    </div>
+    {% endif %}
 
     <div id="regels">
       {% for r in regels or [none] %}
@@ -240,16 +266,54 @@
       });
     }
 
-    document.getElementById('regel-erbij').addEventListener('click', function () {
+    function regelErbij() {
       var nieuw = container.children[0].cloneNode(true);
       nieuw.querySelectorAll('input').forEach(function (veld) {
         veld.value = veld.name === 'aantal' ? '1' : '';
       });
       container.appendChild(nieuw);
       pasRegelAan(nieuw);
-      nieuw.querySelector('[name="omschrijving"]').focus();
+      return nieuw;
+    }
+
+    document.getElementById('regel-erbij').addEventListener('click', function () {
+      regelErbij().querySelector('[name="omschrijving"]').focus();
       berekenTotaal();
     });
+
+    // Uren van een klus komen als één arbeidsregel op de rekening: het totaal
+    // aantal uren maal het uurtarief van die klus, niet elke dag apart.
+    var klusKeuze = document.getElementById('klus_uren');
+    if (klusKeuze) {
+      function zetKlusOpRekening(optie) {
+        if (!optie || !optie.value) return;
+        var regel = regelErbij();
+        regel.querySelector('.soort').value = 'arbeid_uur';
+        pasRegelAan(regel);
+        regel.querySelector('[name="omschrijving"]').value = optie.dataset.naam || '';
+        regel.querySelector('[name="aantal"]').value = optie.dataset.uren || '0';
+        regel.querySelector('[name="prijs"]').value = optie.dataset.tarief || '';
+
+        // Een lege beginregel is dan alleen nog in de weg.
+        var eerste = container.children[0];
+        if (container.children.length > 1 && !eerste.querySelector('[name="omschrijving"]').value
+            && !eerste.querySelector('[name="prijs"]').value) {
+          eerste.remove();
+        }
+        klusKeuze.value = '';
+        berekenTotaal();
+      }
+
+      klusKeuze.addEventListener('change', function () {
+        zetKlusOpRekening(klusKeuze.options[klusKeuze.selectedIndex]);
+      });
+
+      // Kom je vanaf een klus binnen ("Op rekening zetten"), dan staat hij er al op.
+      var vooraf = klusKeuze.dataset.vooraf;
+      if (vooraf) {
+        zetKlusOpRekening(klusKeuze.querySelector('option[value="' + vooraf + '"]'));
+      }
+    }
 
     container.addEventListener('change', function (e) {
       if (!e.target.classList.contains('soort')) return;

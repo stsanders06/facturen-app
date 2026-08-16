@@ -1,0 +1,215 @@
+{% extends "_layout.html" %}
+{% block title %}{{ klus.naam }}{% endblock %}
+{% block head %}
+<style>
+  .tegels {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+  }
+  .tegel small {
+    display: block;
+    font-size: 12px;
+    color: var(--text-secondary);
+    letter-spacing: .02em;
+  }
+  .tegel b {
+    display: block;
+    font-size: 22px;
+    font-weight: 500;
+    margin-top: 2px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.02em;
+  }
+  .tegel.geld b { color: var(--info); }
+
+  /* Eén rij per gewerkte dag; de velden zijn meteen aanpasbaar. */
+  .dag {
+    display: grid;
+    grid-template-columns: 150px 100px 100px 1fr 62px auto 34px;
+    gap: 10px;
+    align-items: end;
+    padding-bottom: 12px;
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--divider);
+  }
+  .dag:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+  .dag .uitkomst {
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+    text-align: right;
+    padding-bottom: 10px;
+    white-space: nowrap;
+  }
+  .dag .weg {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 20px;
+    line-height: 1;
+    padding: 9px 0;
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+  }
+  .dag .weg:hover { color: var(--danger); background: var(--danger-soft); }
+  .dag form { display: contents; }
+  /* Op smalle schermen wordt elke dag een blokje in plaats van een rij */
+  @media (max-width: 720px) {
+    .dag {
+      grid-template-columns: 1fr 1fr;
+      background: var(--bg);
+      border-radius: var(--radius-sm);
+      padding: 12px;
+      border-bottom: none;
+    }
+    .dag .datum-veld, .dag .notitie-veld { grid-column: 1 / -1; }
+    .dag .uitkomst { text-align: left; padding-bottom: 0; align-self: center; }
+  }
+  .kop-acties { display: flex; gap: 8px; flex-wrap: wrap; }
+  .lege-lijst { color: var(--text-secondary); font-size: 14px; margin: 0; }
+</style>
+{% endblock %}
+{% block content %}
+
+<div class="page-head">
+  <h1>{{ klus.naam }}</h1>
+  <div class="kop-acties">
+    <a class="btn btn-outline" href="{{ url_for('klus_bewerk', klus_id=klus.id) }}">Bewerken</a>
+    <a class="btn" href="{{ url_for('nieuw') }}?klus={{ klus.id }}{% if klus.klant_id %}&klant={{ klus.klant_id }}{% endif %}">
+      Op rekening zetten</a>
+  </div>
+</div>
+
+<div class="cards">
+
+  <section class="card">
+    <div class="tegels">
+      <div class="tegel">
+        <small>Totaal uren</small>
+        <b>{{ totaal|uren }}</b>
+      </div>
+      <div class="tegel">
+        <small>Gewerkte dagen</small>
+        <b>{{ dagen|length }}</b>
+      </div>
+      <div class="tegel geld">
+        <small>{% if klus.uurtarief %}Tegen &euro; {{ klus.uurtarief|bedrag }} per uur{% else %}Geen uurtarief{% endif %}</small>
+        <b>&euro; {{ bedrag|bedrag }}</b>
+      </div>
+    </div>
+    <p class="hint" style="margin-top:14px">
+      {% if klus.klant_naam %}Klant: <a class="link" href="{{ url_for('klant', klant_id=klus.klant_id) }}">{{ klus.klant_naam }}</a> ·
+      {% endif %}
+      <span class="chip chip-{{ klus.status }}">
+        {% if klus.status == 'afgerond' %}Afgerond{% else %}Lopend{% endif %}</span>
+      {% if klus.notitie %}<br>{{ klus.notitie }}{% endif %}
+    </p>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Dag erbij</h2>
+      <p>Vul in wanneer je hebt gewerkt. Loopt de eindtijd over middernacht, dan telt
+        dat gewoon door.</p>
+    </div>
+    <form method="post" action="{{ url_for('dag_erbij', klus_id=klus.id) }}">
+      <div class="dag">
+        <div class="field datum-veld">
+          <label for="datum">Datum</label>
+          <input type="date" id="datum" name="datum" value="{{ vandaag }}">
+        </div>
+        <div class="field">
+          <label for="van">Van</label>
+          <input type="time" id="van" name="van" required>
+        </div>
+        <div class="field">
+          <label for="tot">Tot</label>
+          <input type="time" id="tot" name="tot" required>
+        </div>
+        <div class="field notitie-veld">
+          <label for="notitie">Notitie</label>
+          <input type="text" id="notitie" name="notitie" placeholder="Bijv. leiding vervangen">
+        </div>
+        <span class="uitkomst">0 u</span>
+        <button type="submit" class="btn">Toevoegen</button>
+        <span></span>
+      </div>
+    </form>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Gewerkte dagen</h2>
+      {% if not dagen %}<p class="lege-lijst">Nog geen uren bijgehouden voor deze klus.</p>{% endif %}
+    </div>
+
+    {% for d in dagen %}
+    <div class="dag">
+      <form method="post" action="{{ url_for('dag_bewerk', uur_id=d.id) }}">
+        <div class="field datum-veld">
+          <label for="datum-{{ d.id }}">Datum</label>
+          <input type="date" id="datum-{{ d.id }}" name="datum" value="{{ d.datum }}">
+        </div>
+        <div class="field">
+          <label for="van-{{ d.id }}">Van</label>
+          <input type="time" id="van-{{ d.id }}" name="van" value="{{ d.van }}" required>
+        </div>
+        <div class="field">
+          <label for="tot-{{ d.id }}">Tot</label>
+          <input type="time" id="tot-{{ d.id }}" name="tot" value="{{ d.tot }}" required>
+        </div>
+        <div class="field notitie-veld">
+          <label for="notitie-{{ d.id }}">Notitie</label>
+          <input type="text" id="notitie-{{ d.id }}" name="notitie" value="{{ d.notitie }}">
+        </div>
+        <span class="uitkomst">{{ d.uren|uren }} u</span>
+        <button type="submit" class="btn btn-text">Opslaan</button>
+      </form>
+      <form method="post" action="{{ url_for('dag_verwijder', uur_id=d.id) }}"
+            onsubmit="return confirm('Deze dag verwijderen?');">
+        <button type="submit" class="weg" title="Dag verwijderen" aria-label="Dag verwijderen">&times;</button>
+      </form>
+    </div>
+    {% endfor %}
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Klus verwijderen</h2>
+      <p>De bijgehouden uren van deze klus gaan mee. Rekeningen blijven staan.</p>
+    </div>
+    <form method="post" action="{{ url_for('klus_verwijder', klus_id=klus.id) }}"
+          onsubmit="return confirm('Klus {{ klus.naam }} en alle uren verwijderen?');">
+      <button type="submit" class="btn btn-text danger">Verwijderen</button>
+    </form>
+  </section>
+
+</div>
+
+<script>
+  (function () {
+    // Terwijl je tijden intikt meteen laten zien hoeveel uur dat is.
+    function urenTussen(van, tot) {
+      var a = van.split(':'), b = tot.split(':');
+      if (a.length < 2 || b.length < 2) return null;
+      var minuten = (b[0] * 60 + +b[1]) - (a[0] * 60 + +a[1]);
+      if (minuten < 0) minuten += 24 * 60;
+      return Math.round(minuten / 60 * 100) / 100;
+    }
+
+    function toon(rij) {
+      var van = rij.querySelector('[name="van"]').value;
+      var tot = rij.querySelector('[name="tot"]').value;
+      var uitkomst = rij.querySelector('.uitkomst');
+      if (!van || !tot) { uitkomst.textContent = '0 u'; return; }
+      var uren = urenTussen(van, tot);
+      uitkomst.textContent = (uren === null ? 0 : uren).toLocaleString('nl-NL') + ' u';
+    }
+
+    document.querySelectorAll('.dag').forEach(function (rij) {
+      rij.addEventListener('input', function () { toon(rij); });
+    });
+  })();
+</script>
+
+{% endblock %}

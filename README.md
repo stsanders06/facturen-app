@@ -23,7 +23,7 @@ Of handmatig:
 
 | Add-on | Beschrijving |
 | --- | --- |
-| [Facturen App](./facturen_app) | Rekeningen maken, PDF genereren en per e-mail versturen |
+| [Facturen App](./facturen_app) | Uren per klus bijhouden, rekeningen maken, PDF genereren en per e-mail versturen |
 
 Zie [de documentatie](./facturen_app/DOCS.md) voor installatie en gebruik.
 

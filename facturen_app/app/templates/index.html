@@ -106,6 +106,11 @@
         <form method="post" action="{{ url_for('markeer_betaald', factuur_id=f.id) }}">
           <button type="submit" class="btn btn-text">Betaald</button>
         </form>
+        {% else %}
+        <form method="post" action="{{ url_for('markeer_niet_betaald', factuur_id=f.id) }}">
+          <button type="submit" class="btn btn-text"
+                  title="Zet de rekening terug op openstaand">Toch niet betaald</button>
+        </form>
         {% endif %}
         <form method="post" action="{{ url_for('verwijder', factuur_id=f.id) }}"
               onsubmit="return confirm('Rekening {{ f.nummer }} verwijderen?');">

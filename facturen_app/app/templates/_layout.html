@@ -252,6 +252,8 @@
   .chip-concept { background: var(--neutral-soft); color: var(--neutral); }
   .chip-verzonden { background: var(--info-soft); color: var(--info); }
   .chip-betaald { background: var(--ok-soft); color: var(--ok); }
+  .chip-open { background: var(--info-soft); color: var(--info); }
+  .chip-afgerond { background: var(--neutral-soft); color: var(--neutral); }
 
   /* ---------- Melding ---------- */
   .flash {
@@ -287,6 +289,7 @@
     </a>
     <nav class="tabs">
       <a href="{{ url_for('index') }}" {% if actief in ['index', 'nieuw'] %}class="active"{% endif %}>Rekeningen</a>
+      <a href="{{ url_for('klussen') }}" {% if actief == 'klussen' %}class="active"{% endif %}>Uren</a>
       <a href="{{ url_for('klanten') }}" {% if actief == 'klanten' %}class="active"{% endif %}>Klanten</a>
       <a href="{{ url_for('instellingen') }}" {% if actief == 'instellingen' %}class="active"{% endif %}>Instellingen</a>
     </nav>

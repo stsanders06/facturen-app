@@ -109,6 +109,16 @@
       </div>
       <div class="rechts">
         <span class="bedrag">&euro; {{ f.totaal|bedrag }}</span>
+        {% if f.status == 'betaald' %}
+        <form method="post" action="{{ url_for('markeer_niet_betaald', factuur_id=f.id) }}">
+          <button type="submit" class="btn btn-text"
+                  title="Zet de rekening terug op openstaand">Toch niet betaald</button>
+        </form>
+        {% else %}
+        <form method="post" action="{{ url_for('markeer_betaald', factuur_id=f.id) }}">
+          <button type="submit" class="btn btn-text">Betaald</button>
+        </form>
+        {% endif %}
         <a class="btn btn-text" href="{{ url_for('bewerk', factuur_id=f.id) }}">Bewerken</a>
       </div>
     </div>

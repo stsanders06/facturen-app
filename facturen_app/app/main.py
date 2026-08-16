@@ -146,6 +146,26 @@ def filter_datum_nl(waarde):
         return waarde
 
 
+def duur_in_uren(van, tot):
+    """Aantal uren tussen twee kloktijden, als kommagetal. Een tijd die vóór de
+    starttijd ligt, telt als de volgende ochtend — handig bij een late klus."""
+    try:
+        van_u, van_m = (int(deel) for deel in str(van).split(":")[:2])
+        tot_u, tot_m = (int(deel) for deel in str(tot).split(":")[:2])
+    except ValueError:
+        return 0.0
+    minuten = (tot_u * 60 + tot_m) - (van_u * 60 + van_m)
+    if minuten < 0:
+        minuten += 24 * 60
+    return round(minuten / 60, 2)
+
+
+@app.template_filter("uren")
+def filter_uren(waarde):
+    """8.5 wordt '8,5' en 8.0 wordt '8'."""
+    return f"{float(waarde or 0):g}".replace(".", ",")
+
+
 def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -204,6 +224,26 @@ def init_db():
             telefoon TEXT DEFAULT '',
             notitie TEXT DEFAULT ''
         );
+
+        CREATE TABLE IF NOT EXISTS klussen (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            naam TEXT NOT NULL,
+            klant_id INTEGER,
+            uurtarief REAL DEFAULT 0,
+            notitie TEXT DEFAULT '',
+            status TEXT DEFAULT 'open',
+            gestart TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS uren (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            klus_id INTEGER NOT NULL,
+            datum TEXT NOT NULL,
+            van TEXT NOT NULL,
+            tot TEXT NOT NULL,
+            notitie TEXT DEFAULT '',
+            FOREIGN KEY (klus_id) REFERENCES klussen (id)
+        );
         """
     )
     conn.execute("INSERT OR IGNORE INTO settings (id) VALUES (1)")
@@ -218,6 +258,11 @@ def init_db():
     conn.execute("UPDATE regels SET type='arbeid_uur' WHERE type='arbeid'")
 
     factuurkolommen = {rij["name"] for rij in conn.execute("PRAGMA table_info(facturen)")}
+    # Wat de rekening was voordat hij op betaald werd gezet, zodat "toch niet betaald"
+    # hem terugzet op concept of verzonden in plaats van te gokken.
+    if "status_voor_betaald" not in factuurkolommen:
+        conn.execute("ALTER TABLE facturen ADD COLUMN status_voor_betaald TEXT DEFAULT ''")
+
     if "klant_id" not in factuurkolommen:
         conn.execute("ALTER TABLE facturen ADD COLUMN klant_id INTEGER")
 
@@ -431,6 +476,253 @@ def klant_verwijder(klant_id):
     return redirect(url_for("klanten"))
 
 
+def klus_met_uren(conn, klus_id):
+    """De klus, zijn dagen en de opgetelde uren. Geeft None als de klus niet bestaat."""
+    klus = conn.execute(
+        """SELECT kl.*, k.naam AS klant_naam FROM klussen kl
+           LEFT JOIN klanten k ON k.id = kl.klant_id WHERE kl.id=?""",
+        (klus_id,),
+    ).fetchone()
+    if klus is None:
+        return None, [], 0.0
+
+    dagen = []
+    totaal = 0.0
+    for rij in conn.execute(
+        "SELECT * FROM uren WHERE klus_id=? ORDER BY datum, van", (klus_id,)
+    ):
+        dag = dict(rij)
+        dag["uren"] = duur_in_uren(rij["van"], rij["tot"])
+        totaal += dag["uren"]
+        dagen.append(dag)
+    return klus, dagen, round(totaal, 2)
+
+
+def klussenlijst():
+    """Alle klussen met hun opgetelde uren en de periode waarin is gewerkt.
+    Lopende klussen staan bovenaan."""
+    conn = get_db()
+    klussen = conn.execute(
+        """SELECT kl.*, k.naam AS klant_naam FROM klussen kl
+           LEFT JOIN klanten k ON k.id = kl.klant_id
+           ORDER BY (kl.status = 'afgerond'), kl.id DESC"""
+    ).fetchall()
+    uren = conn.execute("SELECT * FROM uren ORDER BY datum").fetchall()
+    conn.close()
+
+    per_klus = {}
+    for rij in uren:
+        gegevens = per_klus.setdefault(
+            rij["klus_id"], {"uren": 0.0, "dagen": 0, "van": None, "tot": None}
+        )
+        gegevens["uren"] += duur_in_uren(rij["van"], rij["tot"])
+        gegevens["dagen"] += 1
+        if gegevens["van"] is None:
+            gegevens["van"] = rij["datum"]
+        gegevens["tot"] = rij["datum"]
+
+    lijst = []
+    for kl in klussen:
+        gegevens = per_klus.get(kl["id"], {"uren": 0.0, "dagen": 0, "van": None, "tot": None})
+        rij = dict(kl)
+        rij["uren"] = round(gegevens["uren"], 2)
+        rij["dagen"] = gegevens["dagen"]
+        rij["eerste_datum"] = gegevens["van"]
+        rij["laatste_datum"] = gegevens["tot"]
+        rij["bedrag"] = round(rij["uren"] * (kl["uurtarief"] or 0), 2)
+        lijst.append(rij)
+    return lijst
+
+
+def klus_uit_form(form):
+    klant = (form.get("klant_id") or "").strip()
+    try:
+        tarief = float((form.get("uurtarief") or "0").replace(",", "."))
+    except ValueError:
+        tarief = 0.0
+    return (
+        form.get("naam", "").strip(),
+        int(klant) if klant.isdigit() else None,
+        tarief,
+        form.get("notitie", "").strip(),
+    )
+
+
+@app.route("/klussen")
+def klussen():
+    return render_template("klussen.html", klussen=klussenlijst(), actief="klussen")
+
+
+@app.route("/klussen/nieuw", methods=["GET", "POST"])
+def klus_nieuw():
+    if request.method == "POST":
+        naam, klant_id, uurtarief, notitie = klus_uit_form(request.form)
+        if not naam:
+            flash("Geef de klus een naam om hem op te slaan.")
+            return redirect(url_for("klus_nieuw"))
+        conn = get_db()
+        cur = conn.execute(
+            """INSERT INTO klussen (naam, klant_id, uurtarief, notitie, status, gestart)
+               VALUES (?, ?, ?, ?, 'open', ?)""",
+            (naam, klant_id, uurtarief, notitie, date.today().isoformat()),
+        )
+        conn.commit()
+        klus_id = cur.lastrowid
+        conn.close()
+        flash(f"Klus {naam} aangemaakt. Zet hieronder je eerste dag erbij.")
+        return redirect(url_for("klus", klus_id=klus_id))
+
+    return render_template("klus_form.html", klus=None, klanten=klantenlijst(),
+                           actief="klussen")
+
+
+@app.route("/klus/<int:klus_id>")
+def klus(klus_id):
+    conn = get_db()
+    gegevens, dagen, totaal = klus_met_uren(conn, klus_id)
+    conn.close()
+    if gegevens is None:
+        abort(404)
+    return render_template(
+        "klus.html", klus=gegevens, dagen=dagen, totaal=totaal,
+        bedrag=round(totaal * (gegevens["uurtarief"] or 0), 2),
+        vandaag=date.today().isoformat(), actief="klussen",
+    )
+
+
+@app.route("/klus/<int:klus_id>/bewerk", methods=["GET", "POST"])
+def klus_bewerk(klus_id):
+    conn = get_db()
+    gegevens = conn.execute("SELECT * FROM klussen WHERE id=?", (klus_id,)).fetchone()
+    if gegevens is None:
+        conn.close()
+        abort(404)
+
+    if request.method == "POST":
+        naam, klant_id, uurtarief, notitie = klus_uit_form(request.form)
+        if not naam:
+            conn.close()
+            flash("Geef de klus een naam om hem op te slaan.")
+            return redirect(url_for("klus_bewerk", klus_id=klus_id))
+        conn.execute(
+            "UPDATE klussen SET naam=?, klant_id=?, uurtarief=?, notitie=? WHERE id=?",
+            (naam, klant_id, uurtarief, notitie, klus_id),
+        )
+        conn.commit()
+        conn.close()
+        flash("Klus bijgewerkt.")
+        return redirect(url_for("klus", klus_id=klus_id))
+
+    conn.close()
+    return render_template("klus_form.html", klus=gegevens, klanten=klantenlijst(),
+                           actief="klussen")
+
+
+@app.route("/klus/<int:klus_id>/status", methods=["POST"])
+def klus_status(klus_id):
+    """Wisselt tussen lopend en afgerond; afgeronde klussen zakken naar onderen."""
+    conn = get_db()
+    gegevens = conn.execute("SELECT status FROM klussen WHERE id=?", (klus_id,)).fetchone()
+    if gegevens is None:
+        conn.close()
+        abort(404)
+    nieuw_status = "open" if gegevens["status"] == "afgerond" else "afgerond"
+    conn.execute("UPDATE klussen SET status=? WHERE id=?", (nieuw_status, klus_id))
+    conn.commit()
+    conn.close()
+    flash("Klus weer op lopend gezet." if nieuw_status == "open" else "Klus afgerond.")
+    return redirect(request.referrer or url_for("klussen"))
+
+
+@app.route("/klus/<int:klus_id>/verwijder", methods=["POST"])
+def klus_verwijder(klus_id):
+    conn = get_db()
+    gegevens = conn.execute("SELECT naam FROM klussen WHERE id=?", (klus_id,)).fetchone()
+    if gegevens is None:
+        conn.close()
+        abort(404)
+    conn.execute("DELETE FROM uren WHERE klus_id=?", (klus_id,))
+    conn.execute("DELETE FROM klussen WHERE id=?", (klus_id,))
+    conn.commit()
+    conn.close()
+    flash(f"Klus {gegevens['naam']} en de bijbehorende uren zijn verwijderd.")
+    return redirect(url_for("klussen"))
+
+
+@app.route("/klus/<int:klus_id>/dag", methods=["POST"])
+def dag_erbij(klus_id):
+    """Eén gewerkte dag bij de klus zetten: datum, van-tot en eventueel een notitie."""
+    conn = get_db()
+    bestaat = conn.execute("SELECT id FROM klussen WHERE id=?", (klus_id,)).fetchone()
+    if bestaat is None:
+        conn.close()
+        abort(404)
+
+    van = request.form.get("van", "").strip()
+    tot = request.form.get("tot", "").strip()
+    if not van or not tot:
+        conn.close()
+        flash("Vul een begin- en eindtijd in om de dag op te slaan.")
+        return redirect(url_for("klus", klus_id=klus_id))
+
+    conn.execute(
+        "INSERT INTO uren (klus_id, datum, van, tot, notitie) VALUES (?, ?, ?, ?, ?)",
+        (
+            klus_id,
+            request.form.get("datum") or date.today().isoformat(),
+            van,
+            tot,
+            request.form.get("notitie", "").strip(),
+        ),
+    )
+    conn.commit()
+    conn.close()
+    return redirect(url_for("klus", klus_id=klus_id))
+
+
+@app.route("/uur/<int:uur_id>/bewerk", methods=["POST"])
+def dag_bewerk(uur_id):
+    conn = get_db()
+    gegevens = conn.execute("SELECT klus_id FROM uren WHERE id=?", (uur_id,)).fetchone()
+    if gegevens is None:
+        conn.close()
+        abort(404)
+
+    van = request.form.get("van", "").strip()
+    tot = request.form.get("tot", "").strip()
+    if not van or not tot:
+        conn.close()
+        flash("Vul een begin- en eindtijd in om de dag op te slaan.")
+        return redirect(url_for("klus", klus_id=gegevens["klus_id"]))
+
+    conn.execute(
+        "UPDATE uren SET datum=?, van=?, tot=?, notitie=? WHERE id=?",
+        (
+            request.form.get("datum") or date.today().isoformat(),
+            van,
+            tot,
+            request.form.get("notitie", "").strip(),
+            uur_id,
+        ),
+    )
+    conn.commit()
+    conn.close()
+    return redirect(url_for("klus", klus_id=gegevens["klus_id"]))
+
+
+@app.route("/uur/<int:uur_id>/verwijder", methods=["POST"])
+def dag_verwijder(uur_id):
+    conn = get_db()
+    gegevens = conn.execute("SELECT klus_id FROM uren WHERE id=?", (uur_id,)).fetchone()
+    if gegevens is None:
+        conn.close()
+        abort(404)
+    conn.execute("DELETE FROM uren WHERE id=?", (uur_id,))
+    conn.commit()
+    conn.close()
+    return redirect(url_for("klus", klus_id=gegevens["klus_id"]))
+
+
 def lees_regels(form):
     """Haalt de ingevulde regels uit het formulier en telt het totaal op.
     Regels zonder omschrijving worden overgeslagen."""
@@ -456,6 +748,11 @@ def lees_regels(form):
         totaal += subtotaal
         regels.append((o, t, a, p, subtotaal))
     return regels, totaal
+
+
+def geboekte_klussen():
+    """De klussen waar uren op staan, om als één regel op een rekening te zetten."""
+    return [k for k in klussenlijst() if k["uren"] > 0]
 
 
 def bepaal_klant(conn, form):
@@ -537,6 +834,7 @@ def nieuw():
     return render_template(
         "nieuw.html", vandaag=date.today().isoformat(), actief="nieuw",
         factuur=None, regels=[], klanten=klantenlijst(), gekozen_klant=gekozen,
+        klussen=geboekte_klussen(), vooraf_klus=request.args.get("klus", ""),
     )
 
 
@@ -584,7 +882,8 @@ def bewerk(factuur_id):
     conn.close()
     return render_template("nieuw.html", vandaag=factuur["datum"], actief="nieuw",
                            factuur=factuur, regels=regels, klanten=klantenlijst(),
-                           gekozen_klant=None)
+                           gekozen_klant=None, klussen=geboekte_klussen(),
+                           vooraf_klus="")
 
 
 def maak_pdf(factuur_id):
@@ -915,10 +1214,39 @@ def verstuur(factuur_id):
 @app.route("/factuur/<int:factuur_id>/betaald", methods=["POST"])
 def markeer_betaald(factuur_id):
     conn = get_db()
-    conn.execute("UPDATE facturen SET status='betaald' WHERE id=?", (factuur_id,))
+    huidig = conn.execute("SELECT status FROM facturen WHERE id=?", (factuur_id,)).fetchone()
+    if huidig is None:
+        conn.close()
+        abort(404)
+    if huidig["status"] != "betaald":
+        # Onthoud waar de rekening vandaan komt, zodat terugzetten geen gok is.
+        conn.execute(
+            "UPDATE facturen SET status='betaald', status_voor_betaald=? WHERE id=?",
+            (huidig["status"], factuur_id),
+        )
+        conn.commit()
+    conn.close()
+    return redirect(request.referrer or url_for("index"))
+
+
+@app.route("/factuur/<int:factuur_id>/niet-betaald", methods=["POST"])
+def markeer_niet_betaald(factuur_id):
+    """Toch niet betaald: terug naar de status van vóór het afvinken."""
+    conn = get_db()
+    factuur = conn.execute(
+        "SELECT nummer, status_voor_betaald FROM facturen WHERE id=?", (factuur_id,)
+    ).fetchone()
+    if factuur is None:
+        conn.close()
+        abort(404)
+    terug = factuur["status_voor_betaald"] or "concept"
+    conn.execute(
+        "UPDATE facturen SET status=?, status_voor_betaald='' WHERE id=?", (terug, factuur_id)
+    )
     conn.commit()
     conn.close()
-    return redirect(url_for("index"))
+    flash(f"Rekening {factuur['nummer']} staat weer open.")
+    return redirect(request.referrer or url_for("index"))
 
 
 @app.route("/factuur/<int:factuur_id>/verwijder", methods=["POST"])

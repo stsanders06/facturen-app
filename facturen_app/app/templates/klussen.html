@@ -1,0 +1,115 @@
+{% extends "_layout.html" %}
+{% block title %}Uren{% endblock %}
+{% block head %}
+<style>
+  /* Zelfde opzet als de rekeningen: de hele kaart opent de klus. */
+  .klus {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 4px 16px;
+    align-items: baseline;
+    position: relative;
+    transition: box-shadow .15s ease;
+  }
+  .klus:hover { box-shadow: var(--shadow-raised); }
+  .klus:has(.kaartlink:focus-visible) {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+  .kaartlink {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    border-radius: var(--radius);
+    outline: none;
+  }
+  .klus .acties { position: relative; z-index: 2; }
+  .klus .naam {
+    font-size: 16px;
+    font-weight: 500;
+    letter-spacing: -.01em;
+  }
+  .klus .periode {
+    grid-column: 1;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+  .klus .cijfers {
+    text-align: right;
+    font-size: 13px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+  .klus .cijfers b {
+    display: block;
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  .klus .onderkant {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--divider);
+  }
+  .klus.afgerond .naam { color: var(--text-secondary); }
+  .acties { display: flex; gap: 4px; flex-wrap: wrap; }
+  .acties form { display: contents; }
+</style>
+{% endblock %}
+{% block content %}
+
+<div class="page-head">
+  <h1>Uren</h1>
+  <a class="btn" href="{{ url_for('klus_nieuw') }}">+ Nieuwe klus</a>
+</div>
+
+{% if not klussen %}
+<div class="card empty">
+  <p>Nog geen klussen. Maak er een aan en houd per dag bij hoelang je hebt gewerkt;
+    later zet je het totaal in één keer op een rekening.</p>
+  <a class="btn" href="{{ url_for('klus_nieuw') }}">Klus aanmaken</a>
+</div>
+{% else %}
+<div class="cards">
+  {% for kl in klussen %}
+  <article class="card klus {{ 'afgerond' if kl.status == 'afgerond' }}">
+    <a class="kaartlink" href="{{ url_for('klus', klus_id=kl.id) }}"
+       aria-label="Klus {{ kl.naam }} openen"></a>
+    <div class="naam">{{ kl.naam }}</div>
+    <div class="cijfers">
+      <b>{{ kl.uren|uren }} u</b>
+      {% if kl.uurtarief %}&euro; {{ kl.bedrag|bedrag }}{% else %}geen tarief{% endif %}
+    </div>
+    <div class="periode">
+      {% if kl.klant_naam %}{{ kl.klant_naam }}{% else %}Geen klant{% endif %}
+      {%- if kl.eerste_datum %} · {{ kl.eerste_datum|datum_nl }}
+        {%- if kl.laatste_datum != kl.eerste_datum %} t/m {{ kl.laatste_datum|datum_nl }}{% endif %}
+      {%- endif %}
+    </div>
+    <div class="onderkant">
+      <span class="chip chip-{{ kl.status }}">
+        {% if kl.status == 'afgerond' %}Afgerond{% else %}Lopend{% endif %}
+        {%- if kl.dagen %} · {{ kl.dagen }} dag{{ 'en' if kl.dagen != 1 }}{% endif %}
+      </span>
+      <div class="acties">
+        <a class="btn btn-text" href="{{ url_for('klus', klus_id=kl.id) }}">Uren bijhouden</a>
+        <form method="post" action="{{ url_for('klus_status', klus_id=kl.id) }}">
+          <button type="submit" class="btn btn-text">
+            {% if kl.status == 'afgerond' %}Heropenen{% else %}Afronden{% endif %}
+          </button>
+        </form>
+      </div>
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% endblock %}

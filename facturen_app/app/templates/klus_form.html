@@ -1,0 +1,59 @@
+{% extends "_layout.html" %}
+{% block title %}{% if klus %}{{ klus.naam }} bewerken{% else %}Nieuwe klus{% endif %}{% endblock %}
+{% block head %}
+<style>
+  .indienen { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+</style>
+{% endblock %}
+{% block content %}
+
+<div class="page-head">
+  <h1>{% if klus %}{{ klus.naam }} bewerken{% else %}Nieuwe klus{% endif %}</h1>
+</div>
+
+<form method="post" class="cards">
+
+  <section class="card">
+    <div class="fields">
+      <div class="field">
+        <label for="naam">Naam van de klus</label>
+        <input type="text" id="naam" name="naam" required placeholder="Bijv. badkamer Kerkstraat"
+               value="{{ klus.naam if klus else '' }}">
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="klant_id">Klant</label>
+          <select id="klant_id" name="klant_id">
+            <option value="">— Nog geen klant —</option>
+            {% for k in klanten %}
+            <option value="{{ k.id }}" {% if klus and klus.klant_id == k.id %}selected{% endif %}>{{ k.naam }}</option>
+            {% endfor %}
+          </select>
+          <p class="hint">Handig, maar niet verplicht.</p>
+        </div>
+        <div class="field">
+          <label for="uurtarief">Uurtarief</label>
+          <input type="number" step="any" id="uurtarief" name="uurtarief" placeholder="0,00"
+                 value="{{ '%.2f'|format(klus.uurtarief) if klus and klus.uurtarief else '' }}">
+          <p class="hint">Wordt gebruikt als je de uren op een rekening zet.</p>
+        </div>
+      </div>
+      <div class="field">
+        <label for="notitie">Notitie</label>
+        <textarea id="notitie" name="notitie" rows="2">{{ klus.notitie if klus else '' }}</textarea>
+        <p class="hint">Voor jezelf. Komt niet op de rekening.</p>
+      </div>
+    </div>
+  </section>
+
+  <div class="indienen">
+    <a class="btn btn-outline"
+       href="{% if klus %}{{ url_for('klus', klus_id=klus.id) }}{% else %}{{ url_for('klussen') }}{% endif %}">Annuleren</a>
+    <button type="submit" class="btn">
+      {% if klus %}Wijzigingen opslaan{% else %}Klus aanmaken{% endif %}
+    </button>
+  </div>
+
+</form>
+
+{% endblock %}
