@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.10.8
+
+- De meetpagina is weer verwijderd; die had zijn werk gedaan. Het versienummer blijft
+  onderaan elke pagina staan, zodat je kunt zien of een update is doorgekomen.
+
 ## 1.10.7
 
 - De compensatie voor het uitstekende datum- en tijdveld op de iPhone gebeurt nu door

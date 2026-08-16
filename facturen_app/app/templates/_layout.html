@@ -303,7 +303,6 @@
     font-size: 12px;
     color: var(--text-secondary);
   }
-  .versie a { color: var(--text-secondary); }
 
   .empty { text-align: center; padding: 40px 20px; }
   .empty p { color: var(--text-secondary); margin: 0 0 18px; }
@@ -401,8 +400,7 @@
   {% endwith %}
   {% block content %}{% endblock %}
 
-  <p class="versie">Facturen App {{ versie }} ·
-    <a href="{{ url_for('diagnose') }}">meetpagina</a></p>
+  <p class="versie">Facturen App {{ versie }}</p>
 </main>
 
 <script>
