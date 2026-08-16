@@ -76,6 +76,9 @@
   }
   .bewaard[hidden] { display: none; }
   .breek { display: none; }
+  /* Op een breed scherm valt het vakje om Van en Tot weg, zodat de kolommen
+     van het raster blijven werken. */
+  .tijd-paar { display: contents; }
 
   /* Al gefactureerde dagen zijn niet meer aan te passen: het bedrag staat op een
      rekening die de klant al heeft. */
@@ -108,29 +111,39 @@
     .dag > *, .dag form > * { order: 9; }
     /* Niet laten meegroeien: anders wordt het datumveld zo'n 330px breed met de
        datum eenzaam in het midden. Het neemt nu de breedte die het nodig heeft. */
-    .dag .datum-veld { order: 1; flex: 0 1 auto; }
+    .dag .datum-veld { order: 1; flex: 0 1 auto; min-width: 0; }
     .dag .uitkomst { order: 2; flex: 0 0 auto; margin-left: auto; }
     .dag .weg { order: 3; flex: 0 0 44px; }
-    /* Dwingt de tijden naar een eigen regel; anders schuift 'van' op een breed
-       scherm naast de datum en blijft er voor 'tot' te weinig over. */
-    .dag .breek { display: block; order: 4; flex: 0 0 100%; height: 0; margin: -4px 0; }
-    .dag .van-veld { order: 5; }
-    .dag .tot-veld { order: 6; }
-    /* Geen vaste ondergrens: die zou het veld juist onder zijn eigen inhoud laten
-       krimpen. Zonder min-width weigert flexbox te krimpen voorbij wat het veld nodig
-       heeft en wijkt 'tot' vanzelf naar een eigen regel — hoe breed iOS die widget ook
-       maakt, en of de klok nu 24 of 12 uur toont. */
-    .dag .van-veld, .dag .tot-veld { flex: 1 1 140px; }
-    .dag .notitie-veld { order: 7; flex: 1 1 100%; min-width: 0; }
+    /* Van en Tot staan in een eigen vakje over de volle breedte, verdeeld over twee
+       kolommen van elk precies de helft. Met minmax(0, 1fr) kan een kolom nooit breder
+       worden dan die helft, hoe breed iOS de widget zelf ook wil hebben — op het toestel
+       gemeten wilde die 187px terwijl er 164px was, en dan stak hij eruit. */
+    .dag .tijd-paar {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 8px;
+      order: 4;
+      flex: 0 0 100%;
+      min-width: 0;
+    }
+    .dag .tijd-paar > div { min-width: 0; }
+    .dag .notitie-veld { order: 5; flex: 1 1 100%; min-width: 0; }
     .dag .bewaard { order: 10; flex: 1 1 100%; }
 
-    .dag.vast .datum-veld { flex: 0 1 auto; }
+    .dag.vast .datum-veld { flex: 0 1 auto; min-width: 0; }
     .dag.vast .tijden { order: 4; flex: 1 1 100%; }
     .dag.vast .notitie-veld { order: 5; }
 
     /* iOS zet de waarde van een datum- of tijdveld standaard in het midden; links
-       uitgelijnd staat het in één lijn met de notitie eronder. */
-    .dag input { padding: 10px; width: 100%; text-align: left; }
+       uitgelijnd staat het in één lijn met de notitie eronder. De max-width is de
+       harde grens: een veld kan nooit breder worden dan zijn eigen vak. */
+    .dag input {
+      padding: 10px;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      text-align: left;
+    }
   }
 
   .kop-acties { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -191,11 +204,13 @@
         <div class="datum-veld">
           <input type="date" name="datum" value="{{ vandaag }}" aria-label="Datum">
         </div>
-        <div class="van-veld">
-          <input type="time" name="van" required aria-label="Begintijd" placeholder="Van">
-        </div>
-        <div class="tot-veld">
-          <input type="time" name="tot" required aria-label="Eindtijd" placeholder="Tot">
+        <div class="tijd-paar">
+          <div class="van-veld">
+            <input type="time" name="van" required aria-label="Begintijd" placeholder="Van">
+          </div>
+          <div class="tot-veld">
+            <input type="time" name="tot" required aria-label="Eindtijd" placeholder="Tot">
+          </div>
         </div>
         <div class="notitie-veld">
           <input type="text" name="notitie" placeholder="Notitie, bijv. leiding vervangen"
@@ -243,11 +258,13 @@
           <div class="datum-veld">
             <input type="date" name="datum" value="{{ d.datum }}" aria-label="Datum">
           </div>
-          <div class="van-veld">
-            <input type="time" name="van" value="{{ d.van }}" required aria-label="Begintijd">
-          </div>
-          <div class="tot-veld">
-            <input type="time" name="tot" value="{{ d.tot }}" required aria-label="Eindtijd">
+          <div class="tijd-paar">
+            <div class="van-veld">
+              <input type="time" name="van" value="{{ d.van }}" required aria-label="Begintijd">
+            </div>
+            <div class="tot-veld">
+              <input type="time" name="tot" value="{{ d.tot }}" required aria-label="Eindtijd">
+            </div>
           </div>
           <div class="notitie-veld">
             <input type="text" name="notitie" value="{{ d.notitie }}" placeholder="Notitie"

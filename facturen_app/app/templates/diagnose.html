@@ -21,10 +21,17 @@
     padding: 10px;
   }
   /* Exact dezelfde opbouw als een dagregel op de kluspagina. */
-  .proef .datum-veld { flex: 1 1 150px; }
-  .proef .breek { flex: 0 0 100%; height: 0; margin: -4px 0; }
-  .proef .tijd-veld { flex: 1 1 140px; }
-  .proef input { width: 100%; padding: 10px; }
+  .proef .datum-veld { flex: 0 1 auto; min-width: 0; }
+  .proef .tijd-paar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 8px;
+    flex: 0 0 100%;
+    min-width: 0;
+  }
+  .proef .tijd-paar > div { min-width: 0; }
+  .proef input { width: 100%; max-width: 100%; min-width: 0; padding: 10px;
+                 text-align: left; }
   .uitkomst-blok {
     margin-top: 14px;
     padding: 12px 14px;
@@ -51,9 +58,10 @@
     </div>
     <div class="proef" id="proef">
       <div class="datum-veld"><input type="date" value="2026-08-16" aria-label="Datum"></div>
-      <span class="breek"></span>
-      <div class="tijd-veld"><input type="time" value="15:16" aria-label="Van"></div>
-      <div class="tijd-veld"><input type="time" value="17:30" aria-label="Tot"></div>
+      <div class="tijd-paar">
+        <div><input type="time" value="15:16" aria-label="Van"></div>
+        <div><input type="time" value="17:30" aria-label="Tot"></div>
+      </div>
     </div>
     <div class="uitkomst-blok" id="oordeel">Meten…</div>
   </section>
@@ -101,16 +109,27 @@
     var naastElkaar = Math.abs(van.getBoundingClientRect().top -
                                tot.getBoundingClientRect().top) < 2;
 
+    // Waar komen de extra pixels vandaan: is het vak te breed, of past het veld
+    // niet in zijn eigen vak?
+    var ruimte = Math.round(proef.clientWidth - parseFloat(stijl.paddingLeft) -
+                            parseFloat(stijl.paddingRight));
+    function vergelijk(veld) {
+      var vak = veld.parentNode;
+      return meet(veld) + ' px in een vak van ' + meet(vak) + ' px';
+    }
+
     var regels = [
       ['App-versie', '{{ versie }}'],
       ['Schermbreedte volgens de browser', window.innerWidth + ' px'],
       ['Pagina ingezoomd', (window.visualViewport
         ? Math.round(window.visualViewport.scale * 100) : 100) + '%'],
-      ['Beeldpunten per pixel', window.devicePixelRatio],
       ['Tekstgrootte in een veld', getComputedStyle(van).fontSize],
-      ['Breedte datumveld', meet(datum) + ' px'],
-      ['Breedte veld Van', meet(van) + ' px'],
-      ['Breedte veld Tot', meet(tot) + ' px'],
+      ['Breedte van de kaart', Math.round(proef.parentNode.getBoundingClientRect().width) + ' px'],
+      ['Ruimte binnen het grijze vlak', ruimte + ' px'],
+      ['Datumveld', vergelijk(datum)],
+      ['Veld Van', vergelijk(van)],
+      ['Veld Tot', vergelijk(tot)],
+      ['Van + Tot + tussenruimte', (meet(van) + meet(tot) + 8) + ' px'],
       ['Smalst mogelijke tijdveld', kleinsteBreedte('time') + ' px'],
       ['Smalst mogelijke datumveld', kleinsteBreedte('date') + ' px'],
       ['Van en Tot naast elkaar', naastElkaar ? 'ja' : 'nee, onder elkaar'],

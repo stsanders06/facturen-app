@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.10.5
+
+- **Het uitstekende tijdveld op de iPhone is nu bij de wortel aangepakt.** Uit de meting
+  op het toestel zelf bleek dat iOS zo'n veld 187 pixels breed maakte terwijl er 164
+  beschikbaar was, en dat het zich niets aantrok van de opgegeven breedte. Van en Tot
+  staan nu in een raster van twee kolommen van elk precies de helft; zo'n kolom kán niet
+  breder worden dan die helft, hoe breed iOS de widget ook wil hebben. Daarbovenop mag
+  een veld nooit meer buiten zijn eigen vak komen.
+- Getest op negen schermbreedtes van 280 tot 430 pixels: overal staan Van en Tot naast
+  elkaar en past alles binnen het vlak.
+- De meetpagina toont nu ook de beschikbare ruimte en de breedte van elk vak, zodat te
+  zien is of een veld te breed is of zijn vak.
+
 ## 1.10.4
 
 - Het datumveld op de kluspagina rekte zich op een telefoon uit tot zo'n 330 pixels,
