@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.10.4
+
+- Het datumveld op de kluspagina rekte zich op een telefoon uit tot zo'n 330 pixels,
+  met de datum eenzaam in het midden en het urental helemaal aan de rand. Het neemt nu
+  de breedte die het nodig heeft.
+- De waarde in een datum- of tijdveld staat links uitgelijnd, in één lijn met de
+  notitie eronder. iOS zette die standaard in het midden.
+
 ## 1.10.3
 
 - **Onderaan elke pagina staat nu welke versie er draait.** In Home Assistant is dat de

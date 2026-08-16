@@ -106,7 +106,9 @@
     .dag + .dag { border-top: none; }
     /* Alles wat hieronder geen eigen plek krijgt, komt achteraan te staan. */
     .dag > *, .dag form > * { order: 9; }
-    .dag .datum-veld { order: 1; flex: 1 1 150px; }
+    /* Niet laten meegroeien: anders wordt het datumveld zo'n 330px breed met de
+       datum eenzaam in het midden. Het neemt nu de breedte die het nodig heeft. */
+    .dag .datum-veld { order: 1; flex: 0 1 auto; }
     .dag .uitkomst { order: 2; flex: 0 0 auto; margin-left: auto; }
     .dag .weg { order: 3; flex: 0 0 44px; }
     /* Dwingt de tijden naar een eigen regel; anders schuift 'van' op een breed
@@ -126,7 +128,9 @@
     .dag.vast .tijden { order: 4; flex: 1 1 100%; }
     .dag.vast .notitie-veld { order: 5; }
 
-    .dag input { padding: 10px; width: 100%; }
+    /* iOS zet de waarde van een datum- of tijdveld standaard in het midden; links
+       uitgelijnd staat het in één lijn met de notitie eronder. */
+    .dag input { padding: 10px; width: 100%; text-align: left; }
   }
 
   .kop-acties { display: flex; gap: 8px; flex-wrap: wrap; }
