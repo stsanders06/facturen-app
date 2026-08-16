@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.10.1
+
+- Op een iPhone paste het veld **Tot** niet in de rij en stak het buiten het grijze blok
+  uit. Safari geeft een tijd- of datumveld een eigen minimumbreedte die niet in een
+  smalle kolom past. De rij is nu zo opgebouwd dat **Van** en **Tot** allebei de helft
+  van de volle breedte krijgen — op een scherm van 430 pixels is dat 165 pixels per veld
+  in plaats van 108. Past het echt niet, dan gaat Tot naar een eigen regel in plaats van
+  buiten het blok te steken.
+- De kolommen voor datum en tijd zijn ook op een groot scherm iets ruimer gemaakt.
+
 ## 1.10.0
 
 De hele app is nagelopen op fouten, op de weergave op een telefoon en op

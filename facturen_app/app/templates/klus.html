@@ -26,7 +26,7 @@
   /* ---------- Kolomkoppen: één keer boven de lijst ---------- */
   .dagkoppen {
     display: grid;
-    grid-template-columns: 150px 96px 96px 1fr 66px 34px;
+    grid-template-columns: 158px 112px 112px 1fr 66px 34px;
     gap: 10px;
     padding-bottom: 8px;
     margin-bottom: 10px;
@@ -40,7 +40,7 @@
   /* ---------- Eén rij per gewerkte dag ---------- */
   .dag {
     display: grid;
-    grid-template-columns: 150px 96px 96px 1fr 66px 34px;
+    grid-template-columns: 158px 112px 112px 1fr 66px 34px;
     gap: 10px;
     align-items: center;
     padding: 7px 0;
@@ -75,25 +75,28 @@
     margin-top: -2px;
   }
   .bewaard[hidden] { display: none; }
+  .breek { display: none; }
 
   /* Al gefactureerde dagen zijn niet meer aan te passen: het bedrag staat op een
      rekening die de klant al heeft. */
   .dag.vast {
-    grid-template-columns: 150px 200px 1fr 66px 34px;
+    grid-template-columns: 158px 224px 1fr 66px 34px;
     color: var(--text-secondary);
     font-size: 14.5px;
   }
   .dag.vast .tijden { font-variant-numeric: tabular-nums; }
 
-  /* ---------- Telefoon: van vier regels naar twee ---------- */
+  /* ---------- Telefoon: van vier regels naar twee ----------
+     Geen raster met vaste kolommen hier: Safari op de iPhone geeft een datum- of
+     tijdveld een eigen minimumbreedte, en die past niet in een smalle kolom — het
+     veld stak dan buiten het blok uit. Met flexbox krijgen 'van' en 'tot' allebei
+     de helft van de volle breedte, en dat is ruim genoeg. */
   @media (max-width: 720px) {
     .dagkoppen { display: none; }
     .dag {
-      grid-template-columns: 1fr 66px 34px;
-      grid-template-areas:
-        "datum uren weg"
-        "van   tot  tot"
-        "notitie notitie notitie";
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
       gap: 8px;
       background: var(--bg);
       border-radius: var(--radius-sm);
@@ -101,21 +104,27 @@
       margin-bottom: 8px;
     }
     .dag + .dag { border-top: none; }
-    .dag .datum-veld { grid-area: datum; }
-    .dag .van-veld { grid-area: van; }
-    .dag .tot-veld { grid-area: tot; }
-    .dag .notitie-veld { grid-area: notitie; }
-    .dag .uitkomst { grid-area: uren; }
-    .dag .weg { grid-area: weg; }
-    .dag.vast {
-      grid-template-columns: 1fr 66px;
-      grid-template-areas:
-        "datum uren"
-        "tijden tijden"
-        "notitie notitie";
-    }
-    .dag.vast .tijden { grid-area: tijden; }
-    .dag input { padding: 10px; }
+    /* Alles wat hieronder geen eigen plek krijgt, komt achteraan te staan. */
+    .dag > *, .dag form > * { order: 9; }
+    .dag .datum-veld { order: 1; flex: 1 1 150px; min-width: 150px; }
+    .dag .uitkomst { order: 2; flex: 0 0 auto; margin-left: auto; }
+    .dag .weg { order: 3; flex: 0 0 44px; }
+    /* Dwingt de tijden naar een eigen regel; anders schuift 'van' op een breed
+       scherm naast de datum en blijft er voor 'tot' te weinig over. */
+    .dag .breek { display: block; order: 4; flex: 0 0 100%; height: 0; margin: -4px 0; }
+    .dag .van-veld { order: 5; }
+    .dag .tot-veld { order: 6; }
+    /* De ondergrens is ruimer dan wat een tijdveld nodig heeft. Past het niet naast
+       elkaar, dan gaat 'tot' naar een eigen regel — nooit half buiten het blok. */
+    .dag .van-veld, .dag .tot-veld { flex: 1 1 130px; min-width: 130px; }
+    .dag .notitie-veld { order: 7; flex: 1 1 100%; min-width: 0; }
+    .dag .bewaard { order: 10; flex: 1 1 100%; }
+
+    .dag.vast .datum-veld { flex: 0 1 auto; }
+    .dag.vast .tijden { order: 4; flex: 1 1 100%; }
+    .dag.vast .notitie-veld { order: 5; }
+
+    .dag input { padding: 10px; width: 100%; min-width: 0; }
   }
 
   .kop-acties { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -187,7 +196,7 @@
                  aria-label="Notitie">
         </div>
         <span class="uitkomst">0 u</span>
-        <span></span>
+        <span class="breek"></span>
       </div>
       <div style="display:flex;justify-content:flex-end;margin-top:10px">
         <button type="submit" class="btn">Dag toevoegen</button>
@@ -239,6 +248,7 @@
                    aria-label="Notitie">
           </div>
           <span class="uitkomst">{{ d.uren|uren }} u</span>
+          <span class="breek"></span>
           <span class="opslaan-knop"><button type="submit" class="btn btn-text">Opslaan</button></span>
           <span class="bewaard" hidden>Opgeslagen</span>
         </form>
