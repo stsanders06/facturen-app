@@ -30,8 +30,12 @@
     min-width: 0;
   }
   .proef .tijd-paar > div { min-width: 0; }
-  .proef input { width: 100%; max-width: 100%; min-width: 0; padding: 10px;
-                 text-align: left; }
+  .proef input { width: 100%; padding: 10px; text-align: left; }
+  /* Dezelfde compensatie als op de kluspagina, alleen op iOS. */
+  @supports (-webkit-touch-callout: none) {
+    .proef input[type="date"],
+    .proef input[type="time"] { width: calc(100% - 22px); }
+  }
   .uitkomst-blok {
     margin-top: 14px;
     padding: 12px 14px;

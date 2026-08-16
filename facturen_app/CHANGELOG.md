@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.10.7
+
+- De compensatie voor het uitstekende datum- en tijdveld op de iPhone gebeurt nu door
+  de breedte vooraf te verminderen, in plaats van door de rand en de marge naar het
+  vakje eromheen te verplaatsen. Beide werken op het toestel, maar deze ziet er beter
+  uit. De regel geldt alleen op iOS; andere browsers rekenen wél volgens `box-sizing`
+  en houden gewoon de volle breedte.
+- De correctie geldt nu voor **alle** datum- en tijdvelden in de app, dus ook de
+  factuurdatum bij een nieuwe rekening — daar stak hij net zo goed uit.
+
 ## 1.10.6
 
 - **De oorzaak van het uitstekende tijdveld gevonden, dankzij de meting op het toestel.**
