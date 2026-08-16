@@ -204,6 +204,15 @@
     box-shadow: 0 0 0 3px var(--primary-soft);
   }
   input[type="file"] { padding: 8px; font-size: 14px; }
+
+  /* Safari op de iPhone zoomt de hele pagina in zodra je een veld aantikt waarvan
+     de tekst kleiner is dan 16px. Daardoor werd het scherm effectief smaller (430
+     werd 327) en paste een tijdveld niet meer in zijn kolom. Met 16px blijft de
+     pagina staan waar hij staat. */
+  @media (pointer: coarse), (max-width: 720px) {
+    input, select, textarea { font-size: 16px; }
+    input[type="file"] { font-size: 15px; }
+  }
   .row { display: flex; gap: 14px; flex-wrap: wrap; }
   .row > * { flex: 1 1 200px; min-width: 0; }
   .hint { color: var(--text-secondary); font-size: 13px; margin: 0; }

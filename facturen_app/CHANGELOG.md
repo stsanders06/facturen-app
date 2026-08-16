@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.10.2
+
+- **De eigenlijke oorzaak van het niet-passende tijdveld gevonden.** Safari op de iPhone
+  zoomt de hele pagina in zodra je een veld aantikt waarvan de tekst kleiner is dan 16
+  pixels. Onze velden stonden op 15, dus na één tik werd het scherm effectief 327 pixels
+  breed in plaats van 430 — en in die kleinere ruimte paste de tijdwidget niet meer.
+  Velden hebben op een aanraakscherm nu 16 pixels tekst, waardoor er niet meer wordt
+  ingezoomd.
+- De tijdvelden hebben geen vaste minimumbreedte meer. Zo'n ondergrens liet het veld
+  juist krimpen tot onder zijn eigen inhoud; nu weigert de browser te krimpen voorbij
+  wat het veld nodig heeft en wijkt "Tot" vanzelf naar een eigen regel. Dat werkt
+  ongeacht hoe breed iOS die widget maakt en of je klok op 24 of 12 uur staat.
+
 ## 1.10.1
 
 - Op een iPhone paste het veld **Tot** niet in de rij en stak het buiten het grijze blok

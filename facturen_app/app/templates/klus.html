@@ -106,7 +106,7 @@
     .dag + .dag { border-top: none; }
     /* Alles wat hieronder geen eigen plek krijgt, komt achteraan te staan. */
     .dag > *, .dag form > * { order: 9; }
-    .dag .datum-veld { order: 1; flex: 1 1 150px; min-width: 150px; }
+    .dag .datum-veld { order: 1; flex: 1 1 150px; }
     .dag .uitkomst { order: 2; flex: 0 0 auto; margin-left: auto; }
     .dag .weg { order: 3; flex: 0 0 44px; }
     /* Dwingt de tijden naar een eigen regel; anders schuift 'van' op een breed
@@ -114,9 +114,11 @@
     .dag .breek { display: block; order: 4; flex: 0 0 100%; height: 0; margin: -4px 0; }
     .dag .van-veld { order: 5; }
     .dag .tot-veld { order: 6; }
-    /* De ondergrens is ruimer dan wat een tijdveld nodig heeft. Past het niet naast
-       elkaar, dan gaat 'tot' naar een eigen regel — nooit half buiten het blok. */
-    .dag .van-veld, .dag .tot-veld { flex: 1 1 130px; min-width: 130px; }
+    /* Geen vaste ondergrens: die zou het veld juist onder zijn eigen inhoud laten
+       krimpen. Zonder min-width weigert flexbox te krimpen voorbij wat het veld nodig
+       heeft en wijkt 'tot' vanzelf naar een eigen regel — hoe breed iOS die widget ook
+       maakt, en of de klok nu 24 of 12 uur toont. */
+    .dag .van-veld, .dag .tot-veld { flex: 1 1 140px; }
     .dag .notitie-veld { order: 7; flex: 1 1 100%; min-width: 0; }
     .dag .bewaard { order: 10; flex: 1 1 100%; }
 
@@ -124,7 +126,7 @@
     .dag.vast .tijden { order: 4; flex: 1 1 100%; }
     .dag.vast .notitie-veld { order: 5; }
 
-    .dag input { padding: 10px; width: 100%; min-width: 0; }
+    .dag input { padding: 10px; width: 100%; }
   }
 
   .kop-acties { display: flex; gap: 8px; flex-wrap: wrap; }
