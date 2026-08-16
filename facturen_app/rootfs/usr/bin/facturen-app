@@ -3,16 +3,22 @@
 # Start de Facturen App
 # ==============================================================================
 declare log_level
+declare addon_version
 
 # Buiten Home Assistant (bijvoorbeeld in een smoke test) is er geen Supervisor
 # om de opties bij op te halen; val dan terug op de standaardwaarde.
 if [ -n "${SUPERVISOR_TOKEN:-}" ]; then
     log_level="$(bashio::config 'log_level' 'info')"
+    # De versie die de Supervisor daadwerkelijk heeft geïnstalleerd. Die tonen we
+    # onderaan elke pagina, zodat je kunt zien of een update echt is doorgekomen.
+    addon_version="$(bashio::addon.version 2>/dev/null || true)"
 else
     log_level="info"
+    addon_version=""
 fi
 
 export LOG_LEVEL="${log_level}"
+export ADDON_VERSION="${addon_version}"
 export DATA_DIR="/data"
 export PORT="8099"
 

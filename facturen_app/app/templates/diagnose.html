@@ -1,0 +1,145 @@
+{% extends "_layout.html" %}
+{% block title %}Meetpagina{% endblock %}
+{% block head %}
+<style>
+  .meting { display: grid; grid-template-columns: 1fr auto; gap: 8px 16px; font-size: 15px; }
+  .meting dt { color: var(--text-secondary); }
+  .meting dd {
+    margin: 0;
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+    text-align: right;
+  }
+  .meting dd.fout { color: var(--danger); }
+  .meting dd.goed { color: var(--ok); }
+  .proef {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    background: var(--bg);
+    border-radius: var(--radius-sm);
+    padding: 10px;
+  }
+  /* Exact dezelfde opbouw als een dagregel op de kluspagina. */
+  .proef .datum-veld { flex: 1 1 150px; }
+  .proef .breek { flex: 0 0 100%; height: 0; margin: -4px 0; }
+  .proef .tijd-veld { flex: 1 1 140px; }
+  .proef input { width: 100%; padding: 10px; }
+  .uitkomst-blok {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border-radius: var(--radius-sm);
+    font-size: 15px;
+  }
+  .uitkomst-blok.goed { background: var(--ok-soft); color: var(--ok); }
+  .uitkomst-blok.fout { background: var(--danger-soft); color: var(--danger); }
+</style>
+{% endblock %}
+{% block content %}
+
+<div class="page-head">
+  <h1>Meetpagina</h1>
+</div>
+
+<div class="cards">
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Proefrij</h2>
+      <p>Dit is precies de rij zoals hij op een kluspagina staat. Als hier iets buiten
+        het grijze vlak steekt, meet de app dat hieronder.</p>
+    </div>
+    <div class="proef" id="proef">
+      <div class="datum-veld"><input type="date" value="2026-08-16" aria-label="Datum"></div>
+      <span class="breek"></span>
+      <div class="tijd-veld"><input type="time" value="15:16" aria-label="Van"></div>
+      <div class="tijd-veld"><input type="time" value="17:30" aria-label="Tot"></div>
+    </div>
+    <div class="uitkomst-blok" id="oordeel">Meten…</div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Wat je toestel doet</h2>
+      <p>Maak hier een schermafbeelding van als er iets niet klopt.</p>
+    </div>
+    <dl class="meting" id="cijfers"></dl>
+  </section>
+
+</div>
+
+<script>
+  (function () {
+    var proef = document.getElementById('proef');
+    var velden = proef.querySelectorAll('input');
+    var datum = velden[0], van = velden[1], tot = velden[2];
+
+    function meet(el) { return Math.round(el.getBoundingClientRect().width); }
+
+    // Hoe smal wil zo'n veld eigenlijk worden? Even in een los vakje proberen.
+    function kleinsteBreedte(type) {
+      var hok = document.createElement('div');
+      hok.style.cssText = 'position:absolute;left:-9999px;top:0;width:1px';
+      var veld = document.createElement('input');
+      veld.type = type;
+      veld.value = type === 'date' ? '2026-08-16' : '15:16';
+      veld.style.cssText = 'width:100%;padding:10px;box-sizing:border-box';
+      hok.appendChild(veld);
+      document.body.appendChild(hok);
+      var breed = Math.round(veld.getBoundingClientRect().width);
+      document.body.removeChild(hok);
+      return breed;
+    }
+
+    var vlak = proef.getBoundingClientRect();
+    var stijl = getComputedStyle(proef);
+    var binnenRechts = vlak.right - parseFloat(stijl.paddingRight);
+    var uitsteek = Math.max(0, Math.round(Math.max(
+      datum.getBoundingClientRect().right,
+      van.getBoundingClientRect().right,
+      tot.getBoundingClientRect().right) - binnenRechts));
+    var naastElkaar = Math.abs(van.getBoundingClientRect().top -
+                               tot.getBoundingClientRect().top) < 2;
+
+    var regels = [
+      ['App-versie', '{{ versie }}'],
+      ['Schermbreedte volgens de browser', window.innerWidth + ' px'],
+      ['Pagina ingezoomd', (window.visualViewport
+        ? Math.round(window.visualViewport.scale * 100) : 100) + '%'],
+      ['Beeldpunten per pixel', window.devicePixelRatio],
+      ['Tekstgrootte in een veld', getComputedStyle(van).fontSize],
+      ['Breedte datumveld', meet(datum) + ' px'],
+      ['Breedte veld Van', meet(van) + ' px'],
+      ['Breedte veld Tot', meet(tot) + ' px'],
+      ['Smalst mogelijke tijdveld', kleinsteBreedte('time') + ' px'],
+      ['Smalst mogelijke datumveld', kleinsteBreedte('date') + ' px'],
+      ['Van en Tot naast elkaar', naastElkaar ? 'ja' : 'nee, onder elkaar'],
+      ['Steekt er iets uit', uitsteek > 0 ? 'ja, ' + uitsteek + ' px' : 'nee']
+    ];
+
+    var lijst = document.getElementById('cijfers');
+    regels.forEach(function (r) {
+      var dt = document.createElement('dt');
+      dt.textContent = r[0];
+      var dd = document.createElement('dd');
+      dd.textContent = r[1];
+      if (r[0] === 'Steekt er iets uit') dd.className = uitsteek > 0 ? 'fout' : 'goed';
+      lijst.appendChild(dt);
+      lijst.appendChild(dd);
+    });
+
+    var oordeel = document.getElementById('oordeel');
+    if (uitsteek > 0) {
+      oordeel.className = 'uitkomst-blok fout';
+      oordeel.textContent = 'Er steekt ' + uitsteek + ' px buiten het vlak. Stuur een ' +
+        'schermafbeelding van de cijfers hieronder.';
+    } else {
+      oordeel.className = 'uitkomst-blok goed';
+      oordeel.textContent = 'Alles past binnen het vlak' +
+        (naastElkaar ? ', en Van en Tot staan naast elkaar.'
+                     : '. Van en Tot staan onder elkaar, omdat ze niet naast elkaar passen.');
+    }
+  })();
+</script>
+
+{% endblock %}

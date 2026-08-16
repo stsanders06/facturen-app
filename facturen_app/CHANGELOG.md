@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.10.3
+
+- **Onderaan elke pagina staat nu welke versie er draait.** In Home Assistant is dat de
+  versie die de Supervisor daadwerkelijk heeft geïnstalleerd, zodat je kunt zien of een
+  update echt is doorgekomen — het wissen van je browsergegevens verandert daar namelijk
+  niets aan.
+- Nieuwe **meetpagina** (linkje naast het versienummer). Die meet op je eigen toestel hoe
+  breed het datum- en tijdveld worden, of de pagina is ingezoomd en of er iets buiten zijn
+  vlak steekt. Bedoeld om weergaveproblemen te kunnen naspeuren die alleen op een telefoon
+  optreden en niet in een browser op een computer.
+
 ## 1.10.2
 
 - **De eigenlijke oorzaak van het niet-passende tijdveld gevonden.** Safari op de iPhone

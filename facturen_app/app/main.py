@@ -17,6 +17,11 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
 from werkzeug.utils import secure_filename
 
+# Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
+# Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
+# Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
+VERSIE = os.environ.get("ADDON_VERSION") or "1.10.3"
+
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
 PDF_DIR = os.path.join(DATA_DIR, "pdfs")
@@ -80,6 +85,7 @@ def csrf_token():
 
 
 app.jinja_env.globals["csrf_token"] = csrf_token
+app.jinja_env.globals["versie"] = VERSIE
 
 
 @app.before_request
@@ -480,6 +486,13 @@ def index():
 
     return render_template("index.html", facturen=zichtbaar, overzicht=overzicht,
                            keuze=keuze, totaal_aantal=len(facturen), actief="index")
+
+
+@app.route("/diagnose")
+def diagnose():
+    """Meet op het toestel zelf hoe breed het datum- en tijdveld worden. Handig bij
+    het uitzoeken van weergaveproblemen die alleen op een telefoon optreden."""
+    return render_template("diagnose.html", actief="")
 
 
 @app.route("/instellingen", methods=["GET", "POST"])

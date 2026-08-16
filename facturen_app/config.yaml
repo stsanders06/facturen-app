@@ -1,6 +1,6 @@
 ---
 name: Facturen App
-version: "1.10.2"
+version: "1.10.3"
 slug: facturen_app
 description: >-
   Simpele facturatie: materiaal- en arbeidskosten optellen, PDF genereren en
