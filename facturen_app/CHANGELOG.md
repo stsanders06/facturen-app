@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.11.1
+
+- Het akkoordvak onderaan de offerte is eruit. Onder de bedragen staat nu alleen nog
+  de toelichting en de voetregel; tot wanneer de prijs geldt staat bovenaan naast het
+  nummer en de datum.
+- **Die geldigheid is nu een keuze.** Met het vinkje bij een offerte bepaal je of er een
+  einddatum op komt. Laat je het uit, dan staat er niets over geldigheid op de PDF en
+  ook niet in de mail aan de klant.
+
 ## 1.11.0
 
 - **Offertes.** Een nieuw tabblad naast Rekeningen. Je maakt een offerte precies zoals

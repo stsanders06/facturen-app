@@ -149,7 +149,8 @@
       {% if is_offerte %}
       <div class="field">
         <label for="geldig_tot">Geldig tot</label>
-        <input type="date" id="geldig_tot" name="geldig_tot" value="{{ geldig }}">
+        <input type="date" id="geldig_tot" name="geldig_tot" value="{{ geldig or standaard_geldig }}"
+               {% if not geldig %}disabled{% endif %}>
       </div>
       {% else %}
       <div class="field">
@@ -162,6 +163,11 @@
       {% endif %}
     </div>
     {% if is_offerte %}
+    <div class="checkregel" style="margin-top:14px">
+      <input type="checkbox" id="geldigheid" name="geldigheid" value="ja"
+             {% if geldig or not factuur %}checked{% endif %}>
+      <label for="geldigheid">Op de offerte zetten tot wanneer de prijs geldt</label>
+    </div>
     <div class="field" style="margin-top:16px">
       <label for="toelichting">Toelichting</label>
       <textarea id="toelichting" name="toelichting" rows="3"
@@ -325,6 +331,17 @@
       regelErbij().querySelector('[name="omschrijving"]').focus();
       berekenTotaal();
     });
+
+    // Een offerte hoeft geen einddatum te hebben; het vinkje zet het datumveld aan
+    // en uit, zodat duidelijk is dat er dan niets over geldigheid op de PDF komt.
+    var geldigheid = document.getElementById('geldigheid');
+    var geldigTot = document.getElementById('geldig_tot');
+    if (geldigheid && geldigTot) {
+      geldigheid.addEventListener('change', function () {
+        geldigTot.disabled = !geldigheid.checked;
+        if (geldigheid.checked) geldigTot.focus();
+      });
+    }
 
     // ---- Regels uit een CSV-bestand ----
     // Het bestand wordt hier in de browser gelezen; er gaat niets naar de server

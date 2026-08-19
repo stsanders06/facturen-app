@@ -65,14 +65,16 @@ iets kwijtraakt.
 Onder het tabblad **Offertes** geef je vooraf een prijs af. Het formulier is hetzelfde
 als bij een rekening — dezelfde regels voor materiaal en arbeid — met twee extra velden:
 
-- **Geldig tot**: tot wanneer de prijs geldt. Staat standaard op dertig dagen na de
-  offertedatum. In de lijst zie je welke offertes verlopen zijn.
+- **Geldig tot**: tot wanneer de prijs geldt, bovenaan naast het nummer en de datum.
+  Staat standaard op dertig dagen na de offertedatum. In de lijst zie je welke offertes
+  verlopen zijn. Wil je er geen einddatum bij, haal dan het vinkje eronder weg: dan komt
+  er niets over geldigheid op de PDF en ook niet in de mail aan de klant.
 - **Toelichting**: wat er wel en niet bij de prijs zit, hoe lang het werk duurt, dat
   soort dingen. Komt onder de bedragen op de PDF.
 
-De PDF ziet eruit als je rekening, maar onderaan staat geen betaalstrook: daar zit een
-vak waarin de klant kan tekenen voor akkoord. Mailen, downloaden en opnieuw maken werkt
-net als bij een rekening. Offertes hebben hun eigen nummers, met `OFF-` ervoor.
+De PDF ziet eruit als je rekening, maar zonder de betaalstrook onderaan: er valt nog
+niets te betalen. Mailen, downloaden en opnieuw maken werkt net als bij een rekening.
+Offertes hebben hun eigen nummers, met `OFF-` ervoor.
 
 Wat de klant ervan vindt leg je vast met **Geaccepteerd** of **Afgewezen**. Zegt de klant
 ja, dan maak je er met **Naar rekening** in één klik een rekening van: de klant, de regels

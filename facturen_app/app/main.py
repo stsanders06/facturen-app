@@ -22,7 +22,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.11.0"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.11.1"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -1376,6 +1376,15 @@ def offerte_of_404(conn, offerte_id):
     return rij
 
 
+def lees_geldigheid(form, datum):
+    """Tot wanneer de offerte geldt, of een lege tekst als je er geen einddatum bij
+    wilt. Het vinkje bepaalt dat; staat het aan zonder datum, dan pakken we de
+    standaardtermijn."""
+    if form.get("geldigheid") != "ja":
+        return ""
+    return geldige_datum(form.get("geldig_tot"), geldig_tot(datum))
+
+
 def bewaar_offerte_regels(conn, offerte_id, regels):
     conn.execute("DELETE FROM offerte_regels WHERE offerte_id=?", (offerte_id,))
     for o, t, a, p, subtotaal, _klus_id in regels:
@@ -1435,7 +1444,7 @@ def offerte_nieuw():
             (
                 nummer,
                 datum,
-                geldige_datum(request.form.get("geldig_tot"), geldig_tot(datum)),
+                lees_geldigheid(request.form, datum),
                 klant_id,
                 request.form.get("klant_naam", ""),
                 request.form.get("klant_adres", ""),
@@ -1469,6 +1478,7 @@ def offerte_nieuw():
         "nieuw.html", mode="offerte", vandaag=vandaag, actief="offertes",
         factuur=None, regels=[], klanten=klantenlijst(), gekozen_klant=gekozen,
         klussen=[], vooraf_klus="", geldig=geldig_tot(vandaag),
+        standaard_geldig=geldig_tot(vandaag),
     )
 
 
@@ -1492,7 +1502,7 @@ def offerte_bewerk(offerte_id):
                klant_adres=?, klant_email=?, totaal=?, toelichting=? WHERE id=?""",
             (
                 datum,
-                geldige_datum(request.form.get("geldig_tot"), geldig_tot(datum)),
+                lees_geldigheid(request.form, datum),
                 klant_id,
                 request.form.get("klant_naam", ""),
                 request.form.get("klant_adres", ""),
@@ -1521,7 +1531,8 @@ def offerte_bewerk(offerte_id):
     return render_template("nieuw.html", mode="offerte", vandaag=offerte["datum"],
                            actief="offertes", factuur=offerte, regels=regels,
                            klanten=klantenlijst(), gekozen_klant=None, klussen=[],
-                           vooraf_klus="", geldig=offerte["geldig_tot"])
+                           vooraf_klus="", geldig=offerte["geldig_tot"],
+                           standaard_geldig=geldig_tot(offerte["datum"]))
 
 
 def _offerte_pdf_pad(offerte_id):
@@ -1769,9 +1780,13 @@ def _teken_document(pad, factuur, regels, s):
     y -= 7 * mm
     c.setFillColor(GRIJS_DONKER)
     c.setFont("Helvetica", 9)
-    vervalt = (factuur.get("geldig_tot") or geldig_tot(factuur["datum"])) if offerte \
-        else vervaldatum(factuur["datum"])
-    c.drawString(links, y, f"{factuur['nummer']}   \u00b7   {filter_datum_nl(factuur['datum'])}")
+    # Een offerte hoeft geen einddatum te hebben; laat je het veld leeg, dan staat er
+    # niets over geldigheid op het vel.
+    vervalt = factuur.get("geldig_tot") if offerte else vervaldatum(factuur["datum"])
+    kopregel = f"{factuur['nummer']}   \u00b7   {filter_datum_nl(factuur['datum'])}"
+    if offerte and vervalt:
+        kopregel += f"   \u00b7   geldig tot {filter_datum_nl(vervalt)}"
+    c.drawString(links, y, kopregel)
 
     # ---- Van en Voor naast elkaar ----
     y -= 16 * mm
@@ -1868,92 +1883,64 @@ def _teken_document(pad, factuur, regels, s):
                 y -= 4.6 * mm
 
     # ---- Betaalstrook, altijd onderaan het vel ----
-    if y < 80 * mm:
-        c.showPage()
-        rand()
+    # Een offerte krijgt er geen: daar valt nog niets te betalen, en tot wanneer de
+    # prijs geldt staat bovenaan al naast de datum.
+    if not offerte:
+        if y < 80 * mm:
+            c.showPage()
+            rand()
 
-    strook_y = 62 * mm
-    c.setStrokeColor(STIPPEL)
-    c.setLineWidth(0.8)
-    c.setDash(2, 3)
-    c.line(links, strook_y, rechts, strook_y)
-    c.setDash()
+        strook_y = 62 * mm
+        c.setStrokeColor(STIPPEL)
+        c.setLineWidth(0.8)
+        c.setDash(2, 3)
+        c.line(links, strook_y, rechts, strook_y)
+        c.setDash()
 
-    contant = not offerte and factuur.get("betaalmethode") == "cash"
-    if offerte:
-        strookkop = "AKKOORD"
-    elif contant:
-        strookkop = "VOLDAAN"
-    else:
-        strookkop = "BETAALSTROOK"
-    gespreid = " ".join(strookkop)
-    tekstbreedte = c.stringWidth(gespreid, "Helvetica-Bold", 6.5)
-    midden = links + (rechts - links) / 2
-    c.setFillColor(WIT)
-    c.rect(midden - tekstbreedte / 2 - 3 * mm, strook_y - 1.6 * mm,
-           tekstbreedte + 6 * mm, 3.4 * mm, stroke=0, fill=1)
-    c.setFillColor(GRIJS)
-    c.setFont("Helvetica-Bold", 6.5)
-    c.drawCentredString(midden, strook_y - 1 * mm, gespreid)
+        contant = factuur.get("betaalmethode") == "cash"
+        gespreid = " ".join("VOLDAAN" if contant else "BETAALSTROOK")
+        tekstbreedte = c.stringWidth(gespreid, "Helvetica-Bold", 6.5)
+        midden = links + (rechts - links) / 2
+        c.setFillColor(WIT)
+        c.rect(midden - tekstbreedte / 2 - 3 * mm, strook_y - 1.6 * mm,
+               tekstbreedte + 6 * mm, 3.4 * mm, stroke=0, fill=1)
+        c.setFillColor(GRIJS)
+        c.setFont("Helvetica-Bold", 6.5)
+        c.drawCentredString(midden, strook_y - 1 * mm, gespreid)
 
-    if offerte:
-        # Onderaan een offerte staat geen betaalstrook maar een strook om af te
-        # scheuren, te tekenen en terug te geven; daarnaast tot wanneer de prijs geldt.
-        label("Geldig tot", links, strook_y - 8 * mm)
-        c.setFillColor(INKT)
-        c.setFont("Helvetica-Bold", 11)
-        c.drawString(links, strook_y - 15 * mm, filter_datum_nl(vervalt))
-        c.setFont("Helvetica", 9)
-        c.setFillColor(GRIJS_DONKER)
-        c.drawString(links, strook_y - 21 * mm,
-                     "Akkoord? Teken hiernaast, of laat het weten per mail.")
-
-        vak_b, vak_h = 72 * mm, 26 * mm
-        vak_x, vak_y = rechts - vak_b, strook_y - 30 * mm
-        c.setStrokeColor(ORANJE)
-        c.setLineWidth(1.4)
-        c.roundRect(vak_x, vak_y, vak_b, vak_h, 2 * mm, stroke=1, fill=0)
-        label("Voor akkoord", vak_x + 5 * mm, vak_y + vak_h - 6 * mm)
-        c.setStrokeColor(LIJN)
-        c.setLineWidth(0.6)
-        for hoogte_regel, naam in [(13 * mm, "Naam"), (5 * mm, "Datum")]:
-            c.setFillColor(GRIJS)
-            c.setFont("Helvetica", 8)
-            c.drawString(vak_x + 5 * mm, vak_y + hoogte_regel + 1.5 * mm, naam)
-            c.line(vak_x + 20 * mm, vak_y + hoogte_regel, vak_x + vak_b - 5 * mm,
-                   vak_y + hoogte_regel)
-    elif contant:
-        c.setFillColor(INKT)
-        c.setFont("Helvetica-Bold", 11)
-        c.drawString(links, strook_y - 16 * mm, "Contant afgehandeld.")
-        c.setFont("Helvetica", 9)
-        c.setFillColor(GRIJS_DONKER)
-        c.drawString(links, strook_y - 22 * mm, "Deze rekening is ter plekke voldaan.")
-    else:
-        label("Overmaken naar", links, strook_y - 8 * mm)
-        regel_y = strook_y - 14 * mm
-        for naam, waarde in [
-            ("IBAN", s.get("iban", "")),
-            ("T.n.v.", tenaamstelling(s)),
-            ("V\u00f3\u00f3r", filter_datum_nl(vervalt)),
-        ]:
-            c.setFont("Helvetica", 9)
-            c.setFillColor(GRIJS)
-            c.drawString(links, regel_y, naam)
+        if contant:
             c.setFillColor(INKT)
-            c.drawString(links + 18 * mm, regel_y, waarde or "")
-            regel_y -= 5.2 * mm
+            c.setFont("Helvetica-Bold", 11)
+            c.drawString(links, strook_y - 16 * mm, "Contant afgehandeld.")
+            c.setFont("Helvetica", 9)
+            c.setFillColor(GRIJS_DONKER)
+            c.drawString(links, strook_y - 22 * mm, "Deze rekening is ter plekke voldaan.")
+        else:
+            label("Overmaken naar", links, strook_y - 8 * mm)
+            regel_y = strook_y - 14 * mm
+            for naam, waarde in [
+                ("IBAN", s.get("iban", "")),
+                ("T.n.v.", tenaamstelling(s)),
+                ("V\u00f3\u00f3r", filter_datum_nl(vervalt)),
+            ]:
+                c.setFont("Helvetica", 9)
+                c.setFillColor(GRIJS)
+                c.drawString(links, regel_y, naam)
+                c.setFillColor(INKT)
+                c.drawString(links + 18 * mm, regel_y, waarde or "")
+                regel_y -= 5.2 * mm
 
-        vak_b, vak_h = 58 * mm, 20 * mm
-        vak_x, vak_y = rechts - vak_b, strook_y - 26 * mm
-        c.setStrokeColor(ORANJE)
-        c.setLineWidth(1.4)
-        c.roundRect(vak_x, vak_y, vak_b, vak_h, 2 * mm, stroke=1, fill=0)
-        label("Te betalen", vak_x + vak_b - 5 * mm, vak_y + vak_h - 6 * mm, rechts_uit=True)
-        c.setFillColor(ORANJE)
-        c.setFont("Helvetica-Bold", 16)
-        c.drawRightString(vak_x + vak_b - 5 * mm, vak_y + 5 * mm,
-                          f"\u20ac {nl_bedrag(factuur['totaal'])}")
+            vak_b, vak_h = 58 * mm, 20 * mm
+            vak_x, vak_y = rechts - vak_b, strook_y - 26 * mm
+            c.setStrokeColor(ORANJE)
+            c.setLineWidth(1.4)
+            c.roundRect(vak_x, vak_y, vak_b, vak_h, 2 * mm, stroke=1, fill=0)
+            label("Te betalen", vak_x + vak_b - 5 * mm, vak_y + vak_h - 6 * mm,
+                  rechts_uit=True)
+            c.setFillColor(ORANJE)
+            c.setFont("Helvetica-Bold", 16)
+            c.drawRightString(vak_x + vak_b - 5 * mm, vak_y + 5 * mm,
+                              f"\u20ac {nl_bedrag(factuur['totaal'])}")
 
     # ---- Voetregel ----
     c.setFont("Helvetica", 7)
@@ -2064,9 +2051,10 @@ def verstuur_offerte_email(offerte_id):
         offerte["klant_email"],
         f"Offerte {offerte['nummer']} - {s.get('naam', '')}",
         f"Beste {offerte['klant_naam']},\n\n"
-        f"Hierbij de offerte ({offerte['nummer']}) voor het besproken werk. "
-        f"De prijs geldt tot {filter_datum_nl(offerte['geldig_tot'])}.\n\n"
-        f"Met vriendelijke groet,\n{s.get('naam', '')}",
+        f"Hierbij de offerte ({offerte['nummer']}) voor het besproken werk."
+        + (f" De prijs geldt tot {filter_datum_nl(offerte['geldig_tot'])}."
+           if offerte["geldig_tot"] else "")
+        + f"\n\nMet vriendelijke groet,\n{s.get('naam', '')}",
         pad,
         f"{offerte['nummer']}.pdf",
     )
