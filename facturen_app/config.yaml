@@ -1,10 +1,10 @@
 ---
 name: Facturen App
-version: "1.10.8"
+version: "1.11.0"
 slug: facturen_app
 description: >-
-  Simpele facturatie: materiaal- en arbeidskosten optellen, PDF genereren en
-  automatisch mailen
+  Simpele facturatie: offertes en rekeningen maken, materiaal- en arbeidskosten
+  optellen, PDF genereren en automatisch mailen
 url: https://github.com/stsanders06/facturen-app/tree/main/facturen_app
 arch:
   - aarch64

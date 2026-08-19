@@ -1,5 +1,10 @@
 {% extends "_layout.html" %}
-{% block title %}Nieuwe rekening{% endblock %}
+{# Dit formulier maakt zowel een rekening als een offerte. Ze vragen bijna hetzelfde;
+   alleen de betaalmethode hoort bij een rekening en de geldigheid bij een offerte. #}
+{% set mode = mode|default('factuur') %}
+{% set is_offerte = mode == 'offerte' %}
+{% set stuk = 'offerte' if is_offerte else 'rekening' %}
+{% block title %}{{ 'Nieuwe offerte' if is_offerte else 'Nieuwe rekening' }}{% endblock %}
 {% block head %}
 <style>
   .regel {
@@ -69,20 +74,18 @@
     margin-bottom: 18px;
   }
   .urenkiezer .hint { margin-top: 2px; }
-  .checkregel { display: flex; align-items: flex-start; gap: 10px; }
-  .checkregel[hidden] { display: none; }
-  .checkregel input { width: auto; margin-top: 3px; flex: none; }
-  .checkregel label { font-size: 15px; color: var(--text); font-weight: 400; }
-  .indienen { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
 </style>
 {% endblock %}
 {% block content %}
 
 <div class="page-head">
-  <h1>{% if factuur %}Rekening {{ factuur.nummer }} bewerken{% else %}Nieuwe rekening{% endif %}</h1>
+  <h1>
+    {%- if factuur %}{{ 'Offerte' if is_offerte else 'Rekening' }} {{ factuur.nummer }} bewerken
+    {%- else %}{{ 'Nieuwe offerte' if is_offerte else 'Nieuwe rekening' }}{% endif -%}
+  </h1>
 </div>
 
-{% if factuur and factuur.status == 'betaald' %}
+{% if factuur and not is_offerte and factuur.status == 'betaald' %}
 <div class="flash">Deze rekening staat op betaald. Wijzig je het bedrag, dan klopt hij niet
   meer met wat er is overgemaakt — zet hem dan eerst terug op openstaand.</div>
 {% endif %}
@@ -136,13 +139,19 @@
 
   <section class="card">
     <div class="card-head">
-      <h2>De rekening</h2>
+      <h2>De {{ stuk }}</h2>
     </div>
     <div class="row">
       <div class="field">
         <label for="datum">Datum</label>
         <input type="date" id="datum" name="datum" value="{{ vandaag }}">
       </div>
+      {% if is_offerte %}
+      <div class="field">
+        <label for="geldig_tot">Geldig tot</label>
+        <input type="date" id="geldig_tot" name="geldig_tot" value="{{ geldig }}">
+      </div>
+      {% else %}
       <div class="field">
         <label for="betaalmethode">Betaalmethode</label>
         <select id="betaalmethode" name="betaalmethode">
@@ -150,7 +159,16 @@
           <option value="cash" {% if factuur and factuur.betaalmethode == 'cash' %}selected{% endif %}>Contant</option>
         </select>
       </div>
+      {% endif %}
     </div>
+    {% if is_offerte %}
+    <div class="field" style="margin-top:16px">
+      <label for="toelichting">Toelichting</label>
+      <textarea id="toelichting" name="toelichting" rows="3"
+                placeholder="Bijv. wat er wel en niet bij de prijs zit, of hoe lang het werk duurt">{{ factuur.toelichting if factuur else '' }}</textarea>
+      <p class="hint">Komt onder de bedragen op de offerte te staan.</p>
+    </div>
+    {% endif %}
   </section>
 
   <section class="card">
@@ -158,6 +176,16 @@
       <h2>Regels</h2>
       <p>Materiaal reken je per stuk. Arbeid kan per uur, per dag of als vaste prijs
         voor de hele klus.</p>
+    </div>
+
+    <div class="field urenkiezer">
+      <label for="regels_csv">Regels uit een CSV-bestand halen</label>
+      <input type="file" id="regels_csv" accept=".csv,text/csv,text/plain">
+      <p class="hint">Handig bij een materiaallijst uit een offerte-programma of de
+        bon van de groothandel. Kopjes op de eerste regel: <b>omschrijving</b>,
+        <b>aantal</b>, <b>prijs</b> en eventueel <b>soort</b>. Het bestand wordt hier
+        in je browser gelezen en komt pas mee als je opslaat.
+        <a class="link" href="{{ url_for('regels_voorbeeld') }}">Voorbeeldbestand</a></p>
     </div>
 
     {% if klussen %}
@@ -233,9 +261,10 @@
         </label>
       </div>
       <div class="indienen">
-        <a class="btn btn-outline" href="{{ url_for('index') }}">Annuleren</a>
+        <a class="btn btn-outline" href="{{ url_for('offertes') if is_offerte else url_for('index') }}">Annuleren</a>
         <button type="submit" class="btn">
-          {% if factuur %}Wijzigingen opslaan{% else %}Rekening aanmaken{% endif %}
+          {% if factuur %}Wijzigingen opslaan
+          {%- else %}{{ 'Offerte aanmaken' if is_offerte else 'Rekening aanmaken' }}{% endif %}
         </button>
       </div>
     </div>
@@ -296,6 +325,133 @@
       regelErbij().querySelector('[name="omschrijving"]').focus();
       berekenTotaal();
     });
+
+    // ---- Regels uit een CSV-bestand ----
+    // Het bestand wordt hier in de browser gelezen; er gaat niets naar de server
+    // voordat je opslaat, dus een verkeerd bestand kost je hooguit een klik.
+    function splitsCsv(tekst) {
+      tekst = tekst.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
+      var kop = tekst.split('\n')[0] || '';
+      var scheiding = [';', ',', '\t'].reduce(function (beste, teken) {
+        return kop.split(teken).length > kop.split(beste).length ? teken : beste;
+      }, ';');
+
+      var rijen = [], veld = '', rij = [], inAanhaling = false;
+      for (var i = 0; i < tekst.length; i++) {
+        var teken = tekst[i];
+        if (inAanhaling) {
+          if (teken === '"' && tekst[i + 1] === '"') { veld += '"'; i++; }
+          else if (teken === '"') { inAanhaling = false; }
+          else { veld += teken; }
+        } else if (teken === '"') {
+          inAanhaling = true;
+        } else if (teken === scheiding) {
+          rij.push(veld); veld = '';
+        } else if (teken === '\n') {
+          rij.push(veld); rijen.push(rij); rij = []; veld = '';
+        } else {
+          veld += teken;
+        }
+      }
+      rij.push(veld);
+      if (rij.length > 1 || rij[0].trim() !== '') rijen.push(rij);
+      return rijen;
+    }
+
+    // '1.287,50', '€ 12,50' en '12.50' moeten alle drie hetzelfde getal opleveren.
+    function leesGetal(waarde) {
+      var schoon = String(waarde || '').replace(/[^0-9,.-]/g, '');
+      if (schoon.indexOf(',') > -1) {
+        schoon = schoon.replace(/\./g, '').replace(',', '.');
+      }
+      var getal = parseFloat(schoon);
+      return isNaN(getal) ? 0 : getal;
+    }
+
+    var CSV_KOPPEN = {
+      omschrijving: ['omschrijving', 'beschrijving', 'artikel', 'product', 'werk',
+                     'description', 'item', 'naam'],
+      aantal: ['aantal', 'stuks', 'hoeveelheid', 'uren', 'dagen', 'qty', 'quantity'],
+      prijs: ['prijs', 'stukprijs', 'prijs per stuk', 'tarief', 'uurtarief',
+              'dagtarief', 'bedrag', 'price'],
+      soort: ['soort', 'type', 'categorie']
+    };
+
+    var CSV_SOORTEN = {
+      materiaal: 'materiaal', spullen: 'materiaal', product: 'materiaal',
+      uur: 'arbeid_uur', uren: 'arbeid_uur', arbeid: 'arbeid_uur',
+      arbeid_uur: 'arbeid_uur', 'arbeid per uur': 'arbeid_uur',
+      dag: 'arbeid_dag', dagen: 'arbeid_dag', arbeid_dag: 'arbeid_dag',
+      'arbeid per dag': 'arbeid_dag',
+      klus: 'arbeid_klus', vast: 'arbeid_klus', 'vaste prijs': 'arbeid_klus',
+      arbeid_klus: 'arbeid_klus', 'arbeid per klus': 'arbeid_klus'
+    };
+
+    function verwerkCsv(tekst) {
+      var rijen = splitsCsv(tekst);
+      if (!rijen.length) return 0;
+
+      var koppen = rijen[0].map(function (k) { return k.trim().toLowerCase(); });
+      var kolom = {};
+      Object.keys(CSV_KOPPEN).forEach(function (eigen) {
+        koppen.forEach(function (kop, i) {
+          if (kolom[eigen] === undefined && CSV_KOPPEN[eigen].indexOf(kop) > -1) {
+            kolom[eigen] = i;
+          }
+        });
+      });
+      if (kolom.omschrijving === undefined) {
+        alert('In dit bestand staat geen kolom met een omschrijving. Zet de kopjes op '
+              + 'de eerste regel, met in elk geval omschrijving, aantal en prijs.');
+        return 0;
+      }
+
+      var toegevoegd = 0;
+      rijen.slice(1).forEach(function (waarden) {
+        var omschrijving = (waarden[kolom.omschrijving] || '').trim();
+        if (!omschrijving) return;
+        var regel = regelErbij();
+        var soort = (waarden[kolom.soort] || '').trim().toLowerCase();
+        regel.querySelector('.soort').value = CSV_SOORTEN[soort] || 'materiaal';
+        pasRegelAan(regel);
+        regel.querySelector('[name="omschrijving"]').value = omschrijving;
+        var aantal = kolom.aantal === undefined ? 1 : leesGetal(waarden[kolom.aantal]);
+        regel.querySelector('[name="aantal"]').value = aantal || 1;
+        regel.querySelector('[name="prijs"]').value =
+          kolom.prijs === undefined ? '' : leesGetal(waarden[kolom.prijs]).toFixed(2);
+        toegevoegd++;
+      });
+
+      // Een lege beginregel is na een import alleen nog in de weg.
+      var eerste = container.children[0];
+      if (toegevoegd && container.children.length > toegevoegd
+          && !eerste.querySelector('[name="omschrijving"]').value
+          && !eerste.querySelector('[name="prijs"]').value) {
+        eerste.remove();
+      }
+      berekenTotaal();
+      return toegevoegd;
+    }
+
+    var csvKeuze = document.getElementById('regels_csv');
+    if (csvKeuze) {
+      csvKeuze.addEventListener('change', function () {
+        var bestand = csvKeuze.files && csvKeuze.files[0];
+        if (!bestand) return;
+        var lezer = new FileReader();
+        lezer.onload = function () {
+          var aantal = verwerkCsv(String(lezer.result));
+          csvKeuze.value = '';
+          if (aantal) {
+            csvKeuze.parentNode.querySelector('.hint').insertAdjacentHTML('afterend',
+              '<p class="hint" style="color:var(--ok)">' + aantal + ' regel'
+              + (aantal === 1 ? '' : 's') + ' uit ' + bestand.name
+              + ' toegevoegd. Controleer de bedragen voordat je opslaat.</p>');
+          }
+        };
+        lezer.readAsText(bestand, 'utf-8');
+      });
+    }
 
     // Uren van een klus komen als één arbeidsregel op de rekening: het totaal
     // aantal uren maal het uurtarief van die klus, niet elke dag apart.
@@ -385,14 +541,14 @@
         klusKeuze.querySelector('option[value="' + klusKeuze.dataset.vooraf + '"]'));
     }
 
-    // Een rekening zonder regels levert een PDF van € 0,00 op en verbruikt wel een
-    // factuurnummer; daar waarschuwen we voor voordat het formulier weggaat.
+    // Een lege rekening of offerte levert een PDF van € 0,00 op en verbruikt wel een
+    // nummer; daar waarschuwen we voor voordat het formulier weggaat.
     document.querySelector('form.cards').addEventListener('submit', function (e) {
       var ingevuld = [...container.querySelectorAll('[name="omschrijving"]')]
         .some(function (veld) { return veld.value.trim() !== ''; });
       if (!ingevuld) {
         e.preventDefault();
-        alert('Vul minstens één regel in met een omschrijving; anders is er niets te factureren.');
+        alert('Vul minstens één regel in met een omschrijving; anders staat er niets in.');
         container.querySelector('[name="omschrijving"]').focus();
       }
     });

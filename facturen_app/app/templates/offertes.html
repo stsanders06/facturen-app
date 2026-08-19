@@ -1,0 +1,185 @@
+{% extends "_layout.html" %}
+{% block title %}Offertes{% endblock %}
+{% block head %}
+<style>
+  /* Zelfde kaart als bij de rekeningen: de hele kaart opent de PDF, de knoppen
+     eronder liggen erbovenop. */
+  .offerte {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 2px 14px;
+    align-items: baseline;
+    position: relative;
+    transition: box-shadow .15s ease;
+  }
+  .offerte:hover { box-shadow: var(--shadow-raised); }
+  .offerte:has(.kaartlink:focus-visible) {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+  .kaartlink {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    border-radius: var(--radius);
+    outline: none;
+  }
+  .offerte .klant a,
+  .offerte .acties { position: relative; z-index: 2; }
+  .offerte .klant {
+    font-size: 16px;
+    font-weight: 500;
+    letter-spacing: -.01em;
+  }
+  .offerte .klant a { color: inherit; text-decoration: none; }
+  .offerte .klant a:hover { color: var(--primary); }
+  .offerte .bedrag {
+    font-size: 17px;
+    font-weight: 500;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .offerte .meta {
+    grid-column: 1;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+  .offerte .onderkant {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--divider);
+  }
+  .offerte .chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  @media (max-width: 620px) {
+    .offerte .onderkant { flex-direction: column; align-items: flex-start; gap: 8px; }
+  }
+</style>
+{% endblock %}
+{% block content %}
+
+<div class="page-head">
+  <h1>Offertes</h1>
+  <a class="btn" href="{{ url_for('offerte_nieuw') }}">+ Nieuwe offerte</a>
+</div>
+
+{% if totaal_aantal %}
+<div class="overzicht">
+  <div class="let-op">
+    <small>Uitstaand</small>
+    <b>&euro; {{ overzicht.open_bedrag|bedrag }}</b>
+    <small>{{ overzicht.open_aantal }} offerte{{ 's' if overzicht.open_aantal != 1 }}
+      {%- if overzicht.verlopen %}, waarvan {{ overzicht.verlopen }} verlopen{% endif %}</small>
+  </div>
+  <div>
+    <small>Geaccepteerd</small>
+    <b>&euro; {{ overzicht.geaccepteerd|bedrag }}</b>
+  </div>
+</div>
+
+<div class="filters" style="margin-bottom:12px">
+  <a href="{{ url_for('offertes') }}" {% if keuze == 'alles' %}class="aan"{% endif %}>Alles</a>
+  {% for sleutel, naam in offerte_status.items() %}
+  <a href="{{ url_for('offertes') }}?status={{ sleutel }}"
+     {% if keuze == sleutel %}class="aan"{% endif %}>{{ naam }}</a>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if not offertes %}
+<div class="card empty">
+  {% if totaal_aantal %}
+  <p>Geen offertes in deze selectie.</p>
+  <a class="btn btn-outline" href="{{ url_for('offertes') }}">Alles tonen</a>
+  {% else %}
+  <p>Je hebt nog geen offertes gemaakt. Met een offerte geef je vooraf een prijs af;
+    zegt de klant ja, dan maak je er met één knop een rekening van.</p>
+  <a class="btn" href="{{ url_for('offerte_nieuw') }}">Maak je eerste offerte</a>
+  {% endif %}
+</div>
+{% else %}
+<div class="cards">
+  {% for o in offertes %}
+  {% set verlopen = o.geldig_tot and o.geldig_tot < vandaag and o.status in ['concept', 'verzonden'] %}
+  <article class="card offerte">
+    <a class="kaartlink" href="{{ url_for('bekijk_offerte', offerte_id=o.id) }}" target="_blank"
+       rel="noopener" aria-label="Offerte {{ o.nummer }} voor {{ o.klant_naam }} bekijken"></a>
+    <div class="klant">
+      {% if o.klant_id %}<a href="{{ url_for('klant', klant_id=o.klant_id) }}">{{ o.klant_naam }}</a>
+      {%- else %}{{ o.klant_naam }}{% endif %}
+    </div>
+    <div class="bedrag">&euro; {{ o.totaal|bedrag }}</div>
+    <div class="meta">
+      {{ o.nummer }} · {{ o.datum|datum_nl }}
+      {%- if o.geldig_tot %} · geldig tot {{ o.geldig_tot|datum_nl }}{% endif %}
+    </div>
+    <div class="onderkant">
+      <span class="chips">
+        <span class="chip chip-{{ o.status }}">{{ offerte_status[o.status] }}</span>
+        {% if verlopen %}<span class="chip chip-verlopen">Verlopen</span>{% endif %}
+        {% if o.factuur_id %}
+        <a class="link" style="font-size:13px" href="{{ url_for('bewerk', factuur_id=o.factuur_id) }}">Omgezet naar rekening</a>
+        {% endif %}
+      </span>
+      <div class="acties">
+        <a class="btn btn-text" href="{{ url_for('offerte_bewerk', offerte_id=o.id) }}">Bewerken</a>
+        <a class="btn btn-text" href="{{ url_for('download_offerte', offerte_id=o.id) }}">Downloaden</a>
+        <form method="post" action="{{ url_for('vernieuw_offerte', offerte_id=o.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-text"
+                  title="Opnieuw maken met je huidige logo en gegevens">Vernieuwen</button>
+        </form>
+        {% if o.klant_email %}
+        <form method="post" action="{{ url_for('verstuur_offerte', offerte_id=o.id) }}"
+              data-bevestig="Offerte {{ o.nummer }} nu mailen naar {{ o.klant_email }}?">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-text">Mailen</button>
+        </form>
+        {% endif %}
+        {% if o.status != 'geaccepteerd' %}
+        <form method="post" action="{{ url_for('offerte_status', offerte_id=o.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="status" value="geaccepteerd">
+          <button type="submit" class="btn btn-text">Geaccepteerd</button>
+        </form>
+        {% endif %}
+        {% if o.status not in ['afgewezen', 'geaccepteerd'] %}
+        <form method="post" action="{{ url_for('offerte_status', offerte_id=o.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="status" value="afgewezen">
+          <button type="submit" class="btn btn-text">Afgewezen</button>
+        </form>
+        {% endif %}
+        {% if o.status in ['afgewezen', 'geaccepteerd'] and not o.factuur_id %}
+        <form method="post" action="{{ url_for('offerte_status', offerte_id=o.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="status" value="verzonden">
+          <button type="submit" class="btn btn-text" title="Zet de offerte weer open">Toch nog open</button>
+        </form>
+        {% endif %}
+        {% if not o.factuur_id %}
+        <form method="post" action="{{ url_for('offerte_naar_rekening', offerte_id=o.id) }}"
+              data-bevestig="Van offerte {{ o.nummer }} een rekening maken? Je kunt hem daarna nog aanpassen voordat je hem verstuurt.">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-text">Naar rekening</button>
+        </form>
+        {% endif %}
+        <form method="post" action="{{ url_for('offerte_verwijder', offerte_id=o.id) }}"
+              data-bevestig="Offerte {{ o.nummer }} verwijderen? De PDF gaat mee.">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-text danger gevaar">Verwijderen</button>
+        </form>
+      </div>
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% endblock %}

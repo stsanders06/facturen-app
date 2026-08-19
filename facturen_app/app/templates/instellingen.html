@@ -121,15 +121,15 @@
 
 <section class="card" style="margin-top:12px">
   <div class="card-head">
-    <h2>Rekeningen opnieuw maken</h2>
+    <h2>PDF's opnieuw maken</h2>
     <p>Heb je hierboven iets gewijzigd — je logo, IBAN of adres — dan staan bestaande
-      PDF's nog met de oude gegevens. Hiermee teken je ze allemaal opnieuw. De bedragen
-      en regels blijven ongewijzigd.</p>
+      PDF's nog met de oude gegevens. Hiermee teken je alle rekeningen en offertes
+      opnieuw. De bedragen en regels blijven ongewijzigd.</p>
   </div>
   <form method="post" action="{{ url_for('vernieuw_alles') }}"
-        data-bevestig="Alle rekeningen opnieuw maken met je huidige instellingen?">
+        data-bevestig="Alle rekeningen en offertes opnieuw maken met je huidige instellingen?">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <button type="submit" class="btn btn-outline">Alle rekeningen opnieuw maken</button>
+    <button type="submit" class="btn btn-outline">Alles opnieuw maken</button>
   </form>
 </section>
 

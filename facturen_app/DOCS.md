@@ -1,7 +1,8 @@
 # Facturen App
 
 Simpele rekeningen-app voor losse klussen. Geen BTW-administratie, geen KvK-koppeling:
-materiaalkosten + arbeidsloon optellen, PDF maken en versturen.
+materiaalkosten + arbeidsloon optellen, PDF maken en versturen. Vooraf een prijs
+afgeven kan ook, met een offerte.
 
 ## Installatie
 
@@ -54,6 +55,59 @@ iets kwijtraakt.
    wachtwoord.
 3. Ga naar **Nieuw** om een rekening te maken: klantgegevens, regels voor materiaal en
    arbeid, betaalmethode kiezen. Bij opslaan wordt automatisch een PDF gegenereerd.
+4. Wil je eerst een prijs afgeven, begin dan onder **Offertes**. Zegt de klant ja, dan
+   maak je er met één knop een rekening van.
+5. Heb je je klanten al ergens anders staan, dan lees je ze in één keer in onder
+   **Klanten → Importeren**.
+
+## Offertes
+
+Onder het tabblad **Offertes** geef je vooraf een prijs af. Het formulier is hetzelfde
+als bij een rekening — dezelfde regels voor materiaal en arbeid — met twee extra velden:
+
+- **Geldig tot**: tot wanneer de prijs geldt. Staat standaard op dertig dagen na de
+  offertedatum. In de lijst zie je welke offertes verlopen zijn.
+- **Toelichting**: wat er wel en niet bij de prijs zit, hoe lang het werk duurt, dat
+  soort dingen. Komt onder de bedragen op de PDF.
+
+De PDF ziet eruit als je rekening, maar onderaan staat geen betaalstrook: daar zit een
+vak waarin de klant kan tekenen voor akkoord. Mailen, downloaden en opnieuw maken werkt
+net als bij een rekening. Offertes hebben hun eigen nummers, met `OFF-` ervoor.
+
+Wat de klant ervan vindt leg je vast met **Geaccepteerd** of **Afgewezen**. Zegt de klant
+ja, dan maak je er met **Naar rekening** in één klik een rekening van: de klant, de regels
+en het bedrag gaan mee. Je komt in het bewerkscherm terecht, zodat je nog iets kunt
+aanpassen voordat je hem verstuurt. De offerte zelf blijft staan als vastlegging van wat
+er is afgesproken, met een link naar de rekening die eruit is gekomen.
+
+## Uit een CSV-bestand inlezen
+
+### Klanten
+
+Onder **Klanten → Importeren** lees je in één keer een hele klantenlijst in, bijvoorbeeld
+een export uit je oude boekhouding, uit Excel of uit Google Contacten. Zet de kopjes op de
+eerste regel; puntkomma's, komma's en tabs worden alle drie herkend.
+
+Alleen een kolom **naam** is verplicht. De app herkent dezelfde kolom onder verschillende
+namen — `naam`, `klant`, `bedrijf` of `name`; `email`, `e-mail` of `mail`; `telefoon`,
+`mobiel` of `phone`. Staan postcode en plaats in aparte kolommen, dan komen die onder het
+adres te staan.
+
+Klanten die er al zijn worden overgeslagen. Wil je ze bijwerken met wat er in het bestand
+staat, zet dan het vinkje aan; een lege kolom wist dan niet wat je zelf had ingevuld. Na
+afloop zie je hoeveel klanten erbij zijn gekomen, zijn bijgewerkt en zijn overgeslagen.
+Er staat een voorbeeldbestand klaar om te downloaden.
+
+### Regels van een rekening of offerte
+
+Bij **Regels** kun je een CSV-bestand kiezen in plaats van alles over te typen — handig
+bij een materiaallijst of een bon van de groothandel. Kopjes: **omschrijving**,
+**aantal**, **prijs** en eventueel **soort** (`materiaal`, `uur`, `dag` of `vaste prijs`).
+Bedragen mogen met een komma of een punt, met of zonder euroteken.
+
+Het bestand wordt in je browser gelezen en niet naar de app gestuurd: de regels
+verschijnen meteen in het formulier, je kunt ze nog aanpassen en pas als je opslaat komen
+ze op de rekening. Zit er iets niet goed bij, dan haal je die regel met het kruisje weg.
 
 ## Uren bijhouden
 

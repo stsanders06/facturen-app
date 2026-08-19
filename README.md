@@ -1,8 +1,8 @@
 # Facturen App — Home Assistant add-on repository
 
 Home Assistant add-on repository met de **Facturen App**: een simpele rekeningen-app
-voor losse klussen. Materiaalkosten en arbeidsloon optellen, PDF genereren en
-automatisch mailen.
+voor losse klussen. Offertes en rekeningen maken, materiaalkosten en arbeidsloon
+optellen, PDF genereren en automatisch mailen.
 
 ## Toevoegen aan Home Assistant
 
@@ -23,7 +23,7 @@ Of handmatig:
 
 | Add-on | Beschrijving |
 | --- | --- |
-| [Facturen App](./facturen_app) | Uren per klus bijhouden, rekeningen maken, PDF genereren en per e-mail versturen |
+| [Facturen App](./facturen_app) | Uren per klus bijhouden, offertes en rekeningen maken, PDF genereren en per e-mail versturen |
 
 Zie [de documentatie](./facturen_app/DOCS.md) voor installatie en gebruik.
 

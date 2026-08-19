@@ -1,3 +1,5 @@
+import csv
+import io
 import logging
 import os
 import secrets
@@ -20,7 +22,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.10.8"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.11.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -101,8 +103,8 @@ def controleer_csrf():
 
 @app.errorhandler(413)
 def te_groot(_fout):
-    flash("Dat bestand is te groot. Kies een afbeelding van hooguit 8 MB.")
-    return redirect(url_for("instellingen"))
+    flash("Dat bestand is te groot. Kies er een van hooguit 8 MB.")
+    return redirect(request.referrer or url_for("instellingen"))
 
 MAANDEN = [
     "jan", "feb", "mrt", "apr", "mei", "jun",
@@ -111,6 +113,16 @@ MAANDEN = [
 
 # Aantal dagen dat de klant heeft om te betalen; komt als "Vóór ..." op de strook.
 BETAALTERMIJN_DAGEN = 14
+
+# Hoe lang een offerte standaard geldig blijft. Zonder einddatum kan een klant er
+# volgend jaar nog mee aankomen terwijl de materiaalprijzen allang anders zijn.
+OFFERTE_GELDIG_DAGEN = 30
+
+# Wat er onderaan een offerte staat, in plaats van de betaalstrook van een rekening.
+OFFERTE_REGEL = (
+    "Deze offerte is vrijblijvend. Prijzen zijn vrijgesteld van btw i.v.m. "
+    "particuliere levering van diensten."
+)
 
 # Wat er bij het opstarten is rechtgezet; wordt één keer aan de gebruiker getoond.
 OPSTARTMELDINGEN = []
@@ -311,6 +323,32 @@ def init_db():
             factuur_id INTEGER,
             FOREIGN KEY (klus_id) REFERENCES klussen (id)
         );
+
+        CREATE TABLE IF NOT EXISTS offertes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nummer TEXT NOT NULL,
+            datum TEXT NOT NULL,
+            geldig_tot TEXT DEFAULT '',
+            klant_id INTEGER,
+            klant_naam TEXT NOT NULL,
+            klant_adres TEXT DEFAULT '',
+            klant_email TEXT DEFAULT '',
+            status TEXT DEFAULT 'concept',
+            totaal REAL DEFAULT 0,
+            toelichting TEXT DEFAULT '',
+            factuur_id INTEGER
+        );
+
+        CREATE TABLE IF NOT EXISTS offerte_regels (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            offerte_id INTEGER NOT NULL,
+            omschrijving TEXT NOT NULL,
+            type TEXT NOT NULL,
+            aantal REAL NOT NULL,
+            prijs REAL NOT NULL,
+            subtotaal REAL NOT NULL,
+            FOREIGN KEY (offerte_id) REFERENCES offertes (id)
+        );
         """
     )
     conn.execute("INSERT OR IGNORE INTO settings (id) VALUES (1)")
@@ -410,6 +448,34 @@ def volgend_nummer(conn=None):
         conn.close()
     hoogste = max((_volgnummer(rij["nummer"]) for rij in nummers), default=0)
     return f"{jaar}-{hoogste + 1:03d}"
+
+
+def volgend_offertenummer(conn=None):
+    """Het eerstvolgende vrije offertenummer van dit jaar, in de vorm OFF-2026-001.
+
+    Offertes tellen apart van rekeningen: het voorvoegsel houdt de twee reeksen uit
+    elkaar, ook in de map met PDF's."""
+    eigen = conn is None
+    if eigen:
+        conn = get_db()
+    jaar = date.today().year
+    nummers = conn.execute(
+        "SELECT nummer FROM offertes WHERE nummer LIKE ?", (f"OFF-{jaar}-%",)
+    ).fetchall()
+    if eigen:
+        conn.close()
+    hoogste = max((_volgnummer(rij["nummer"].rsplit("-", 1)[-1]) for rij in nummers),
+                  default=0)
+    return f"OFF-{jaar}-{hoogste + 1:03d}"
+
+
+def geldig_tot(datum):
+    """Offertedatum plus de geldigheidstermijn, als ISO-datum."""
+    try:
+        return (date.fromisoformat(str(datum))
+                + timedelta(days=OFFERTE_GELDIG_DAGEN)).isoformat()
+    except ValueError:
+        return datum
 
 
 def herstel_dubbele_nummers():
@@ -560,9 +626,156 @@ def klant_uit_form(form):
     )
 
 
+# Hoe kolommen in een CSV mogen heten. Excel, Google Contacts en boekhoudpakketten
+# noemen dezelfde kolom allemaal net anders; hier vertalen we ze naar één naam.
+CSV_KOLOMMEN = {
+    "naam": ["naam", "klant", "klantnaam", "bedrijf", "bedrijfsnaam", "name",
+             "company", "display name", "volledige naam"],
+    "adres": ["adres", "straat", "address", "street", "adresregel", "postadres"],
+    "email": ["email", "e-mail", "emailadres", "e-mailadres", "mail",
+              "e-mail address", "email address", "e-mail 1 - value"],
+    "telefoon": ["telefoon", "tel", "telefoonnummer", "mobiel", "gsm", "phone",
+                 "phone 1 - value", "telephone"],
+    "notitie": ["notitie", "notities", "opmerking", "opmerkingen", "notes", "memo"],
+}
+
+# Hoe een postcode-en-plaatskolom bij het adres wordt gezet, als die apart staat.
+CSV_ADRES_EXTRA = ["postcode", "zip", "postal code", "plaats", "woonplaats", "city"]
+
+
+def _csv_lezer(inhoud):
+    """Geeft een DictReader die overweg kan met puntkomma's (Excel in Nederland),
+    komma's en tabs, en met een byte-order-mark aan het begin van het bestand."""
+    tekst = inhoud.decode("utf-8-sig", errors="replace").replace("\r\n", "\n")
+    eerste = tekst.split("\n", 1)[0]
+    scheiding = max([";", ",", "\t"], key=eerste.count)
+    return csv.DictReader(io.StringIO(tekst), delimiter=scheiding)
+
+
+def _kolomnamen(veldnamen):
+    """Koppelt de koppen uit het bestand aan onze eigen namen."""
+    gevonden = {}
+    extra_adres = []
+    for kop in veldnamen or []:
+        schoon = (kop or "").strip().lower()
+        for eigen, namen in CSV_KOLOMMEN.items():
+            if schoon in namen and eigen not in gevonden:
+                gevonden[eigen] = kop
+                break
+        else:
+            if schoon in CSV_ADRES_EXTRA:
+                extra_adres.append(kop)
+    return gevonden, extra_adres
+
+
 @app.route("/klanten")
 def klanten():
     return render_template("klanten.html", klanten=klantenlijst(), actief="klanten")
+
+
+@app.route("/klanten/import", methods=["GET", "POST"])
+def klanten_import():
+    """Klanten uit een CSV-bestand inlezen, bijvoorbeeld een export uit je oude
+    boekhouding of uit je telefoonboek."""
+    if request.method != "POST":
+        return render_template("klanten_import.html", actief="klanten")
+
+    bestand = request.files.get("bestand")
+    if not bestand or not bestand.filename:
+        flash("Kies eerst een CSV-bestand.")
+        return redirect(url_for("klanten_import"))
+
+    lezer = _csv_lezer(bestand.read())
+    kolommen, extra_adres = _kolomnamen(lezer.fieldnames)
+    if "naam" not in kolommen:
+        flash("In dit bestand staat geen kolom met een naam. Zorg dat de eerste regel "
+              "de kopjes bevat, met in elk geval een kolom 'naam'.")
+        return redirect(url_for("klanten_import"))
+
+    bijwerken = request.form.get("bijwerken") == "ja"
+    conn = get_db()
+    nieuw = bijgewerkt = overgeslagen = 0
+    for rij in lezer:
+        def waarde(eigen, rij=rij):
+            return (rij.get(kolommen.get(eigen, ""), "") or "").strip()
+
+        naam = waarde("naam")
+        if not naam:
+            overgeslagen += 1
+            continue
+
+        adres_delen = [waarde("adres")] + [
+            (rij.get(kop, "") or "").strip() for kop in extra_adres
+        ]
+        adres = "\n".join(deel for deel in adres_delen if deel)
+        email, telefoon, notitie = waarde("email"), waarde("telefoon"), waarde("notitie")
+
+        bestaand = conn.execute(
+            "SELECT id FROM klanten WHERE naam=? COLLATE NOCASE", (naam,)
+        ).fetchone()
+        if bestaand and not bijwerken:
+            overgeslagen += 1
+            continue
+        if bestaand:
+            # Alleen overschrijven wat er in het bestand staat; een lege kolom mag
+            # niet zomaar wissen wat je zelf al had ingevuld.
+            conn.execute(
+                """UPDATE klanten SET
+                   adres = CASE WHEN ? <> '' THEN ? ELSE adres END,
+                   email = CASE WHEN ? <> '' THEN ? ELSE email END,
+                   telefoon = CASE WHEN ? <> '' THEN ? ELSE telefoon END,
+                   notitie = CASE WHEN ? <> '' THEN ? ELSE notitie END
+                   WHERE id=?""",
+                (adres, adres, email, email, telefoon, telefoon, notitie, notitie,
+                 bestaand["id"]),
+            )
+            bijgewerkt += 1
+        else:
+            conn.execute(
+                """INSERT INTO klanten (naam, adres, email, telefoon, notitie)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (naam, adres, email, telefoon, notitie),
+            )
+            nieuw += 1
+    conn.commit()
+    conn.close()
+
+    melding = f"{nieuw} klant{'en' if nieuw != 1 else ''} toegevoegd"
+    if bijgewerkt:
+        melding += f", {bijgewerkt} bijgewerkt"
+    if overgeslagen:
+        melding += (f", {overgeslagen} overgeslagen (naam leeg of stond er al)")
+    flash(melding + ".")
+    return redirect(url_for("klanten"))
+
+
+@app.route("/regels/voorbeeld.csv")
+def regels_voorbeeld():
+    """Voorbeeld voor de regels van een rekening of offerte."""
+    uitvoer = io.StringIO()
+    schrijver = csv.writer(uitvoer, delimiter=";")
+    schrijver.writerow(["omschrijving", "aantal", "prijs", "soort"])
+    schrijver.writerow(["Buis 32 mm", "4", "12,50", "materiaal"])
+    schrijver.writerow(["Kraan vervangen", "3", "45,00", "arbeid_uur"])
+    schrijver.writerow(["Voorrijkosten", "1", "25,00", "arbeid_klus"])
+    return send_file(
+        io.BytesIO(uitvoer.getvalue().encode("utf-8-sig")),
+        mimetype="text/csv", as_attachment=True, download_name="regels-voorbeeld.csv",
+    )
+
+
+@app.route("/klanten/voorbeeld.csv")
+def klanten_voorbeeld():
+    """Een leeg bestand met de juiste kopjes, om zelf in te vullen."""
+    uitvoer = io.StringIO()
+    schrijver = csv.writer(uitvoer, delimiter=";")
+    schrijver.writerow(["naam", "adres", "email", "telefoon", "notitie"])
+    schrijver.writerow(["Jan Jansen", "Dorpsstraat 1\n5900 AA Venlo",
+                        "jan@voorbeeld.nl", "0612345678", "Vaste klant"])
+    return send_file(
+        io.BytesIO(uitvoer.getvalue().encode("utf-8-sig")),
+        mimetype="text/csv", as_attachment=True, download_name="klanten-voorbeeld.csv",
+    )
 
 
 @app.route("/klanten/nieuw", methods=["GET", "POST"])
@@ -597,14 +810,17 @@ def klant(klant_id):
     facturen = conn.execute(
         "SELECT * FROM facturen WHERE klant_id=? ORDER BY id DESC", (klant_id,)
     ).fetchall()
+    offertes_van_klant = conn.execute(
+        "SELECT * FROM offertes WHERE klant_id=? ORDER BY id DESC", (klant_id,)
+    ).fetchall()
     conn.close()
 
     omzet = sum(f["totaal"] for f in facturen)
     openstaand = sum(f["totaal"] for f in facturen if f["status"] != "betaald")
     klussen_van_klant = [k for k in klussenlijst() if k["klant_id"] == klant_id]
     return render_template("klant.html", klant=gegevens, facturen=facturen,
-                           klussen=klussen_van_klant, omzet=omzet,
-                           openstaand=openstaand, actief="klanten")
+                           offertes=offertes_van_klant, klussen=klussen_van_klant,
+                           omzet=omzet, openstaand=openstaand, actief="klanten")
 
 
 @app.route("/klant/<int:klant_id>/bewerk", methods=["GET", "POST"])
@@ -917,6 +1133,18 @@ def dag_verwijder(uur_id):
     return redirect(url_for("klus", klus_id=gegevens["klus_id"]))
 
 
+def _getal(waarde):
+    """'12,50' en '12.50' leveren allebei 12.5 op. Een browser stuurt een getalveld
+    met een punt, maar wie het formulier anders invult (of vult vanuit een CSV) typt
+    hier gewoon een komma; dan hoort de regel niet stilletjes te verdwijnen."""
+    tekst = str(waarde or "").strip().replace(" ", "")
+    if not tekst:
+        return 0.0
+    if "," in tekst:
+        tekst = tekst.replace(".", "").replace(",", ".")
+    return float(tekst)
+
+
 def lees_regels(form):
     """Haalt de ingevulde regels uit het formulier en telt het totaal op.
     Regels zonder omschrijving worden overgeslagen."""
@@ -933,8 +1161,8 @@ def lees_regels(form):
         if not o:
             continue
         try:
-            a = float(a or 0)
-            p = float(p or 0)
+            a = _getal(a)
+            p = _getal(p)
         except ValueError:
             continue
         if t == "arbeid_klus":
@@ -1130,18 +1358,352 @@ def bewerk(factuur_id):
                            vooraf_klus="")
 
 
+OFFERTE_STATUS = {
+    "concept": "Concept",
+    "verzonden": "Verzonden",
+    "geaccepteerd": "Geaccepteerd",
+    "afgewezen": "Afgewezen",
+}
+
+app.jinja_env.globals["offerte_status"] = OFFERTE_STATUS
+
+
+def offerte_of_404(conn, offerte_id):
+    rij = conn.execute("SELECT * FROM offertes WHERE id=?", (offerte_id,)).fetchone()
+    if rij is None:
+        conn.close()
+        abort(404)
+    return rij
+
+
+def bewaar_offerte_regels(conn, offerte_id, regels):
+    conn.execute("DELETE FROM offerte_regels WHERE offerte_id=?", (offerte_id,))
+    for o, t, a, p, subtotaal, _klus_id in regels:
+        conn.execute(
+            """INSERT INTO offerte_regels (offerte_id, omschrijving, type, aantal, prijs,
+               subtotaal) VALUES (?, ?, ?, ?, ?, ?)""",
+            (offerte_id, o, t, a, p, subtotaal),
+        )
+
+
+@app.route("/offertes")
+def offertes():
+    conn = get_db()
+    lijst = conn.execute("SELECT * FROM offertes ORDER BY id DESC").fetchall()
+    conn.close()
+
+    vandaag = date.today().isoformat()
+    open_offertes = [o for o in lijst
+                     if o["status"] in ("concept", "verzonden") and not o["factuur_id"]]
+    overzicht = {
+        "open_bedrag": sum(o["totaal"] for o in open_offertes),
+        "open_aantal": len(open_offertes),
+        "geaccepteerd": sum(o["totaal"] for o in lijst if o["status"] == "geaccepteerd"),
+        "verlopen": sum(1 for o in open_offertes
+                        if o["geldig_tot"] and o["geldig_tot"] < vandaag),
+    }
+
+    keuze = request.args.get("status", "alles")
+    if keuze in OFFERTE_STATUS:
+        zichtbaar = [o for o in lijst if o["status"] == keuze]
+    else:
+        keuze, zichtbaar = "alles", lijst
+
+    return render_template("offertes.html", offertes=zichtbaar, overzicht=overzicht,
+                           keuze=keuze, totaal_aantal=len(lijst), vandaag=vandaag,
+                           actief="offertes")
+
+
+@app.route("/offertes/nieuw", methods=["GET", "POST"])
+def offerte_nieuw():
+    if request.method == "POST":
+        regels, totaal = lees_regels(request.form)
+        if not regels:
+            flash("Vul minstens één regel in met een omschrijving; anders staat er "
+                  "niets in de offerte.")
+            return redirect(url_for("offerte_nieuw"))
+
+        conn = get_db()
+        nummer = volgend_offertenummer(conn)
+        klant_id = bepaal_klant(conn, request.form)
+        datum = geldige_datum(request.form.get("datum"))
+
+        cur = conn.execute(
+            """INSERT INTO offertes (nummer, datum, geldig_tot, klant_id, klant_naam,
+               klant_adres, klant_email, status, totaal, toelichting)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'concept', ?, ?)""",
+            (
+                nummer,
+                datum,
+                geldige_datum(request.form.get("geldig_tot"), geldig_tot(datum)),
+                klant_id,
+                request.form.get("klant_naam", ""),
+                request.form.get("klant_adres", ""),
+                request.form.get("klant_email", ""),
+                totaal,
+                request.form.get("toelichting", "").strip(),
+            ),
+        )
+        offerte_id = cur.lastrowid
+        bewaar_offerte_regels(conn, offerte_id, regels)
+        conn.commit()
+        conn.close()
+
+        maak_offerte_pdf(offerte_id)
+        flash(f"Offerte {nummer} aangemaakt.")
+
+        if request.form.get("verstuur") == "ja":
+            flash(verstuur_offerte_email(offerte_id)[1])
+
+        return redirect(url_for("offertes"))
+
+    vooraf = request.args.get("klant", "")
+    gekozen = None
+    if vooraf.isdigit():
+        conn = get_db()
+        gekozen = conn.execute("SELECT * FROM klanten WHERE id=?", (vooraf,)).fetchone()
+        conn.close()
+
+    vandaag = date.today().isoformat()
+    return render_template(
+        "nieuw.html", mode="offerte", vandaag=vandaag, actief="offertes",
+        factuur=None, regels=[], klanten=klantenlijst(), gekozen_klant=gekozen,
+        klussen=[], vooraf_klus="", geldig=geldig_tot(vandaag),
+    )
+
+
+@app.route("/offerte/<int:offerte_id>/bewerk", methods=["GET", "POST"])
+def offerte_bewerk(offerte_id):
+    conn = get_db()
+    offerte = offerte_of_404(conn, offerte_id)
+
+    if request.method == "POST":
+        regels, totaal = lees_regels(request.form)
+        if not regels:
+            conn.close()
+            flash("Vul minstens één regel in met een omschrijving; anders staat er "
+                  "niets in de offerte.")
+            return redirect(url_for("offerte_bewerk", offerte_id=offerte_id))
+
+        klant_id = bepaal_klant(conn, request.form)
+        datum = geldige_datum(request.form.get("datum"), offerte["datum"])
+        conn.execute(
+            """UPDATE offertes SET datum=?, geldig_tot=?, klant_id=?, klant_naam=?,
+               klant_adres=?, klant_email=?, totaal=?, toelichting=? WHERE id=?""",
+            (
+                datum,
+                geldige_datum(request.form.get("geldig_tot"), geldig_tot(datum)),
+                klant_id,
+                request.form.get("klant_naam", ""),
+                request.form.get("klant_adres", ""),
+                request.form.get("klant_email", ""),
+                totaal,
+                request.form.get("toelichting", "").strip(),
+                offerte_id,
+            ),
+        )
+        bewaar_offerte_regels(conn, offerte_id, regels)
+        conn.commit()
+        conn.close()
+
+        maak_offerte_pdf(offerte_id)
+        flash(f"Offerte {offerte['nummer']} bijgewerkt.")
+
+        if request.form.get("verstuur") == "ja":
+            flash(verstuur_offerte_email(offerte_id)[1])
+
+        return redirect(url_for("offertes"))
+
+    regels = conn.execute(
+        "SELECT * FROM offerte_regels WHERE offerte_id=? ORDER BY id", (offerte_id,)
+    ).fetchall()
+    conn.close()
+    return render_template("nieuw.html", mode="offerte", vandaag=offerte["datum"],
+                           actief="offertes", factuur=offerte, regels=regels,
+                           klanten=klantenlijst(), gekozen_klant=None, klussen=[],
+                           vooraf_klus="", geldig=offerte["geldig_tot"])
+
+
+def _offerte_pdf_pad(offerte_id):
+    conn = get_db()
+    offerte = offerte_of_404(conn, offerte_id)
+    conn.close()
+    pad = os.path.join(PDF_DIR, f"{offerte['nummer']}.pdf")
+    if not os.path.exists(pad):
+        maak_offerte_pdf(offerte_id)
+    return pad, offerte["nummer"]
+
+
+@app.route("/offerte/<int:offerte_id>/bekijk")
+def bekijk_offerte(offerte_id):
+    pad, nummer = _offerte_pdf_pad(offerte_id)
+    return send_file(pad, mimetype="application/pdf", as_attachment=False,
+                     download_name=f"{nummer}.pdf")
+
+
+@app.route("/offerte/<int:offerte_id>/pdf")
+def download_offerte(offerte_id):
+    pad, nummer = _offerte_pdf_pad(offerte_id)
+    return send_file(pad, as_attachment=True, download_name=f"{nummer}.pdf")
+
+
+@app.route("/offerte/<int:offerte_id>/vernieuw", methods=["POST"])
+def vernieuw_offerte(offerte_id):
+    conn = get_db()
+    offerte = offerte_of_404(conn, offerte_id)
+    conn.close()
+    maak_offerte_pdf(offerte_id)
+    flash(f"Offerte {offerte['nummer']} is opnieuw gemaakt met je huidige instellingen.")
+    return redirect(request.referrer or url_for("offertes"))
+
+
+@app.route("/offerte/<int:offerte_id>/verstuur", methods=["POST"])
+def verstuur_offerte(offerte_id):
+    flash(verstuur_offerte_email(offerte_id)[1])
+    return redirect(request.referrer or url_for("offertes"))
+
+
+@app.route("/offerte/<int:offerte_id>/status", methods=["POST"])
+def offerte_status(offerte_id):
+    """Vastleggen wat de klant ervan vond: geaccepteerd, afgewezen, of toch weer open."""
+    nieuw_status = request.form.get("status", "")
+    if nieuw_status not in OFFERTE_STATUS:
+        abort(400, "Onbekende status voor een offerte.")
+    conn = get_db()
+    offerte = offerte_of_404(conn, offerte_id)
+    conn.execute("UPDATE offertes SET status=? WHERE id=?", (nieuw_status, offerte_id))
+    conn.commit()
+    conn.close()
+    flash(f"Offerte {offerte['nummer']}: {OFFERTE_STATUS[nieuw_status].lower()}.")
+    return redirect(request.referrer or url_for("offertes"))
+
+
+@app.route("/offerte/<int:offerte_id>/naar-rekening", methods=["POST"])
+def offerte_naar_rekening(offerte_id):
+    """Maakt van een geaccepteerde offerte een rekening met dezelfde regels. De
+    offerte blijft staan als vastlegging van wat er is afgesproken."""
+    conn = get_db()
+    offerte = offerte_of_404(conn, offerte_id)
+    if offerte["factuur_id"]:
+        bestaat = conn.execute(
+            "SELECT id FROM facturen WHERE id=?", (offerte["factuur_id"],)
+        ).fetchone()
+        if bestaat:
+            conn.close()
+            flash(f"Offerte {offerte['nummer']} is al omgezet naar een rekening.")
+            return redirect(url_for("bewerk", factuur_id=offerte["factuur_id"]))
+
+    regels = conn.execute(
+        "SELECT * FROM offerte_regels WHERE offerte_id=? ORDER BY id", (offerte_id,)
+    ).fetchall()
+    nummer = volgend_nummer(conn)
+    cur = conn.execute(
+        """INSERT INTO facturen (nummer, datum, klant_id, klant_naam, klant_adres,
+           klant_email, betaalmethode, status, totaal)
+           VALUES (?, ?, ?, ?, ?, ?, 'bank', 'concept', ?)""",
+        (
+            nummer,
+            date.today().isoformat(),
+            offerte["klant_id"],
+            offerte["klant_naam"],
+            offerte["klant_adres"],
+            offerte["klant_email"],
+            offerte["totaal"],
+        ),
+    )
+    factuur_id = cur.lastrowid
+    for r in regels:
+        conn.execute(
+            """INSERT INTO regels (factuur_id, omschrijving, type, aantal, prijs,
+               subtotaal) VALUES (?, ?, ?, ?, ?, ?)""",
+            (factuur_id, r["omschrijving"], r["type"], r["aantal"], r["prijs"],
+             r["subtotaal"]),
+        )
+    conn.execute(
+        "UPDATE offertes SET factuur_id=?, status='geaccepteerd' WHERE id=?",
+        (factuur_id, offerte_id),
+    )
+    conn.commit()
+    conn.close()
+
+    maak_pdf(factuur_id)
+    flash(f"Offerte {offerte['nummer']} staat nu als rekening {nummer} klaar. "
+          "Controleer hem en verstuur hem als hij klopt.")
+    return redirect(url_for("bewerk", factuur_id=factuur_id))
+
+
+@app.route("/offerte/<int:offerte_id>/verwijder", methods=["POST"])
+def offerte_verwijder(offerte_id):
+    conn = get_db()
+    offerte = offerte_of_404(conn, offerte_id)
+    conn.execute("DELETE FROM offerte_regels WHERE offerte_id=?", (offerte_id,))
+    conn.execute("DELETE FROM offertes WHERE id=?", (offerte_id,))
+    conn.commit()
+    conn.close()
+
+    pdf = os.path.join(PDF_DIR, f"{offerte['nummer']}.pdf")
+    if os.path.exists(pdf):
+        os.remove(pdf)
+
+    flash(f"Offerte {offerte['nummer']} verwijderd.")
+    return redirect(url_for("offertes"))
+
+
+def _regels_afbreken(c, tekst, font, grootte, maxbreedte):
+    """Knipt een lap tekst op woordgrenzen in regels die binnen de breedte passen."""
+    if not tekst:
+        return [""]
+    regels = []
+    huidig = ""
+    for woord in tekst.split():
+        proef = f"{huidig} {woord}".strip()
+        if c.stringWidth(proef, font, grootte) <= maxbreedte or not huidig:
+            huidig = proef
+        else:
+            regels.append(huidig)
+            huidig = woord
+    regels.append(huidig)
+    return regels
+
+
 def maak_pdf(factuur_id):
-    """Tekent de rekening: ruime opzet met een oranje rand en merkregel bovenaan,
-    en onderaan een afscheurbare betaalstrook met alles wat nodig is om te betalen."""
+    """Tekent de rekening en geeft het pad naar de PDF terug."""
     conn = get_db()
     factuur = conn.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
     regels = conn.execute("SELECT * FROM regels WHERE factuur_id=?", (factuur_id,)).fetchall()
     s = get_settings()
     conn.close()
 
-    pad = os.path.join(PDF_DIR, f"{factuur['nummer']}.pdf")
+    doc = dict(factuur)
+    doc["soort"] = "factuur"
+    return _teken_document(os.path.join(PDF_DIR, f"{factuur['nummer']}.pdf"), doc, regels, s)
+
+
+def maak_offerte_pdf(offerte_id):
+    """Tekent de offerte. Zelfde vel als een rekening, maar met een akkoordvak
+    onderaan in plaats van een betaalstrook."""
+    conn = get_db()
+    offerte = conn.execute("SELECT * FROM offertes WHERE id=?", (offerte_id,)).fetchone()
+    regels = conn.execute(
+        "SELECT * FROM offerte_regels WHERE offerte_id=? ORDER BY id", (offerte_id,)
+    ).fetchall()
+    s = get_settings()
+    conn.close()
+
+    doc = dict(offerte)
+    doc["soort"] = "offerte"
+    return _teken_document(os.path.join(PDF_DIR, f"{offerte['nummer']}.pdf"), doc, regels, s)
+
+
+def _teken_document(pad, factuur, regels, s):
+    """Tekent een rekening of een offerte: ruime opzet met een oranje rand en
+    merkregel bovenaan, en onderaan een afscheurbare strook — bij een rekening met
+    alles wat nodig is om te betalen, bij een offerte met een plek om te tekenen."""
+    offerte = factuur.get("soort") == "offerte"
+    titel = "Offerte" if offerte else "Rekening"
+
     c = canvas.Canvas(pad, pagesize=A4)
-    c.setTitle(f"Rekening {factuur['nummer']}")
+    c.setTitle(f"{titel} {factuur['nummer']}")
     breedte, hoogte = A4
 
     links = 26 * mm
@@ -1202,12 +1764,13 @@ def maak_pdf(factuur_id):
     y -= 30 * mm
     c.setFillColor(ORANJE)
     c.setFont("Helvetica", 30)
-    c.drawString(links, y, "Rekening")
+    c.drawString(links, y, titel)
 
     y -= 7 * mm
     c.setFillColor(GRIJS_DONKER)
     c.setFont("Helvetica", 9)
-    vervalt = vervaldatum(factuur["datum"])
+    vervalt = (factuur.get("geldig_tot") or geldig_tot(factuur["datum"])) if offerte \
+        else vervaldatum(factuur["datum"])
     c.drawString(links, y, f"{factuur['nummer']}   \u00b7   {filter_datum_nl(factuur['datum'])}")
 
     # ---- Van en Voor naast elkaar ----
@@ -1260,7 +1823,7 @@ def maak_pdf(factuur_id):
             c.setFillColor(GRIJS)
             c.setFont("Helvetica", 8.5)
             c.drawString(links, hoogte - 18 * mm,
-                         f"Rekening {factuur['nummer']} · vervolg")
+                         f"{titel} {factuur['nummer']} · vervolg")
             y = kolomkoppen(hoogte - 28 * mm)
 
         soort_info = soort(r["type"])
@@ -1290,6 +1853,20 @@ def maak_pdf(factuur_id):
     c.setFont("Helvetica-Bold", 17)
     c.drawRightString(rechts, y - 1 * mm, f"\u20ac {nl_bedrag(factuur['totaal'])}")
 
+    # ---- Toelichting bij een offerte ----
+    toelichting = (factuur.get("toelichting") or "").strip()
+    if toelichting:
+        y -= 14 * mm
+        label("Toelichting", links, y)
+        y -= 5.5 * mm
+        c.setFont("Helvetica", 9)
+        c.setFillColor(GRIJS_DONKER)
+        for alinea in toelichting.split("\n"):
+            for regel in _regels_afbreken(c, alinea.strip(), "Helvetica", 9,
+                                          rechts - links):
+                c.drawString(links, y, regel)
+                y -= 4.6 * mm
+
     # ---- Betaalstrook, altijd onderaan het vel ----
     if y < 80 * mm:
         c.showPage()
@@ -1302,8 +1879,14 @@ def maak_pdf(factuur_id):
     c.line(links, strook_y, rechts, strook_y)
     c.setDash()
 
-    contant = factuur["betaalmethode"] == "cash"
-    gespreid = " ".join("VOLDAAN" if contant else "BETAALSTROOK")
+    contant = not offerte and factuur.get("betaalmethode") == "cash"
+    if offerte:
+        strookkop = "AKKOORD"
+    elif contant:
+        strookkop = "VOLDAAN"
+    else:
+        strookkop = "BETAALSTROOK"
+    gespreid = " ".join(strookkop)
     tekstbreedte = c.stringWidth(gespreid, "Helvetica-Bold", 6.5)
     midden = links + (rechts - links) / 2
     c.setFillColor(WIT)
@@ -1313,7 +1896,33 @@ def maak_pdf(factuur_id):
     c.setFont("Helvetica-Bold", 6.5)
     c.drawCentredString(midden, strook_y - 1 * mm, gespreid)
 
-    if contant:
+    if offerte:
+        # Onderaan een offerte staat geen betaalstrook maar een strook om af te
+        # scheuren, te tekenen en terug te geven; daarnaast tot wanneer de prijs geldt.
+        label("Geldig tot", links, strook_y - 8 * mm)
+        c.setFillColor(INKT)
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(links, strook_y - 15 * mm, filter_datum_nl(vervalt))
+        c.setFont("Helvetica", 9)
+        c.setFillColor(GRIJS_DONKER)
+        c.drawString(links, strook_y - 21 * mm,
+                     "Akkoord? Teken hiernaast, of laat het weten per mail.")
+
+        vak_b, vak_h = 72 * mm, 26 * mm
+        vak_x, vak_y = rechts - vak_b, strook_y - 30 * mm
+        c.setStrokeColor(ORANJE)
+        c.setLineWidth(1.4)
+        c.roundRect(vak_x, vak_y, vak_b, vak_h, 2 * mm, stroke=1, fill=0)
+        label("Voor akkoord", vak_x + 5 * mm, vak_y + vak_h - 6 * mm)
+        c.setStrokeColor(LIJN)
+        c.setLineWidth(0.6)
+        for hoogte_regel, naam in [(13 * mm, "Naam"), (5 * mm, "Datum")]:
+            c.setFillColor(GRIJS)
+            c.setFont("Helvetica", 8)
+            c.drawString(vak_x + 5 * mm, vak_y + hoogte_regel + 1.5 * mm, naam)
+            c.line(vak_x + 20 * mm, vak_y + hoogte_regel, vak_x + vak_b - 5 * mm,
+                   vak_y + hoogte_regel)
+    elif contant:
         c.setFillColor(INKT)
         c.setFont("Helvetica-Bold", 11)
         c.drawString(links, strook_y - 16 * mm, "Contant afgehandeld.")
@@ -1349,15 +1958,53 @@ def maak_pdf(factuur_id):
     # ---- Voetregel ----
     c.setFont("Helvetica", 7)
     c.setFillColor(GRIJS)
-    c.drawString(links, 14 * mm, BTW_REGEL)
+    c.drawString(links, 14 * mm, OFFERTE_REGEL if offerte else BTW_REGEL)
 
     c.save()
     return pad
 
 
+def _mail_pdf(s, ontvanger, onderwerp, tekst, pad, bestandsnaam):
+    """Stuurt één PDF als bijlage. Geeft (gelukt, melding) terug; de melding is
+    bedoeld om aan de gebruiker te tonen en zegt wat er precies misging."""
+    msg = EmailMessage()
+    msg["Subject"] = onderwerp
+    msg["From"] = s.get("smtp_van") or s.get("smtp_user")
+    msg["To"] = ontvanger
+    msg.set_content(tekst)
+    with open(pad, "rb") as f:
+        msg.add_attachment(
+            f.read(), maintype="application", subtype="pdf", filename=bestandsnaam
+        )
+
+    try:
+        with smtplib.SMTP(s["smtp_host"], int(s["smtp_port"]), timeout=20) as server:
+            server.starttls()
+            if s.get("smtp_user"):
+                server.login(s["smtp_user"], s["smtp_pass"])
+            server.send_message(msg)
+    except smtplib.SMTPAuthenticationError:
+        return False, ("De mailserver weigert je gebruikersnaam of wachtwoord. Bij iCloud "
+                       "en Gmail heb je een app-specifiek wachtwoord nodig, niet je gewone.")
+    except smtplib.SMTPRecipientsRefused:
+        return False, f"De mailserver weigert het adres {ontvanger}."
+    except smtplib.SMTPSenderRefused:
+        return False, ("De mailserver staat niet toe dat je vanaf dit afzenderadres mailt. "
+                       "Vul bij Afzender een adres in dat bij deze mailbox hoort.")
+    except socket.gaierror:
+        return False, (f"De server {s['smtp_host']} is niet gevonden. Controleer de "
+                       "servernaam onder Instellingen → Mailen.")
+    except (socket.timeout, TimeoutError, ConnectionError, OSError) as fout:
+        return False, (f"Geen verbinding met {s['smtp_host']} op poort {s['smtp_port']} "
+                       f"({fout}). Gebruik poort 587.")
+    except smtplib.SMTPException as fout:
+        return False, f"De mailserver gaf een fout terug: {fout}"
+
+    return True, ""
+
+
 def verstuur_email(factuur_id):
-    """Mailt de rekening. Geeft (gelukt, melding) terug; de melding is bedoeld om
-    aan de gebruiker te tonen en zegt wat er precies misging."""
+    """Mailt de rekening naar de klant en zet hem op verzonden."""
     conn = get_db()
     factuur = conn.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
     s = get_settings()
@@ -1374,48 +2021,64 @@ def verstuur_email(factuur_id):
     if not os.path.exists(pad):
         maak_pdf(factuur_id)
 
-    msg = EmailMessage()
-    msg["Subject"] = f"Rekening {factuur['nummer']} - {s.get('naam', '')}"
-    msg["From"] = s.get("smtp_van") or s.get("smtp_user")
-    msg["To"] = factuur["klant_email"]
-    msg.set_content(
+    gelukt, melding = _mail_pdf(
+        s,
+        factuur["klant_email"],
+        f"Rekening {factuur['nummer']} - {s.get('naam', '')}",
         f"Beste {factuur['klant_naam']},\n\n"
         f"Hierbij de rekening ({factuur['nummer']}) voor het uitgevoerde werk.\n\n"
-        f"Met vriendelijke groet,\n{s.get('naam', '')}"
+        f"Met vriendelijke groet,\n{s.get('naam', '')}",
+        pad,
+        f"{factuur['nummer']}.pdf",
     )
-    with open(pad, "rb") as f:
-        msg.add_attachment(
-            f.read(), maintype="application", subtype="pdf", filename=f"{factuur['nummer']}.pdf"
-        )
-
-    try:
-        with smtplib.SMTP(s["smtp_host"], int(s["smtp_port"]), timeout=20) as server:
-            server.starttls()
-            if s.get("smtp_user"):
-                server.login(s["smtp_user"], s["smtp_pass"])
-            server.send_message(msg)
-    except smtplib.SMTPAuthenticationError:
-        return False, ("De mailserver weigert je gebruikersnaam of wachtwoord. Bij iCloud "
-                       "en Gmail heb je een app-specifiek wachtwoord nodig, niet je gewone.")
-    except smtplib.SMTPRecipientsRefused:
-        return False, f"De mailserver weigert het adres {factuur['klant_email']}."
-    except smtplib.SMTPSenderRefused:
-        return False, ("De mailserver staat niet toe dat je vanaf dit afzenderadres mailt. "
-                       "Vul bij Afzender een adres in dat bij deze mailbox hoort.")
-    except socket.gaierror:
-        return False, (f"De server {s['smtp_host']} is niet gevonden. Controleer de "
-                       "servernaam onder Instellingen → Mailen.")
-    except (socket.timeout, TimeoutError, ConnectionError, OSError) as fout:
-        return False, (f"Geen verbinding met {s['smtp_host']} op poort {s['smtp_port']} "
-                       f"({fout}). Gebruik poort 587.")
-    except smtplib.SMTPException as fout:
-        return False, f"De mailserver gaf een fout terug: {fout}"
+    if not gelukt:
+        return False, melding
 
     conn = get_db()
     conn.execute("UPDATE facturen SET status='verzonden' WHERE id=?", (factuur_id,))
     conn.commit()
     conn.close()
     return True, f"Rekening {factuur['nummer']} gemaild naar {factuur['klant_email']}."
+
+
+def verstuur_offerte_email(offerte_id):
+    """Mailt de offerte naar de klant en zet hem op verzonden."""
+    conn = get_db()
+    offerte = conn.execute("SELECT * FROM offertes WHERE id=?", (offerte_id,)).fetchone()
+    s = get_settings()
+    conn.close()
+
+    if not offerte["klant_email"]:
+        return False, ("Deze klant heeft geen e-mailadres. Vul dat in bij de offerte "
+                       "of bij de klant.")
+    if not s.get("smtp_host"):
+        return False, ("Er is nog geen mailserver ingesteld. Vul die in onder "
+                       "Instellingen → Mailen.")
+
+    pad = os.path.join(PDF_DIR, f"{offerte['nummer']}.pdf")
+    if not os.path.exists(pad):
+        maak_offerte_pdf(offerte_id)
+
+    gelukt, melding = _mail_pdf(
+        s,
+        offerte["klant_email"],
+        f"Offerte {offerte['nummer']} - {s.get('naam', '')}",
+        f"Beste {offerte['klant_naam']},\n\n"
+        f"Hierbij de offerte ({offerte['nummer']}) voor het besproken werk. "
+        f"De prijs geldt tot {filter_datum_nl(offerte['geldig_tot'])}.\n\n"
+        f"Met vriendelijke groet,\n{s.get('naam', '')}",
+        pad,
+        f"{offerte['nummer']}.pdf",
+    )
+    if not gelukt:
+        return False, melding
+
+    conn = get_db()
+    if offerte["status"] == "concept":
+        conn.execute("UPDATE offertes SET status='verzonden' WHERE id=?", (offerte_id,))
+        conn.commit()
+    conn.close()
+    return True, f"Offerte {offerte['nummer']} gemaild naar {offerte['klant_email']}."
 
 
 def _pdf_pad(factuur_id):
@@ -1455,11 +2118,17 @@ def vernieuw_pdf(factuur_id):
 def vernieuw_alles():
     conn = get_db()
     ids = [rij["id"] for rij in conn.execute("SELECT id FROM facturen ORDER BY id")]
+    offerte_ids = [rij["id"] for rij in conn.execute("SELECT id FROM offertes ORDER BY id")]
     conn.close()
     for factuur_id in ids:
         maak_pdf(factuur_id)
-    flash(f"{len(ids)} rekening{'en' if len(ids) != 1 else ''} opnieuw gemaakt met je "
-          "huidige instellingen.")
+    for offerte_id in offerte_ids:
+        maak_offerte_pdf(offerte_id)
+
+    melding = f"{len(ids)} rekening{'en' if len(ids) != 1 else ''}"
+    if offerte_ids:
+        melding += f" en {len(offerte_ids)} offerte{'s' if len(offerte_ids) != 1 else ''}"
+    flash(f"{melding} opnieuw gemaakt met je huidige instellingen.")
     return redirect(url_for("instellingen"))
 
 

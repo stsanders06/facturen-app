@@ -1,0 +1,79 @@
+{% extends "_layout.html" %}
+{% block title %}Klanten importeren{% endblock %}
+{% block head %}
+<style>
+  .voorbeeld {
+    background: var(--bg);
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+    overflow-x: auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.7;
+    white-space: pre;
+    color: var(--text-secondary);
+    margin: 0;
+  }
+  .kolommen { margin: 0; padding-left: 18px; color: var(--text-secondary); font-size: 14px; }
+  .kolommen li { margin-bottom: 4px; }
+  .kolommen b { color: var(--text); font-weight: 500; }
+</style>
+{% endblock %}
+{% block content %}
+
+<div class="page-head">
+  <h1>Klanten importeren</h1>
+  <a class="btn btn-outline" href="{{ url_for('klanten') }}">Terug naar klanten</a>
+</div>
+
+<div class="cards">
+  <section class="card">
+    <div class="card-head">
+      <h2>Het bestand</h2>
+      <p>Een CSV-bestand met op de eerste regel de kopjes. Een export uit Excel,
+        Google Contacten of je oude boekhouding werkt meestal meteen; puntkomma's,
+        komma's en tabs worden alle drie herkend.</p>
+    </div>
+
+    <form method="post" enctype="multipart/form-data" class="fields">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="field">
+        <label for="bestand">CSV-bestand</label>
+        <input type="file" id="bestand" name="bestand" accept=".csv,text/csv,text/plain" required>
+      </div>
+      <div class="checkregel">
+        <input type="checkbox" id="bijwerken" name="bijwerken" value="ja">
+        <label for="bijwerken">Klanten die al bestaan bijwerken met wat er in het
+          bestand staat. Laat je dit uit, dan blijven ze zoals ze zijn.</label>
+      </div>
+      <div class="indienen">
+        <a class="btn btn-outline" href="{{ url_for('klanten') }}">Annuleren</a>
+        <button type="submit" class="btn">Importeren</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Welke kolommen</h2>
+      <p>Alleen <b>naam</b> is verplicht; de rest mag ontbreken.</p>
+    </div>
+    <ul class="kolommen">
+      <li><b>naam</b> — mag ook heten: klant, bedrijf, name</li>
+      <li><b>adres</b> — mag ook heten: straat, address. Staan postcode en plaats in
+        aparte kolommen, dan komen die er onder te staan</li>
+      <li><b>email</b> — mag ook heten: e-mail, emailadres, mail</li>
+      <li><b>telefoon</b> — mag ook heten: tel, mobiel, phone</li>
+      <li><b>notitie</b> — mag ook heten: opmerking, notes</li>
+    </ul>
+    <p class="hint" style="margin:14px 0 8px">Zo ziet zo'n bestand eruit:</p>
+    <pre class="voorbeeld">naam;adres;email;telefoon
+Jan Jansen;Dorpsstraat 1;jan@voorbeeld.nl;0612345678
+Bakkerij De Vries;Markt 12;info@devries.nl;0771234567</pre>
+    <p style="margin:14px 0 0">
+      <a class="btn btn-outline" href="{{ url_for('klanten_voorbeeld') }}">Voorbeeldbestand downloaden</a>
+    </p>
+  </section>
+</div>
+
+{% endblock %}

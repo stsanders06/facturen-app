@@ -68,14 +68,20 @@
 
 <div class="page-head">
   <h1>Klanten</h1>
-  <a class="btn" href="{{ url_for('klant_nieuw') }}">+ Nieuwe klant</a>
+  <div class="acties">
+    <a class="btn btn-outline" href="{{ url_for('klanten_import') }}">Importeren</a>
+    <a class="btn" href="{{ url_for('klant_nieuw') }}">+ Nieuwe klant</a>
+  </div>
 </div>
 
 {% if not klanten %}
 <div class="card empty">
   <p>Je hebt nog geen klanten opgeslagen. Zodra je er een bewaart, kun je hem kiezen
     bij een nieuwe rekening.</p>
-  <a class="btn" href="{{ url_for('klant_nieuw') }}">Klant toevoegen</a>
+  <div class="acties" style="justify-content:center">
+    <a class="btn" href="{{ url_for('klant_nieuw') }}">Klant toevoegen</a>
+    <a class="btn btn-outline" href="{{ url_for('klanten_import') }}">Uit een CSV-bestand halen</a>
+  </div>
 </div>
 {% else %}
 <div class="cards">
@@ -101,6 +107,7 @@
       </span>
       <div class="acties">
         <a class="btn btn-text" href="{{ url_for('nieuw') }}?klant={{ k.id }}">Nieuwe rekening</a>
+        <a class="btn btn-text" href="{{ url_for('offerte_nieuw') }}?klant={{ k.id }}">Nieuwe offerte</a>
         <a class="btn btn-text" href="{{ url_for('klant_bewerk', klant_id=k.id) }}">Bewerken</a>
       </div>
     </div>

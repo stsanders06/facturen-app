@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.11.0
+
+- **Offertes.** Een nieuw tabblad naast Rekeningen. Je maakt een offerte precies zoals
+  een rekening — dezelfde regels voor materiaal en arbeid — met daarbij een datum tot
+  wanneer de prijs geldt en een veld voor een toelichting. De PDF ziet eruit als de
+  rekening, maar met een akkoordvak onderaan in plaats van een betaalstrook: de klant
+  kan hem tekenen en terugsturen.
+- Je legt vast wat de klant ervan vond (verzonden, geaccepteerd, afgewezen) en ziet in
+  één oogopslag wat er nog uitstaat en wat er verlopen is.
+- **Van offerte naar rekening met één knop.** De regels, de klant en het bedrag gaan
+  mee; je komt in het bewerkscherm terecht zodat je nog iets kunt aanpassen voordat je
+  verstuurt. De offerte blijft staan als vastlegging van wat er is afgesproken.
+- Offertes hebben hun eigen nummerreeks (`OFF-2026-001`) en kunnen net als een rekening
+  gemaild, gedownload en opnieuw gemaakt worden.
+- **Klanten importeren uit een CSV-bestand.** Onder Klanten → Importeren lees je een
+  export uit je oude boekhouding, Excel of Google Contacten in. Kolomkoppen worden
+  herkend in meerdere schrijfwijzen (naam/klant/bedrijf, email/e-mail, telefoon/mobiel),
+  puntkomma's, komma's en tabs werken alle drie, en staan postcode en plaats in aparte
+  kolommen dan komen die onder het adres. Klanten die er al zijn worden overgeslagen,
+  of bijgewerkt als je daarvoor kiest — een lege kolom wist dan niet wat je zelf had
+  ingevuld.
+- **Regels importeren uit een CSV-bestand.** Bij een rekening of offerte kun je een
+  materiaallijst inlezen in plaats van alles over te typen. Dat gebeurt in je browser,
+  dus je ziet de regels meteen staan en kunt ze nog aanpassen voordat je opslaat.
+  Bedragen mogen met een komma of een punt, met of zonder eurotekens.
+- Voor beide imports staat een voorbeeldbestand klaar om te downloaden.
+- Een bedrag met een komma in een regel werd stilletjes overgeslagen; die regel telt nu
+  gewoon mee.
+
 ## 1.10.8
 
 - De meetpagina is weer verwijderd; die had zijn werk gedaan. Het versienummer blijft

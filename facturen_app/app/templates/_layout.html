@@ -136,10 +136,19 @@
   /* Op een telefoon kostten merknaam én tabbladen samen twee regels. De naam mag
      daar weg: je weet welke app je open hebt. */
   @media (max-width: 620px) {
-    .appbar-inner { gap: 0; min-height: 48px; padding: 0 8px; }
+    .appbar-inner { gap: 0; min-height: 48px; padding: 0 4px; }
     .brand { display: none; }
-    .tabs { width: 100%; justify-content: space-around; }
-    .tabs a { padding: 14px 8px 12px; }
+    /* Vijf tabbladen passen op een smalle telefoon net niet; ze mogen dan opzij
+       schuiven in plaats van over twee regels te breken. De schuifbalk zelf is
+       weggelaten, die neemt hier alleen ruimte in. */
+    .tabs {
+      width: 100%;
+      justify-content: space-between;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .tabs::-webkit-scrollbar { display: none; }
+    .tabs a { padding: 14px 6px 12px; font-size: 13px; }
   }
 
   /* ---------- Inhoud ---------- */
@@ -220,6 +229,13 @@
   @supports (-webkit-touch-callout: none) {
     input[type="date"], input[type="time"] { width: calc(100% - 26px); }
   }
+  /* Een aanvinkvakje met zijn tekst ernaast, en de knoppenrij onderaan een formulier. */
+  .checkregel { display: flex; align-items: flex-start; gap: 10px; }
+  .checkregel[hidden] { display: none; }
+  .checkregel input { width: auto; margin-top: 3px; flex: none; }
+  .checkregel label { font-size: 15px; color: var(--text); font-weight: 400; }
+  .indienen { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+
   .row { display: flex; gap: 14px; flex-wrap: wrap; }
   .row > * { flex: 1 1 200px; min-width: 0; }
   .hint { color: var(--text-secondary); font-size: 13px; margin: 0; }
@@ -285,6 +301,9 @@
   .chip-betaald { background: var(--ok-soft); color: var(--ok); }
   .chip-open { background: var(--info-soft); color: var(--info); }
   .chip-afgerond { background: var(--neutral-soft); color: var(--neutral); }
+  .chip-geaccepteerd { background: var(--ok-soft); color: var(--ok); }
+  .chip-afgewezen { background: var(--danger-soft); color: var(--danger); }
+  .chip-verlopen { background: var(--warn-bg); color: var(--warn-text); }
 
   /* ---------- Melding ---------- */
   .flash {
@@ -383,6 +402,7 @@
     </a>
     <nav class="tabs">
       <a href="{{ url_for('index') }}" {% if actief in ['index', 'nieuw'] %}class="active"{% endif %}>Rekeningen</a>
+      <a href="{{ url_for('offertes') }}" {% if actief == 'offertes' %}class="active"{% endif %}>Offertes</a>
       <a href="{{ url_for('klussen') }}" {% if actief == 'klussen' %}class="active"{% endif %}>Uren</a>
       <a href="{{ url_for('klanten') }}" {% if actief == 'klanten' %}class="active"{% endif %}>Klanten</a>
       <a href="{{ url_for('instellingen') }}" {% if actief == 'instellingen' %}class="active"{% endif %}>Instellingen</a>

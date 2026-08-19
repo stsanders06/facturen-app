@@ -56,6 +56,7 @@
   <h1>{{ klant.naam }}</h1>
   <div class="kop-acties">
     <a class="btn btn-outline" href="{{ url_for('klant_bewerk', klant_id=klant.id) }}">Bewerken</a>
+    <a class="btn btn-outline" href="{{ url_for('offerte_nieuw') }}?klant={{ klant.id }}">+ Offerte</a>
     <a class="btn" href="{{ url_for('nieuw') }}?klant={{ klant.id }}">+ Nieuwe rekening</a>
   </div>
 </div>
@@ -113,6 +114,37 @@
         <a class="btn btn-text" href="{{ url_for('nieuw') }}?klus={{ kl.id }}&klant={{ klant.id }}">
           {{ kl.uren_open|uren }} u factureren</a>
         {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
+
+  {% if offertes %}
+  <section class="card">
+    <div class="card-head">
+      <h2>Offertes</h2>
+      <p>Wat je deze klant hebt aangeboden.</p>
+    </div>
+    {% for o in offertes %}
+    <div class="rekening">
+      <a class="kaartlink" href="{{ url_for('bekijk_offerte', offerte_id=o.id) }}" target="_blank"
+         rel="noopener" aria-label="Offerte {{ o.nummer }} bekijken"></a>
+      <div class="links">
+        <span class="nr">{{ o.nummer }}</span>
+        <span class="datum">{{ o.datum|datum_nl }}</span>
+        <span class="chip chip-{{ o.status }}">{{ offerte_status[o.status] }}</span>
+      </div>
+      <div class="rechts">
+        <span class="bedrag">&euro; {{ o.totaal|bedrag }}</span>
+        {% if not o.factuur_id %}
+        <form method="post" action="{{ url_for('offerte_naar_rekening', offerte_id=o.id) }}"
+              data-bevestig="Van offerte {{ o.nummer }} een rekening maken?">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-text">Naar rekening</button>
+        </form>
+        {% endif %}
+        <a class="btn btn-text" href="{{ url_for('offerte_bewerk', offerte_id=o.id) }}">Bewerken</a>
       </div>
     </div>
     {% endfor %}
