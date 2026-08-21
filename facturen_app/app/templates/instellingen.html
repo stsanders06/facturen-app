@@ -13,6 +13,9 @@
     padding: 8px 12px;
   }
   .opslaan { display: flex; justify-content: flex-end; }
+  /* Drie wachtwoordvelden naast elkaar op een breed scherm, onder elkaar op een telefoon. */
+  .velden { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+  .velden label { display: block; }
 </style>
 {% endblock %}
 {% block content %}
@@ -118,6 +121,51 @@
   </div>
 
 </form>
+
+<section class="card" style="margin-top:12px">
+  <div class="card-head">
+    <h2>Inloggen</h2>
+    {% if gebruiker %}
+    <p>Je bent ingelogd als <b>{{ gebruiker }}</b>. Dit account heb je alleen nodig als je
+      de app in je browser opent op poort 8099; via de zijbalk van Home Assistant zit
+      de login van Home Assistant er al voor.</p>
+    {% else %}
+    <p>Er is nog geen account. Open de app een keer op
+      <code>http://&lt;ip-van-home-assistant&gt;:8099</code>; daar kun je er een aanmaken.
+      Zolang dat niet is gebeurd, kan iedereen in je netwerk op die poort binnenkomen.</p>
+    {% endif %}
+  </div>
+
+  {% if gebruiker %}
+  <form method="post" action="{{ url_for('wachtwoord_wijzigen') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="velden">
+      <div>
+        <label for="huidig">Huidig wachtwoord</label>
+        <input type="password" id="huidig" name="huidig" autocomplete="current-password" required>
+      </div>
+      <div>
+        <label for="nieuw">Nieuw wachtwoord</label>
+        <input type="password" id="nieuw" name="nieuw" autocomplete="new-password"
+               minlength="{{ wachtwoord_minimum }}" required>
+      </div>
+      <div>
+        <label for="nogmaals">Nog een keer</label>
+        <input type="password" id="nogmaals" name="nogmaals" autocomplete="new-password"
+               minlength="{{ wachtwoord_minimum }}" required>
+      </div>
+    </div>
+    <div style="margin-top:12px">
+      <button type="submit" class="btn btn-outline">Wachtwoord wijzigen</button>
+    </div>
+  </form>
+
+  <form method="post" action="{{ url_for('uitloggen') }}" style="margin-top:16px">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn btn-text">Uitloggen</button>
+  </form>
+  {% endif %}
+</section>
 
 <section class="card" style="margin-top:12px">
   <div class="card-head">

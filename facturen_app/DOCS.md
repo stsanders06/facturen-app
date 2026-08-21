@@ -36,10 +36,24 @@ Er zijn twee manieren, die allebei standaard aanstaan:
   telefoon of laptop, en je hoeft niet eerst in Home Assistant in te loggen.
 - **In de zijbalk van Home Assistant:** zet **Show in sidebar** aan bij de add-on.
 
-Let op: op poort 8099 zit geen wachtwoord, dus iedereen in je netwerk kan erbij. Gebruik
-hem dus alleen op je eigen netwerk en zet hem niet open naar internet. Wil je dat niet,
+### Inloggen
+
+De eerste keer dat je de app op poort 8099 opent, vraagt hij je een **gebruikersnaam en
+wachtwoord** te kiezen. Daarmee log je voortaan in. Vink je "Onthoud me op dit apparaat"
+aan, dan blijf je dertig dagen ingelogd; laat je het uit, dan ben je eruit zodra je de
+browser afsluit. Na vijf mislukte pogingen op rij gaat de deur een kwartier dicht, zodat
+niemand in je netwerk rustig wachtwoorden kan blijven proberen.
+
+Via de **zijbalk van Home Assistant** hoef je hier niet mee in te loggen: daar zit de
+login van Home Assistant zelf al voor, en twee keer inloggen is onnodig gedoe.
+
+Je wachtwoord wijzigen of uitloggen doe je onder **Instellingen → Inloggen**. Ben je het
+wachtwoord kwijt, dan open je de app via de zijbalk en stel je daar een nieuw in — daar
+kom je immers zonder dit wachtwoord binnen.
+
+Ook mét inlog geldt: zet poort 8099 niet open naar internet. Wil je hem helemaal dicht,
 maak dan het poortveld leeg onder **Configuratie → Netwerk**; dan werkt alleen de zijbalk
-van Home Assistant nog, die wél achter je HA-login zit.
+van Home Assistant nog.
 
 Het mailwachtwoord staat leesbaar in de database in `/data`, want de app moet ermee
 kunnen inloggen bij je mailserver. Gebruik daarom een **app-specifiek wachtwoord** en
@@ -48,15 +62,17 @@ iets kwijtraakt.
 
 ## Eerste gebruik
 
-1. Ga naar **Instellingen** in de app: vul naam, adres en IBAN in. Upload je logo.
-2. Voor automatisch mailen: vul de SMTP-gegevens in. Voor Gmail gebruik je een
+1. Open je de app op poort 8099, kies dan eerst een gebruikersnaam en wachtwoord; zie
+   [Inloggen](#inloggen) hieronder.
+2. Ga naar **Instellingen** in de app: vul naam, adres en IBAN in. Upload je logo.
+3. Voor automatisch mailen: vul de SMTP-gegevens in. Voor Gmail gebruik je een
    [app-wachtwoord](https://myaccount.google.com/apppasswords), niet je normale
    wachtwoord.
-3. Ga naar **Nieuw** om een rekening te maken: klantgegevens, regels voor materiaal en
+4. Ga naar **Nieuw** om een rekening te maken: klantgegevens, regels voor materiaal en
    arbeid, betaalmethode kiezen. Bij opslaan wordt automatisch een PDF gegenereerd.
-4. Wil je eerst een prijs afgeven, begin dan onder **Offertes**. Zegt de klant ja, dan
+5. Wil je eerst een prijs afgeven, begin dan onder **Offertes**. Zegt de klant ja, dan
    maak je er met één knop een rekening van.
-5. Heb je je klanten al ergens anders staan, dan lees je ze in één keer in onder
+6. Heb je je klanten al ergens anders staan, dan lees je ze in één keer in onder
    **Klanten → Importeren**.
 
 ## Concept, definitief en betaald
@@ -228,6 +244,11 @@ geweigerd, afzender niet toegestaan — in de gele balk bovenaan. Controleer hos
 (gebruik 587, niet 465) en of je een app-wachtwoord gebruikt in plaats van je gewone
 wachtwoord. Voor iCloud is de server `smtp.mail.me.com` en moet het afzenderadres bij je
 iCloud-account horen.
+
+**Ik ben mijn wachtwoord kwijt.** Open de app via de zijbalk van Home Assistant; daar
+kom je binnen zonder dit wachtwoord. Ga naar **Instellingen → Inloggen**. Kun je daar niet
+bij, verwijder dan de regel uit de tabel `gebruikers` in `/data/facturen.db`; de app vraagt
+je dan bij de eerstvolgende keer op poort 8099 weer om een nieuw account.
 
 **"Deze opdracht kwam niet van de app zelf."** Je hebt een pagina gebruikt die al heel
 lang openstond, of de add-on is tussendoor herstart. Ververs de pagina en probeer het

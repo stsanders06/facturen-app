@@ -1,0 +1,32 @@
+{% extends "_kaal.html" %}
+{% block title %}Inloggen{% endblock %}
+{% block content %}
+
+<h1>Inloggen</h1>
+<p class="uitleg">Open je de app via de zijbalk van Home Assistant, dan hoef je dit niet:
+  daar ben je al ingelogd bij Home Assistant zelf.</p>
+
+{% if wacht %}
+<div class="flash">Te veel mislukte pogingen. Probeer het over {{ wacht }} minuten opnieuw.</div>
+{% endif %}
+
+<form method="post" action="{{ url_for('inloggen') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="verder" value="{{ verder }}">
+
+  <label for="naam">Gebruikersnaam</label>
+  <input type="text" id="naam" name="naam" autocomplete="username" autofocus required>
+
+  <label for="wachtwoord">Wachtwoord</label>
+  <input type="password" id="wachtwoord" name="wachtwoord"
+         autocomplete="current-password" required>
+
+  <div class="onthoud">
+    <input type="checkbox" id="onthoud" name="onthoud" value="ja" checked>
+    <label for="onthoud">Onthoud me op dit apparaat</label>
+  </div>
+
+  <button type="submit" class="btn">Inloggen</button>
+</form>
+
+{% endblock %}

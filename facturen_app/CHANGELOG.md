@@ -40,6 +40,14 @@
   Openstaand houdt rekening met deelbetalingen, en bij elke rekening staat een knop naar
   zijn betalingen.
 
+- **Een account met wachtwoord voor poort 8099.** Tot nu toe kon iedereen in je netwerk
+  zomaar bij je rekeningen. De eerste keer dat je de app in je browser opent, kies je nu
+  een gebruikersnaam en een wachtwoord. Het wachtwoord staat gehasht in de database, je
+  kunt dertig dagen ingelogd blijven, en na vijf mislukte pogingen gaat de deur een
+  kwartier dicht. **Via de zijbalk van Home Assistant hoef je niet apart in te loggen** —
+  daar zit de login van Home Assistant al voor. Wachtwoord wijzigen en uitloggen staan
+  onder Instellingen.
+
 ### Onder de motorkap
 
 - **Tests.** De app heeft nu een testset die de nummering, de urenberekening, het

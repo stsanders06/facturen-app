@@ -7,7 +7,7 @@ import secrets
 import socket
 import sqlite3
 import smtplib
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from email.message import EmailMessage
 from itertools import zip_longest
 from flask import (
@@ -18,6 +18,7 @@ from reportlab.lib.units import mm
 from reportlab.lib import colors
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
+from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
@@ -109,6 +110,200 @@ def controleer_csrf():
     if not verwacht or not secrets.compare_digest(verwacht, gekregen):
         abort(400, "Deze opdracht kwam niet van de app zelf.")
     return None
+
+
+# Hoe lang je ingelogd blijft als je "onthoud mij" aanzet.
+SESSIE_DAGEN = 30
+app.permanent_session_lifetime = timedelta(days=SESSIE_DAGEN)
+
+# Het kortste wachtwoord dat de app accepteert. Kort genoeg om te onthouden, lang
+# genoeg om niet in een paar seconden te raden.
+WACHTWOORD_MINIMUM = 8
+
+# Na zoveel mislukte pogingen op rij gaat de deur even dicht, zodat niemand in je
+# netwerk rustig wachtwoorden kan blijven proberen.
+MAX_POGINGEN = 5
+WACHTTIJD_MINUTEN = 15
+
+# Per afzender: hoeveel keer het misging en wanneer voor het laatst. Staat in het
+# geheugen en niet in de database: bij een herstart mag dit gerust weg zijn.
+MISLUKTE_POGINGEN = {}
+
+# Pagina's die je zonder inloggen moet kunnen bereiken, anders kom je er nooit in.
+OPEN_PAGINAS = {"inloggen", "account_instellen", "static"}
+
+
+def via_ingress():
+    """Of dit verzoek via de zijbalk van Home Assistant binnenkomt. Daar zit HA's
+    eigen login al voor, dus dan hoef je niet nog een keer in te loggen."""
+    return bool(request.environ.get("HTTP_X_INGRESS_PATH"))
+
+
+def heeft_account(conn=None):
+    eigen = conn is None
+    if eigen:
+        conn = get_db()
+    aantal = conn.execute("SELECT COUNT(*) FROM gebruikers").fetchone()[0]
+    if eigen:
+        conn.close()
+    return aantal > 0
+
+
+def _afzender():
+    return request.remote_addr or "onbekend"
+
+
+def wachttijd_over():
+    """Hoeveel minuten deze afzender nog moet wachten na te veel mislukte pogingen."""
+    pogingen, laatste = MISLUKTE_POGINGEN.get(_afzender(), (0, None))
+    if pogingen < MAX_POGINGEN or laatste is None:
+        return 0
+    verstreken = (datetime.now() - laatste).total_seconds() / 60
+    if verstreken >= WACHTTIJD_MINUTEN:
+        MISLUKTE_POGINGEN.pop(_afzender(), None)
+        return 0
+    return int(WACHTTIJD_MINUTEN - verstreken) + 1
+
+
+@app.before_request
+def controleer_inlog():
+    """Poort 8099 heeft geen enkele beveiliging van zichzelf; alles wat daar
+    binnenkomt moet dus eerst inloggen. Via de zijbalk van Home Assistant is dat niet
+    nodig, want daar is al ingelogd bij Home Assistant zelf."""
+    if via_ingress() or request.endpoint in OPEN_PAGINAS:
+        return None
+
+    if not heeft_account():
+        return redirect(url_for("account_instellen"))
+    if session.get("gebruiker"):
+        return None
+    # full_path plakt er een los vraagteken achter als er geen zoekterm in de URL zit.
+    terug = request.full_path.rstrip("?") or request.path
+    return redirect(url_for("inloggen", verder=terug))
+
+
+@app.route("/instellen", methods=["GET", "POST"])
+def account_instellen():
+    """Eenmalig: de gebruikersnaam en het wachtwoord kiezen waarmee je op poort 8099
+    binnenkomt."""
+    if heeft_account():
+        return redirect(url_for("inloggen"))
+
+    if request.method == "POST":
+        naam = request.form.get("naam", "").strip()
+        wachtwoord = request.form.get("wachtwoord", "")
+        nogmaals = request.form.get("nogmaals", "")
+
+        fout = None
+        if not naam:
+            fout = "Kies een gebruikersnaam."
+        elif len(wachtwoord) < WACHTWOORD_MINIMUM:
+            fout = f"Kies een wachtwoord van minstens {WACHTWOORD_MINIMUM} tekens."
+        elif wachtwoord != nogmaals:
+            fout = "De twee wachtwoorden zijn niet hetzelfde."
+        if fout:
+            flash(fout)
+            return redirect(url_for("account_instellen"))
+
+        conn = get_db()
+        conn.execute(
+            "INSERT INTO gebruikers (naam, wachtwoord, aangemaakt) VALUES (?, ?, ?)",
+            (naam, generate_password_hash(wachtwoord), date.today().isoformat()),
+        )
+        conn.commit()
+        conn.close()
+
+        session["gebruiker"] = naam
+        flash("Je account staat klaar. Vanaf nu log je hiermee in op poort 8099.")
+        return redirect(url_for("index"))
+
+    return render_template("instellen.html", minimum=WACHTWOORD_MINIMUM)
+
+
+@app.route("/inloggen", methods=["GET", "POST"])
+def inloggen():
+    if not heeft_account():
+        return redirect(url_for("account_instellen"))
+    if session.get("gebruiker"):
+        return redirect(url_for("index"))
+
+    if request.method == "POST":
+        wacht = wachttijd_over()
+        if wacht:
+            flash(f"Te veel mislukte pogingen. Probeer het over {wacht} minuten opnieuw.")
+            return redirect(url_for("inloggen"))
+
+        naam = request.form.get("naam", "").strip()
+        wachtwoord = request.form.get("wachtwoord", "")
+
+        conn = get_db()
+        gebruiker = conn.execute(
+            "SELECT * FROM gebruikers WHERE naam=? COLLATE NOCASE", (naam,)
+        ).fetchone()
+        conn.close()
+
+        if gebruiker and check_password_hash(gebruiker["wachtwoord"], wachtwoord):
+            MISLUKTE_POGINGEN.pop(_afzender(), None)
+            session["gebruiker"] = gebruiker["naam"]
+            # Zonder het vinkje ben je eruit zodra je de browser afsluit.
+            session.permanent = request.form.get("onthoud") == "ja"
+
+            verder = request.form.get("verder", "")
+            # Alleen terug naar een pagina binnen de app zelf; een adres van buiten
+            # zou je na het inloggen zomaar ergens anders naartoe kunnen sturen.
+            if verder.startswith("/") and not verder.startswith("//"):
+                return redirect(verder)
+            return redirect(url_for("index"))
+
+        pogingen, _ = MISLUKTE_POGINGEN.get(_afzender(), (0, None))
+        MISLUKTE_POGINGEN[_afzender()] = (pogingen + 1, datetime.now())
+        # Niet verklappen wélk van de twee er niet klopte.
+        flash("Gebruikersnaam of wachtwoord klopt niet.")
+        return redirect(url_for("inloggen"))
+
+    return render_template("inloggen.html", verder=request.args.get("verder", ""),
+                           wacht=wachttijd_over())
+
+
+@app.route("/uitloggen", methods=["POST"])
+def uitloggen():
+    session.pop("gebruiker", None)
+    flash("Je bent uitgelogd.")
+    return redirect(url_for("inloggen"))
+
+
+@app.route("/wachtwoord", methods=["POST"])
+def wachtwoord_wijzigen():
+    huidig = request.form.get("huidig", "")
+    nieuw = request.form.get("nieuw", "")
+    nogmaals = request.form.get("nogmaals", "")
+
+    conn = get_db()
+    gebruiker = conn.execute("SELECT * FROM gebruikers ORDER BY id LIMIT 1").fetchone()
+    if gebruiker is None:
+        conn.close()
+        flash("Er is nog geen account om een wachtwoord van te wijzigen.")
+        return redirect(url_for("instellingen"))
+
+    if not check_password_hash(gebruiker["wachtwoord"], huidig):
+        conn.close()
+        flash("Je huidige wachtwoord klopt niet.")
+        return redirect(url_for("instellingen"))
+    if len(nieuw) < WACHTWOORD_MINIMUM:
+        conn.close()
+        flash(f"Kies een wachtwoord van minstens {WACHTWOORD_MINIMUM} tekens.")
+        return redirect(url_for("instellingen"))
+    if nieuw != nogmaals:
+        conn.close()
+        flash("De twee nieuwe wachtwoorden zijn niet hetzelfde.")
+        return redirect(url_for("instellingen"))
+
+    conn.execute("UPDATE gebruikers SET wachtwoord=? WHERE id=?",
+                 (generate_password_hash(nieuw), gebruiker["id"]))
+    conn.commit()
+    conn.close()
+    flash("Je wachtwoord is gewijzigd.")
+    return redirect(url_for("instellingen"))
 
 
 @app.errorhandler(413)
@@ -277,6 +472,13 @@ def init_db():
             smtp_user TEXT DEFAULT '',
             smtp_pass TEXT DEFAULT '',
             smtp_van TEXT DEFAULT ''
+        );
+
+        CREATE TABLE IF NOT EXISTS gebruikers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            naam TEXT NOT NULL UNIQUE,
+            wachtwoord TEXT NOT NULL,
+            aangemaakt TEXT NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS facturen (
@@ -778,7 +980,9 @@ def instellingen():
         flash("Instellingen opgeslagen.")
         return redirect(url_for("instellingen"))
 
-    return render_template("instellingen.html", s=get_settings(), actief="instellingen")
+    return render_template("instellingen.html", s=get_settings(),
+                           gebruiker=session.get("gebruiker"),
+                           wachtwoord_minimum=WACHTWOORD_MINIMUM, actief="instellingen")
 
 
 def klantenlijst():

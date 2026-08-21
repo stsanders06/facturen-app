@@ -71,19 +71,14 @@ def test_rekening_verwijderen_haalt_ook_de_regels_weg(post, db, maak_factuur):
     assert db.execute("SELECT COUNT(*) FROM regels").fetchone()[0] == 0
 
 
-def test_klant_bekijken_en_bewerken(post, db):
+def test_klant_bekijken_en_bewerken(post, client, db):
     post("/klanten/nieuw", {"naam": "Jan Jansen", "email": "jan@example.com"})
     klant_id = db.execute("SELECT id FROM klanten").fetchone()[0]
 
-    assert b"Jan Jansen" in client_get(db, f"/klant/{klant_id}")
+    assert b"Jan Jansen" in client.get(f"/klant/{klant_id}").data
 
     post(f"/klant/{klant_id}/bewerk", {"naam": "Jan Jansen", "email": "nieuw@example.com"})
     assert db.execute("SELECT email FROM klanten WHERE id=?", (klant_id,)).fetchone()[0] == "nieuw@example.com"
-
-
-def client_get(db, url):
-    with facturen.app.test_client() as c:
-        return c.get(url).data
 
 
 def test_uren_op_een_klus_worden_opgeteld(post, db):

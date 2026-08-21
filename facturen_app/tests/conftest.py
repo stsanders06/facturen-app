@@ -26,10 +26,30 @@ TABELLEN = [
 ]
 
 
+# Het account waarmee de tests inloggen. Poort 8099 vraagt om een inlog, dus zonder
+# dit belandt elke test op het inlogscherm in plaats van op de pagina die hij test.
+TEST_GEBRUIKER = "tester"
+TEST_WACHTWOORD = "geheim-wachtwoord"
+# Eén keer hashen en hergebruiken; per test opnieuw hashen kost seconden, want een
+# wachtwoordhash hoort juist traag te zijn.
+TEST_HASH = facturen.generate_password_hash(TEST_WACHTWOORD)
+
+
 @pytest.fixture
 def app():
-    """De Flask-app, met na afloop een schone database."""
+    """De Flask-app, met een account klaar en na afloop een schone database."""
     facturen.app.config["TESTING"] = True
+
+    conn = facturen.get_db()
+    conn.execute(
+        """INSERT OR IGNORE INTO gebruikers (naam, wachtwoord, aangemaakt)
+           VALUES (?, ?, '2026-01-01')""",
+        (TEST_GEBRUIKER, TEST_HASH),
+    )
+    conn.commit()
+    conn.close()
+    facturen.MISLUKTE_POGINGEN.clear()
+
     yield facturen.app
 
     conn = facturen.get_db()
@@ -50,6 +70,29 @@ def app():
 @pytest.fixture
 def client(app):
     """Testbrowser met een geldig CSRF-kenmerk in de sessie, zodat POSTs erdoor komen."""
+    with app.test_client() as c:
+        with c.session_transaction() as sessie:
+            sessie["csrf_token"] = "test-token"
+            sessie["gebruiker"] = TEST_GEBRUIKER
+        yield c
+
+
+@pytest.fixture
+def uitgelogde_client(app):
+    """Testbrowser die nog niet is ingelogd, om de inlog zelf te testen."""
+    with app.test_client() as c:
+        with c.session_transaction() as sessie:
+            sessie["csrf_token"] = "test-token"
+        yield c
+
+
+@pytest.fixture
+def zonder_account(app):
+    """Een verse installatie: er is nog geen account aangemaakt."""
+    conn = facturen.get_db()
+    conn.execute("DELETE FROM gebruikers")
+    conn.commit()
+    conn.close()
     with app.test_client() as c:
         with c.session_transaction() as sessie:
             sessie["csrf_token"] = "test-token"
