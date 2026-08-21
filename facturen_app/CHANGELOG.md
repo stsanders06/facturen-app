@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.13.1
+
+- **"Verwijderen" stond in het menu een stukje naar rechts** ten opzichte van de
+  andere regels. Staat weer op dezelfde kantlijn.
+
 ## 1.13.0
 
 - **Een rekening openen vanuit de zijbalk downloadt hem nu.** In het venster zelf liet

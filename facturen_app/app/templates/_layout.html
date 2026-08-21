@@ -330,9 +330,6 @@
   /* ---------- Acties onder een kaart ---------- */
   .acties { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
   .acties form { display: contents; }
-  /* Verwijderen hoort niet naast de knop die je het vaakst gebruikt: duw hem
-     naar de overkant, zodat je er niet per ongeluk op tikt. */
-  .acties .gevaar { margin-left: 22px; }
   /* Op een telefoon blijft de knoppenrij rechts naast de status staan en neemt hij
      dus niet de volle breedte: de status links en de knoppen rechts op één regel
      leest rustiger dan twee lagen onder elkaar. Passen de chips en de knoppen samen
@@ -341,7 +338,6 @@
   @media (max-width: 620px) {
     .acties { gap: 2px 4px; }
     .onderkant .acties { margin-left: auto; }
-    .acties .gevaar { margin-left: 12px; }
   }
 
   /* ---------- Menu achter de drie puntjes ----------

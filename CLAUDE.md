@@ -47,7 +47,7 @@ te slaan, leeg genoeg om de URLs normaal te houden.
   commentaar houden.
 - **Meldingen aan de gebruiker zijn gewone taal.** "De mailserver weigert je
   gebruikersnaam of wachtwoord", niet "SMTP authentication failed".
-- **Elke wijziging krijgt tests.** Er staan er nu 219.
+- **Elke wijziging krijgt tests.** Er staan er nu 220.
 
 ### Valkuil bij de tests
 

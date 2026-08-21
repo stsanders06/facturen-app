@@ -117,3 +117,12 @@ def test_de_klantenlijst_heeft_een_nieuw_knop_in_plaats_van_twee_losse(client, d
     assert ">Offerte</a>" in inhoud
     assert "Nieuwe rekening" not in inhoud
     assert "Nieuwe offerte" not in inhoud
+
+
+def test_verwijderen_staat_in_het_menu_op_dezelfde_kantlijn(client, maak_factuur):
+    """Er stond een marge op alles met de klasse "gevaar" binnen een knoppenrij, en
+    het menu zit in zo'n rij: "Verwijderen" schoof daardoor als enige naar rechts."""
+    maak_factuur()
+    css = css_van(client.get("/").data.decode())
+    assert "margin-left" not in regel_met(css, ".menu-item.gevaar")
+    assert ".acties .gevaar" not in css
