@@ -60,8 +60,12 @@ jobs:
             -p 8099:8099 \
             facturen-app:test
 
+          # Wachten tot de app antwoordt. Dat doen we via de Ingress-header, want
+          # poort 8099 zit achter een inlog en stuurt zonder account door naar het
+          # instelscherm; daar valt niet aan te zien of de app echt draait.
           for i in $(seq 1 30); do
-            if curl -fsS http://localhost:8099/ > /tmp/response.html; then
+            if curl -fsS -H "X-Ingress-Path: /api/hassio_ingress/xyz" \
+                 http://localhost:8099/ > /tmp/ingress.html; then
               echo "Webinterface antwoordt na ${i}s"
               break
             fi
@@ -73,15 +77,26 @@ jobs:
             sleep 1
           done
 
-          grep -q "Rekeningen" /tmp/response.html \
-            || { echo "::error::Onverwachte pagina-inhoud"; cat /tmp/response.html; exit 1; }
+          grep -q "Rekeningen" /tmp/ingress.html \
+            || { echo "::error::Onverwachte pagina-inhoud"; cat /tmp/ingress.html; exit 1; }
 
           # Ingress: links moeten het doorgegeven pad-prefix krijgen
-          curl -fsS -H "X-Ingress-Path: /api/hassio_ingress/xyz" \
-            http://localhost:8099/ > /tmp/ingress.html
           grep -q 'href="/api/hassio_ingress/xyz/nieuw"' /tmp/ingress.html \
             || { echo "::error::Ingress-prefix ontbreekt in de links"; exit 1; }
           echo "Ingress-prefix correct toegepast"
+
+          # Poort 8099 hoort dicht te zitten zolang er geen account is: wie daar
+          # binnenkomt moet eerst een gebruikersnaam en wachtwoord kiezen.
+          curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' \
+            http://localhost:8099/ > /tmp/direct.txt
+          grep -qE '^302 .*/instellen$' /tmp/direct.txt \
+            || { echo "::error::Poort 8099 vraagt niet om in te loggen"; \
+                 cat /tmp/direct.txt; exit 1; }
+
+          curl -fsS http://localhost:8099/instellen > /tmp/instellen.html
+          grep -q "Kies je inloggegevens" /tmp/instellen.html \
+            || { echo "::error::Instelscherm ontbreekt"; cat /tmp/instellen.html; exit 1; }
+          echo "Inlog op poort 8099 werkt"
 
           docker logs facturen-test
 
