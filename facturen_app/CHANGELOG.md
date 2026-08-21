@@ -14,6 +14,23 @@
   chip "Te laat", staan als bedrag apart in de balk bovenaan en hebben een eigen filter.
   Bij "Openstaand" staat voortaan de oudste bovenaan, want die wacht het langst.
 - Op elke onbetaalde rekening staat nu naast de datum tot wanneer hij mag blijven staan.
+- **Een rekening begint als concept en krijgt zijn nummer pas als hij vastligt** — bij het
+  mailen, of met "Definitief maken" in het menu. Een concept dat je toch weggooit, laat zo
+  geen gat achter in je nummering. Lukt het mailen niet, dan blijft hij concept, zodat je
+  geen nummer kwijtraakt aan een mail die nooit is aangekomen. Op de PDF van een concept
+  staat "CONCEPT" waar anders het nummer staat.
+- **Deelbetalingen.** Via "Betalingen" in het menu boek je per keer een datum, een bedrag
+  en een notitie — handig bij een aanbetaling of een klant die in termijnen betaalt. Is
+  alles binnen, dan gaat de rekening vanzelf op betaald. In de lijst zie je hoeveel er al
+  binnen is, en "Openstaand" bovenaan telt alleen nog wat er echt moet komen. Draai je
+  "Betaald" terug, dan blijven je eigen boekingen staan.
+- **Herinnering sturen.** Eén knop die de klant een vriendelijke mail stuurt met de
+  rekening er nog eens bij. De app rekent uit hoeveel dagen de vervaldatum voorbij is,
+  noemt alleen wat er nog openstaat en bedankt voor wat er al binnen is.
+- **Aanbetaling vanuit een offerte.** Vul een percentage in en de app maakt daar een
+  concept-rekening van. De offerte blijft staan, zodat je de rest later kunt factureren.
+- **Kopiëren naar nieuwe rekening**, voor werk dat elke maand terugkomt: zelfde klant,
+  zelfde regels, datum van vandaag.
 
 ### Onder de motorkap
 

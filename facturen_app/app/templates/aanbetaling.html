@@ -1,0 +1,57 @@
+{% extends "_layout.html" %}
+{% block title %}Aanbetaling {{ offerte.nummer }}{% endblock %}
+{% block content %}
+
+<div class="page-head">
+  <h1>Aanbetaling</h1>
+  <a class="btn btn-outline" href="{{ url_for('offertes') }}">Terug naar offertes</a>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2 style="margin:0 0 4px;font-size:16px">
+      Offerte {{ offerte.nummer }} &middot; {{ offerte.klant_naam }}</h2>
+    <p>Het hele bedrag is &euro; {{ offerte.totaal|bedrag }}. Hieronder maak je daar een
+      rekening van voor een deel, bijvoorbeeld om materiaal te kunnen inkopen. De offerte
+      blijft staan, zodat je de rest later kunt factureren.</p>
+  </div>
+
+  <form method="post" action="{{ url_for('offerte_aanbetaling', offerte_id=offerte.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <label for="percentage">Hoeveel procent vooraf</label>
+    <input type="text" inputmode="decimal" id="percentage" name="percentage" value="30" required>
+    <p class="hint" id="uitkomst">30% van &euro; {{ offerte.totaal|bedrag }}</p>
+
+    <label for="omschrijving" style="margin-top:16px">Wat er op de rekening komt te staan</label>
+    <input type="text" id="omschrijving" name="omschrijving"
+           placeholder="Aanbetaling 30% van offerte {{ offerte.nummer }}">
+    <p class="hint">Laat je dit leeg, dan vult de app het bovenstaande in.</p>
+
+    <div style="margin-top:20px">
+      <button type="submit" class="btn">Concept-rekening maken</button>
+    </div>
+  </form>
+</div>
+
+<script>
+  // Meteen laten zien wat het percentage in euro's wordt; anders moet je rekenen.
+  (function () {
+    var totaal = {{ offerte.totaal|round(2) }};
+    var veld = document.getElementById('percentage');
+    var uit = document.getElementById('uitkomst');
+    function toon() {
+      var deel = parseFloat(veld.value.replace(',', '.'));
+      if (isNaN(deel) || deel <= 0 || deel > 100) {
+        uit.textContent = 'Vul een percentage in tussen 1 en 100.';
+        return;
+      }
+      var bedrag = (totaal * deel / 100).toFixed(2).replace('.', ',');
+      uit.textContent = deel + '% van € ' + totaal.toFixed(2).replace('.', ',') + ' is € ' + bedrag;
+    }
+    veld.addEventListener('input', toon);
+    toon();
+  })();
+</script>
+
+{% endblock %}

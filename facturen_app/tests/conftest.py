@@ -21,7 +21,8 @@ import main as facturen  # noqa: E402  (moet ná het zetten van DATA_DIR)
 
 # Tabellen in de volgorde waarin ze leeg mogen: eerst wat naar iets anders verwijst.
 TABELLEN = [
-    "regels", "offerte_regels", "uren", "facturen", "offertes", "klussen", "klanten",
+    "regels", "offerte_regels", "uren", "betalingen", "facturen", "offertes",
+    "klussen", "klanten",
 ]
 
 
@@ -34,7 +35,10 @@ def app():
     conn = facturen.get_db()
     for tabel in TABELLEN:
         conn.execute(f"DELETE FROM {tabel}")
-    conn.execute("UPDATE settings SET naam='', adres='', iban='', logo_bestand='' WHERE id=1")
+    # De hele instellingenrij terug naar leeg. Alleen een paar velden wissen liet
+    # bijvoorbeeld een ingestelde mailserver naar de volgende test lekken.
+    conn.execute("DELETE FROM settings")
+    conn.execute("INSERT INTO settings (id) VALUES (1)")
     conn.commit()
     conn.close()
     for pdf in pathlib.Path(facturen.PDF_DIR).glob("*.pdf"):

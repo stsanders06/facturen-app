@@ -59,6 +59,57 @@ iets kwijtraakt.
 5. Heb je je klanten al ergens anders staan, dan lees je ze in één keer in onder
    **Klanten → Importeren**.
 
+## Concept, definitief en betaald
+
+Een nieuwe rekening is eerst een **concept**. Hij heeft dan nog geen nummer: bovenaan de
+PDF staat "CONCEPT" en in de lijst "nog geen nummer". Zo laat een rekening die je toch
+niet verstuurt geen gat achter in je nummering — handig, want een boekhouding hoort een
+doorlopende reeks te hebben.
+
+Het nummer komt er zodra de rekening vastligt. Dat gebeurt vanzelf als je hem **mailt**,
+of met **Definitief maken** in het menu als je hem zelf uitprint of appt. Lukt het mailen
+niet, dan blijft hij concept: je raakt geen nummer kwijt aan een mail die nooit is
+aangekomen.
+
+Op elke rekening staan de knoppen die je op dat moment waarschijnlijk nodig hebt. De rest
+zit achter de **drie puntjes** rechts op de kaart: bekijken, bewerken, downloaden,
+kopiëren, betalingen, herinnering, PDF vernieuwen en verwijderen.
+
+### Betalingen bijhouden
+
+Is de rekening in één keer voldaan, dan druk je op **Betaald** en ben je klaar. Betaalt
+de klant in termijnen, of heb je vooraf een deel gekregen, kies dan **Betalingen** in het
+menu. Daar boek je per keer een datum, een bedrag en een notitie. Zodra alles binnen is,
+gaat de rekening vanzelf op betaald; haal je een boeking weg, dan gaat hij weer open.
+
+In de lijst zie je bij zo'n rekening staan hoeveel er al binnen is, en bovenaan de pagina
+telt **Openstaand** alleen nog wat er echt moet komen.
+
+### Als er niet betaald wordt
+
+Rekeningen waarvan de vervaldatum voorbij is, krijgen een chip **Te laat** en staan apart
+in de balk bovenaan, met een eigen filter. Bij **Openstaand** staat de langst wachtende
+rekening bovenaan.
+
+Met **Herinnering sturen** in het menu mail je de klant een vriendelijk berichtje met de
+rekening er nog een keer bij. De app rekent zelf uit hoeveel dagen de vervaldatum voorbij
+is en noemt alleen het bedrag dat nog openstaat; is er al een deel binnen, dan bedankt de
+mail daar netjes voor.
+
+### Terugkerend werk
+
+Doe je elke maand hetzelfde bij dezelfde klant, kies dan **Kopiëren naar nieuwe rekening**
+in het menu. Je krijgt een nieuw concept met dezelfde klant en dezelfde regels, met de
+datum van vandaag. De koppeling met een klus gaat niet mee: die uren staan al op de
+rekening waarvan je kopieert.
+
+## Zoeken
+
+Op de rekeningen, de offertes en de klanten staat een zoekveld. Je zoekt op nummer, naam,
+e-mailadres, telefoonnummer of adres. Losse woorden hoeven niet in hetzelfde veld te
+staan, dus `jansen 2026-007` vindt precies die ene rekening. Heb je een filter aanstaan,
+dan blijft het zoeken binnen dat filter.
+
 ## Offertes
 
 Onder het tabblad **Offertes** geef je vooraf een prijs af. Het formulier is hetzelfde
@@ -80,6 +131,13 @@ ja, dan maak je er met **Naar rekening** in één klik een rekening van: de klan
 en het bedrag gaan mee. Je komt in het bewerkscherm terecht, zodat je nog iets kunt
 aanpassen voordat je hem verstuurt. De offerte zelf blijft staan als vastlegging van wat
 er is afgesproken, met een link naar de rekening die eruit is gekomen.
+
+### Een deel vooraf
+
+Moet je eerst materiaal inkopen, kies dan **Aanbetaling in rekening brengen** in het menu
+van de offerte. Je vult een percentage in — dertig is de standaard — en de app maakt daar
+een concept-rekening van met één regel erop. Wat dat in euro's is, zie je meteen terwijl
+je typt. De offerte blijft gewoon staan, zodat je de rest later kunt factureren.
 
 ## Uit een CSV-bestand inlezen
 

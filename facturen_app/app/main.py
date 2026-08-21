@@ -323,6 +323,18 @@ def init_db():
             FOREIGN KEY (klus_id) REFERENCES klussen (id)
         );
 
+        CREATE TABLE IF NOT EXISTS betalingen (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            factuur_id INTEGER NOT NULL,
+            datum TEXT NOT NULL,
+            bedrag REAL NOT NULL,
+            notitie TEXT DEFAULT '',
+            -- 1 als de app hem zelf boekte omdat je op "Betaald" drukte; die mag
+            -- weer weg als je dat terugdraait, een handmatige boeking niet.
+            automatisch INTEGER DEFAULT 0,
+            FOREIGN KEY (factuur_id) REFERENCES facturen (id)
+        );
+
         CREATE TABLE IF NOT EXISTS offertes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             nummer TEXT NOT NULL,
@@ -433,6 +445,39 @@ def get_settings():
     return dict(row) if row else {}
 
 
+def factuurnaam(factuur):
+    """Hoe de rekening heet in de app en in een mail. Een concept heeft nog geen
+    nummer: dat wordt pas vergeven als hij definitief wordt, zodat een weggegooid
+    concept geen gat in de reeks achterlaat."""
+    return factuur["nummer"] or f"concept {factuur['id']}"
+
+
+def pdf_bestandsnaam(factuur):
+    """De naam van het PDF-bestand. Concepten staan onder hun eigen naam in de map,
+    zodat ze niet botsen met een echte rekening en makkelijk te herkennen zijn."""
+    if factuur["nummer"]:
+        return f"{factuur['nummer']}.pdf"
+    return f"concept-{factuur['id']}.pdf"
+
+
+def maak_definitief(conn, factuur_id):
+    """Geeft een concept zijn nummer en ruimt de concept-PDF op. Geeft de rekening
+    terug zoals hij daarna is. Een rekening die al een nummer heeft, blijft zoals hij is."""
+    factuur = conn.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
+    if factuur is None or factuur["nummer"]:
+        return factuur
+
+    oude_pdf = os.path.join(PDF_DIR, pdf_bestandsnaam(factuur))
+    nummer = volgend_nummer(conn)
+    conn.execute("UPDATE facturen SET nummer=? WHERE id=?", (nummer, factuur_id))
+    conn.commit()
+
+    if os.path.exists(oude_pdf):
+        os.remove(oude_pdf)
+    maak_pdf(factuur_id)
+    return conn.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
+
+
 def _volgnummer(nummer):
     """Het cijferdeel achter het jaartal, of 0 als het nummer er anders uitziet."""
     staart = str(nummer or "").split("-", 1)[-1]
@@ -494,8 +539,8 @@ def herstel_dubbele_nummers():
     overschreven door de nieuwere."""
     conn = get_db()
     dubbel = conn.execute(
-        """SELECT nummer FROM facturen GROUP BY nummer HAVING COUNT(*) > 1
-           ORDER BY nummer"""
+        """SELECT nummer FROM facturen WHERE nummer <> ''
+           GROUP BY nummer HAVING COUNT(*) > 1 ORDER BY nummer"""
     ).fetchall()
     if not dubbel:
         conn.close()
@@ -547,15 +592,69 @@ def zoek_in(rijen, term, velden):
     return gevonden
 
 
+def betalingen_van(conn, factuur_id):
+    """De losse betalingen op één rekening, oudste eerst."""
+    return conn.execute(
+        "SELECT * FROM betalingen WHERE factuur_id=? ORDER BY datum, id", (factuur_id,)
+    ).fetchall()
+
+
+def betaald_op(conn, factuur_id):
+    """Wat er tot nu toe op deze rekening is binnengekomen."""
+    som = conn.execute(
+        "SELECT COALESCE(SUM(bedrag), 0) FROM betalingen WHERE factuur_id=?", (factuur_id,)
+    ).fetchone()[0]
+    return round(som, 2)
+
+
+def herzie_betaalstatus(conn, factuur_id):
+    """Zet de rekening op betaald zodra het hele bedrag binnen is, en weer open als
+    dat door een teruggedraaide boeking niet meer zo is. Een cent speling, want
+    optellen van kommagetallen komt niet altijd precies uit."""
+    factuur = conn.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
+    if factuur is None:
+        return
+    betaald = betaald_op(conn, factuur_id)
+
+    if betaald + 0.005 >= factuur["totaal"] and factuur["status"] != "betaald":
+        conn.execute(
+            "UPDATE facturen SET status='betaald', status_voor_betaald=? WHERE id=?",
+            (factuur["status"], factuur_id),
+        )
+    elif betaald + 0.005 < factuur["totaal"] and factuur["status"] == "betaald":
+        terug = factuur["status_voor_betaald"] or "verzonden"
+        conn.execute(
+            "UPDATE facturen SET status=?, status_voor_betaald='' WHERE id=?",
+            (terug, factuur_id),
+        )
+
+
 def factuurlijst(conn):
-    """Alle rekeningen, met de vervaldatum erbij en of ze daar overheen zijn."""
+    """Alle rekeningen, met de vervaldatum, wat er al betaald is en wat er nog
+    openstaat."""
     vandaag = date.today().isoformat()
+    per_factuur = {
+        rij["factuur_id"]: rij["som"]
+        for rij in conn.execute(
+            "SELECT factuur_id, SUM(bedrag) AS som FROM betalingen GROUP BY factuur_id"
+        )
+    }
+
     lijst = []
     for rij in conn.execute("SELECT * FROM facturen ORDER BY id DESC"):
         factuur = dict(rij)
+        # Hoe hij heet in de lijst: zijn nummer, of "concept 6" zolang hij er geen heeft.
+        factuur["naam"] = factuurnaam(rij)
         factuur["vervalt"] = vervaldatum(rij["datum"])
         factuur["verlopen"] = (
             rij["status"] != "betaald" and factuur["vervalt"] < vandaag
+        )
+        factuur["betaald"] = round(per_factuur.get(rij["id"], 0.0), 2)
+        factuur["openstaand"] = round(rij["totaal"] - factuur["betaald"], 2)
+        # Er is iets binnen, maar nog niet alles: dat verdient een eigen chip, anders
+        # ziet een rekening waarop de helft is betaald eruit als een die nog dicht is.
+        factuur["deels_betaald"] = (
+            rij["status"] != "betaald" and factuur["betaald"] > 0
         )
         lijst.append(factuur)
     return lijst
@@ -575,10 +674,10 @@ def index():
     openstaand = [f for f in facturen if f["status"] != "betaald"]
     verlopen = [f for f in openstaand if f["verlopen"]]
     overzicht = {
-        "openstaand": sum(f["totaal"] for f in openstaand),
+        "openstaand": sum(f["openstaand"] for f in openstaand),
         "openstaand_aantal": len(openstaand),
         "verlopen_aantal": len(verlopen),
-        "verlopen_bedrag": sum(f["totaal"] for f in verlopen),
+        "verlopen_bedrag": sum(f["openstaand"] for f in verlopen),
         "jaar": jaar,
         "jaar_totaal": sum(f["totaal"] for f in facturen if str(f["datum"]).startswith(jaar)),
         "aantal": len(facturen),
@@ -1316,15 +1415,15 @@ def nieuw():
             return redirect(url_for("nieuw"))
 
         conn = get_db()
-        nummer = volgend_nummer(conn)
         klant_id = bepaal_klant(conn, request.form)
 
+        # Nog geen nummer: dat komt pas als de rekening definitief wordt. Zo laat een
+        # concept dat je weggooit geen gat achter in de reeks.
         cur = conn.execute(
             """INSERT INTO facturen (nummer, datum, klant_id, klant_naam, klant_adres,
                klant_email, betaalmethode, status, totaal)
-               VALUES (?, ?, ?, ?, ?, ?, ?, 'concept', ?)""",
+               VALUES ('', ?, ?, ?, ?, ?, ?, 'concept', ?)""",
             (
-                nummer,
                 geldige_datum(request.form.get("datum")),
                 klant_id,
                 request.form.get("klant_naam", ""),
@@ -1340,10 +1439,13 @@ def nieuw():
         conn.close()
 
         maak_pdf(factuur_id)
-        flash(f"Rekening {nummer} aangemaakt.")
 
         if request.form.get("verstuur") == "ja":
+            # Versturen maakt de rekening vanzelf definitief; dan pas een nummer.
             flash(verstuur_email(factuur_id)[1])
+        else:
+            flash("Rekening opgeslagen als concept. Hij krijgt zijn nummer zodra je "
+                  "hem verstuurt of definitief maakt.")
 
         return redirect(url_for("index"))
 
@@ -1399,7 +1501,7 @@ def bewerk(factuur_id):
 
         # De PDF hoort bij de oude gegevens, dus opnieuw tekenen.
         maak_pdf(factuur_id)
-        flash(f"Rekening {factuur['nummer']} bijgewerkt.")
+        flash(f"Rekening {factuurnaam(factuur)} bijgewerkt.")
 
         if request.form.get("verstuur") == "ja":
             flash(verstuur_email(factuur_id)[1])
@@ -1672,13 +1774,11 @@ def offerte_naar_rekening(offerte_id):
     regels = conn.execute(
         "SELECT * FROM offerte_regels WHERE offerte_id=? ORDER BY id", (offerte_id,)
     ).fetchall()
-    nummer = volgend_nummer(conn)
     cur = conn.execute(
         """INSERT INTO facturen (nummer, datum, klant_id, klant_naam, klant_adres,
            klant_email, betaalmethode, status, totaal)
-           VALUES (?, ?, ?, ?, ?, ?, 'bank', 'concept', ?)""",
+           VALUES ('', ?, ?, ?, ?, ?, 'bank', 'concept', ?)""",
         (
-            nummer,
             date.today().isoformat(),
             offerte["klant_id"],
             offerte["klant_naam"],
@@ -1703,8 +1803,60 @@ def offerte_naar_rekening(offerte_id):
     conn.close()
 
     maak_pdf(factuur_id)
-    flash(f"Offerte {offerte['nummer']} staat nu als rekening {nummer} klaar. "
-          "Controleer hem en verstuur hem als hij klopt.")
+    flash(f"Offerte {offerte['nummer']} staat nu als concept-rekening klaar. "
+          "Controleer hem en verstuur hem als hij klopt; dan krijgt hij zijn nummer.")
+    return redirect(url_for("bewerk", factuur_id=factuur_id))
+
+
+@app.route("/offerte/<int:offerte_id>/aanbetaling", methods=["GET", "POST"])
+def offerte_aanbetaling(offerte_id):
+    """Maakt een rekening voor een deel van de offerte, bijvoorbeeld dertig procent
+    vooraf. De offerte blijft gewoon staan, zodat je de rest later kunt factureren."""
+    conn = get_db()
+    offerte = offerte_of_404(conn, offerte_id)
+
+    if request.method != "POST":
+        conn.close()
+        return render_template("aanbetaling.html", offerte=offerte, actief="offertes")
+
+    try:
+        deel = _getal(request.form.get("percentage"))
+    except ValueError:
+        deel = 0.0
+    if not 0 < deel <= 100:
+        conn.close()
+        flash("Vul een percentage in tussen 1 en 100.")
+        return redirect(url_for("offerte_aanbetaling", offerte_id=offerte_id))
+
+    bedrag = round(offerte["totaal"] * deel / 100, 2)
+    omschrijving = (request.form.get("omschrijving", "").strip()
+                    or f"Aanbetaling {deel:g}% van offerte {offerte['nummer']}")
+
+    cur = conn.execute(
+        """INSERT INTO facturen (nummer, datum, klant_id, klant_naam, klant_adres,
+           klant_email, betaalmethode, status, totaal)
+           VALUES ('', ?, ?, ?, ?, ?, 'bank', 'concept', ?)""",
+        (
+            date.today().isoformat(),
+            offerte["klant_id"],
+            offerte["klant_naam"],
+            offerte["klant_adres"],
+            offerte["klant_email"],
+            bedrag,
+        ),
+    )
+    factuur_id = cur.lastrowid
+    conn.execute(
+        """INSERT INTO regels (factuur_id, omschrijving, type, aantal, prijs, subtotaal)
+           VALUES (?, ?, 'arbeid_klus', 1, ?, ?)""",
+        (factuur_id, omschrijving, bedrag, bedrag),
+    )
+    conn.commit()
+    conn.close()
+
+    maak_pdf(factuur_id)
+    flash(f"Aanbetaling van € {nl_bedrag(bedrag)} staat als concept-rekening klaar. "
+          "De offerte blijft staan, zodat je de rest later kunt factureren.")
     return redirect(url_for("bewerk", factuur_id=factuur_id))
 
 
@@ -1752,7 +1904,8 @@ def maak_pdf(factuur_id):
 
     doc = dict(factuur)
     doc["soort"] = "factuur"
-    return _teken_document(os.path.join(PDF_DIR, f"{factuur['nummer']}.pdf"), doc, regels, s)
+    doc["weergavenummer"] = factuur["nummer"] or "CONCEPT"
+    return _teken_document(os.path.join(PDF_DIR, pdf_bestandsnaam(factuur)), doc, regels, s)
 
 
 def maak_offerte_pdf(offerte_id):
@@ -2051,12 +2204,13 @@ def _teken_document(pad, doc, regels, s):
     merkregel bovenaan. Een rekening krijgt onderaan een afscheurbare betaalstrook;
     een offerte niet, want daar valt nog niets te betalen."""
     offerte = doc.get("soort") == "offerte"
-    vel = Vel(pad, "Offerte" if offerte else "Rekening", doc["nummer"])
+    naam = doc.get("weergavenummer") or doc["nummer"]
+    vel = Vel(pad, "Offerte" if offerte else "Rekening", naam)
 
     # Een offerte hoeft geen einddatum te hebben; laat je het veld leeg, dan staat er
     # niets over geldigheid op het vel.
     vervalt = doc.get("geldig_tot") if offerte else vervaldatum(doc["datum"])
-    kopregel = f"{doc['nummer']}   ·   {filter_datum_nl(doc['datum'])}"
+    kopregel = f"{naam}   ·   {filter_datum_nl(doc['datum'])}"
     if offerte and vervalt:
         kopregel += f"   ·   geldig tot {filter_datum_nl(vervalt)}"
 
@@ -2117,10 +2271,19 @@ def _mail_pdf(s, ontvanger, onderwerp, tekst, pad, bestandsnaam):
 
 
 def verstuur_email(factuur_id):
-    """Mailt de rekening naar de klant en zet hem op verzonden."""
+    """Mailt de rekening naar de klant en zet hem op verzonden. Een concept krijgt
+    hierbij zijn nummer: de rekening gaat de deur uit, dus vanaf nu ligt hij vast."""
     conn = get_db()
     factuur = conn.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
+    if factuur is None:
+        conn.close()
+        abort(404)
     s = get_settings()
+
+    # Eerst kijken of het mailen überhaupt kan; anders krijgt een concept een nummer
+    # voor een mail die nooit is verstuurd.
+    if factuur["klant_email"] and s.get("smtp_host"):
+        factuur = maak_definitief(conn, factuur_id)
     conn.close()
 
     if not factuur["klant_email"]:
@@ -2130,19 +2293,21 @@ def verstuur_email(factuur_id):
         return False, ("Er is nog geen mailserver ingesteld. Vul die in onder "
                        "Instellingen → Mailen.")
 
-    pad = os.path.join(PDF_DIR, f"{factuur['nummer']}.pdf")
+    bestandsnaam = pdf_bestandsnaam(factuur)
+    pad = os.path.join(PDF_DIR, bestandsnaam)
     if not os.path.exists(pad):
         maak_pdf(factuur_id)
 
+    naam = factuurnaam(factuur)
     gelukt, melding = _mail_pdf(
         s,
         factuur["klant_email"],
-        f"Rekening {factuur['nummer']} - {s.get('naam', '')}",
+        f"Rekening {naam} - {s.get('naam', '')}",
         f"Beste {factuur['klant_naam']},\n\n"
-        f"Hierbij de rekening ({factuur['nummer']}) voor het uitgevoerde werk.\n\n"
+        f"Hierbij de rekening ({naam}) voor het uitgevoerde werk.\n\n"
         f"Met vriendelijke groet,\n{s.get('naam', '')}",
         pad,
-        f"{factuur['nummer']}.pdf",
+        bestandsnaam,
     )
     if not gelukt:
         return False, melding
@@ -2151,7 +2316,74 @@ def verstuur_email(factuur_id):
     conn.execute("UPDATE facturen SET status='verzonden' WHERE id=?", (factuur_id,))
     conn.commit()
     conn.close()
-    return True, f"Rekening {factuur['nummer']} gemaild naar {factuur['klant_email']}."
+    return True, f"Rekening {naam} gemaild naar {factuur['klant_email']}."
+
+
+def herinnering_email(factuur_id):
+    """Stuurt een vriendelijke herinnering met de rekening er nog eens bij. Noemt
+    hoeveel er nog openstaat en hoe lang de vervaldatum al voorbij is."""
+    conn = get_db()
+    factuur = conn.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
+    if factuur is None:
+        conn.close()
+        abort(404)
+    betaald = betaald_op(conn, factuur_id)
+    s = get_settings()
+    conn.close()
+
+    if factuur["status"] == "betaald":
+        return False, "Deze rekening is al betaald; er valt niets te herinneren."
+    if not factuur["nummer"]:
+        return False, ("Dit is nog een concept. Verstuur de rekening eerst; daarna kun "
+                       "je een herinnering sturen.")
+    if not factuur["klant_email"]:
+        return False, ("Deze klant heeft geen e-mailadres. Vul dat in bij de rekening "
+                       "of bij de klant.")
+    if not s.get("smtp_host"):
+        return False, ("Er is nog geen mailserver ingesteld. Vul die in onder "
+                       "Instellingen → Mailen.")
+
+    bestandsnaam = pdf_bestandsnaam(factuur)
+    pad = os.path.join(PDF_DIR, bestandsnaam)
+    if not os.path.exists(pad):
+        maak_pdf(factuur_id)
+
+    openstaand = round(factuur["totaal"] - betaald, 2)
+    vervalt = vervaldatum(factuur["datum"])
+    try:
+        te_laat = (date.today() - date.fromisoformat(vervalt)).days
+    except ValueError:
+        te_laat = 0
+
+    if te_laat > 0:
+        opening = (f"De vervaldatum van {filter_datum_nl(vervalt)} is inmiddels "
+                   f"{te_laat} dag{'en' if te_laat != 1 else ''} geleden.")
+    else:
+        opening = f"De rekening staat open tot {filter_datum_nl(vervalt)}."
+
+    # Is er al iets binnen, dan hoort de herinnering niet om het hele bedrag te vragen.
+    bedragregel = f"Het openstaande bedrag is € {nl_bedrag(openstaand)}."
+    if betaald > 0:
+        bedragregel += (f" Van het totaal van € {nl_bedrag(factuur['totaal'])} is er al "
+                        f"€ {nl_bedrag(betaald)} ontvangen, waarvoor dank.")
+
+    gelukt, melding = _mail_pdf(
+        s,
+        factuur["klant_email"],
+        f"Herinnering: rekening {factuur['nummer']} - {s.get('naam', '')}",
+        f"Beste {factuur['klant_naam']},\n\n"
+        f"Deze rekening ({factuur['nummer']}) staat nog open. {opening}\n\n"
+        f"{bedragregel}\n\n"
+        "Wellicht is hij aan je aandacht ontsnapt; is hij inmiddels betaald, dan kun je "
+        "dit bericht negeren. De rekening zit voor de zekerheid nog een keer bijgevoegd."
+        f"\n\nMet vriendelijke groet,\n{s.get('naam', '')}",
+        pad,
+        bestandsnaam,
+    )
+    if not gelukt:
+        return False, melding
+    return True, (f"Herinnering voor rekening {factuur['nummer']} gemaild naar "
+                  f"{factuur['klant_email']}.")
 
 
 def verstuur_offerte_email(offerte_id):
@@ -2201,30 +2433,30 @@ def _pdf_pad(factuur_id):
     conn.close()
     if factuur is None:
         abort(404)
-    pad = os.path.join(PDF_DIR, f"{factuur['nummer']}.pdf")
+    pad = os.path.join(PDF_DIR, pdf_bestandsnaam(factuur))
     if not os.path.exists(pad):
         maak_pdf(factuur_id)
-    return pad, factuur["nummer"]
+    return pad, pdf_bestandsnaam(factuur)
 
 
 @app.route("/factuur/<int:factuur_id>/bekijk")
 def bekijk_pdf(factuur_id):
     """Toont de rekening in de browser zelf, zonder hem te downloaden."""
-    pad, nummer = _pdf_pad(factuur_id)
+    pad, bestandsnaam = _pdf_pad(factuur_id)
     return send_file(pad, mimetype="application/pdf", as_attachment=False,
-                     download_name=f"{nummer}.pdf")
+                     download_name=bestandsnaam)
 
 
 @app.route("/factuur/<int:factuur_id>/vernieuw", methods=["POST"])
 def vernieuw_pdf(factuur_id):
     """Tekent de rekening opnieuw, bijvoorbeeld nadat je je logo of IBAN hebt gewijzigd."""
     conn = get_db()
-    factuur = conn.execute("SELECT nummer FROM facturen WHERE id=?", (factuur_id,)).fetchone()
+    factuur = conn.execute("SELECT id, nummer FROM facturen WHERE id=?", (factuur_id,)).fetchone()
     conn.close()
     if factuur is None:
         abort(404)
     maak_pdf(factuur_id)
-    flash(f"Rekening {factuur['nummer']} is opnieuw gemaakt met je huidige instellingen.")
+    flash(f"Rekening {factuurnaam(factuur)} is opnieuw gemaakt met je huidige instellingen.")
     return redirect(request.referrer or url_for("index"))
 
 
@@ -2248,8 +2480,8 @@ def vernieuw_alles():
 
 @app.route("/factuur/<int:factuur_id>/pdf")
 def download_pdf(factuur_id):
-    pad, nummer = _pdf_pad(factuur_id)
-    return send_file(pad, as_attachment=True, download_name=f"{nummer}.pdf")
+    pad, bestandsnaam = _pdf_pad(factuur_id)
+    return send_file(pad, as_attachment=True, download_name=bestandsnaam)
 
 
 @app.route("/factuur/<int:factuur_id>/verstuur", methods=["POST"])
@@ -2259,18 +2491,48 @@ def verstuur(factuur_id):
     return redirect(request.referrer or url_for("index"))
 
 
-@app.route("/factuur/<int:factuur_id>/betaald", methods=["POST"])
-def markeer_betaald(factuur_id):
+@app.route("/factuur/<int:factuur_id>/definitief", methods=["POST"])
+def definitief(factuur_id):
+    """Geeft een concept zijn nummer, zonder het meteen te versturen."""
     conn = get_db()
-    huidig = conn.execute("SELECT status FROM facturen WHERE id=?", (factuur_id,)).fetchone()
-    if huidig is None:
+    factuur = conn.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
+    if factuur is None:
         conn.close()
         abort(404)
-    if huidig["status"] != "betaald":
+    if factuur["nummer"]:
+        conn.close()
+        flash(f"Rekening {factuur['nummer']} was al definitief.")
+        return redirect(request.referrer or url_for("index"))
+
+    factuur = maak_definitief(conn, factuur_id)
+    conn.close()
+    flash(f"De rekening heeft nummer {factuur['nummer']} gekregen.")
+    return redirect(request.referrer or url_for("index"))
+
+
+@app.route("/factuur/<int:factuur_id>/betaald", methods=["POST"])
+def markeer_betaald(factuur_id):
+    """Helemaal betaald: boekt in één keer wat er nog openstond."""
+    conn = get_db()
+    factuur = conn.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
+    if factuur is None:
+        conn.close()
+        abort(404)
+
+    if factuur["status"] != "betaald":
+        rest = round(factuur["totaal"] - betaald_op(conn, factuur_id), 2)
+        if rest > 0:
+            # Als automatische boeking, zodat "toch niet betaald" hem weer weghaalt
+            # zonder aan je eigen deelbetalingen te komen.
+            conn.execute(
+                """INSERT INTO betalingen (factuur_id, datum, bedrag, notitie, automatisch)
+                   VALUES (?, ?, ?, '', 1)""",
+                (factuur_id, date.today().isoformat(), rest),
+            )
         # Onthoud waar de rekening vandaan komt, zodat terugzetten geen gok is.
         conn.execute(
             "UPDATE facturen SET status='betaald', status_voor_betaald=? WHERE id=?",
-            (huidig["status"], factuur_id),
+            (factuur["status"], factuur_id),
         )
         conn.commit()
     conn.close()
@@ -2279,44 +2541,160 @@ def markeer_betaald(factuur_id):
 
 @app.route("/factuur/<int:factuur_id>/niet-betaald", methods=["POST"])
 def markeer_niet_betaald(factuur_id):
-    """Toch niet betaald: terug naar de status van vóór het afvinken."""
+    """Toch niet betaald: terug naar de status van vóór het afvinken. Alleen wat de
+    app zelf boekte gaat weg; deelbetalingen die je zelf hebt ingevoerd blijven staan."""
     conn = get_db()
     factuur = conn.execute(
-        "SELECT nummer, status_voor_betaald FROM facturen WHERE id=?", (factuur_id,)
+        "SELECT id, nummer, status_voor_betaald FROM facturen WHERE id=?", (factuur_id,)
     ).fetchone()
     if factuur is None:
         conn.close()
         abort(404)
+    conn.execute("DELETE FROM betalingen WHERE factuur_id=? AND automatisch=1", (factuur_id,))
     terug = factuur["status_voor_betaald"] or "concept"
     conn.execute(
         "UPDATE facturen SET status=?, status_voor_betaald='' WHERE id=?", (terug, factuur_id)
     )
     conn.commit()
     conn.close()
-    flash(f"Rekening {factuur['nummer']} staat weer open.")
+    flash(f"Rekening {factuurnaam(factuur)} staat weer open.")
+    return redirect(request.referrer or url_for("index"))
+
+
+@app.route("/factuur/<int:factuur_id>/kopieer", methods=["POST"])
+def kopieer(factuur_id):
+    """Maakt een nieuw concept met dezelfde klant en dezelfde regels. Handig bij werk
+    dat elke maand terugkomt; je hoeft dan alleen de datum en de aantallen na te lopen."""
+    conn = get_db()
+    origineel = conn.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
+    if origineel is None:
+        conn.close()
+        abort(404)
+
+    cur = conn.execute(
+        """INSERT INTO facturen (nummer, datum, klant_id, klant_naam, klant_adres,
+           klant_email, betaalmethode, status, totaal)
+           VALUES ('', ?, ?, ?, ?, ?, ?, 'concept', ?)""",
+        (
+            date.today().isoformat(),
+            origineel["klant_id"],
+            origineel["klant_naam"],
+            origineel["klant_adres"],
+            origineel["klant_email"],
+            origineel["betaalmethode"],
+            origineel["totaal"],
+        ),
+    )
+    nieuw_id = cur.lastrowid
+
+    # De koppeling met een klus gaat niet mee: die uren zijn al gefactureerd op de
+    # rekening waar je van kopieert.
+    for r in conn.execute("SELECT * FROM regels WHERE factuur_id=? ORDER BY id", (factuur_id,)):
+        conn.execute(
+            """INSERT INTO regels (factuur_id, omschrijving, type, aantal, prijs, subtotaal)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (nieuw_id, r["omschrijving"], r["type"], r["aantal"], r["prijs"], r["subtotaal"]),
+        )
+    conn.commit()
+    conn.close()
+
+    maak_pdf(nieuw_id)
+    flash(f"Kopie van rekening {factuurnaam(origineel)} staat klaar als nieuw concept. "
+          "Loop de datum en de bedragen na voordat je hem verstuurt.")
+    return redirect(url_for("bewerk", factuur_id=nieuw_id))
+
+
+@app.route("/factuur/<int:factuur_id>/betalingen", methods=["GET", "POST"])
+def betalingen(factuur_id):
+    """Deelbetalingen bijhouden. Handig bij een aanbetaling vooraf of een klant die
+    in termijnen betaalt."""
+    conn = get_db()
+    factuur = conn.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
+    if factuur is None:
+        conn.close()
+        abort(404)
+
+    if request.method == "POST":
+        try:
+            bedrag = round(_getal(request.form.get("bedrag")), 2)
+        except ValueError:
+            bedrag = 0.0
+        if bedrag <= 0:
+            conn.close()
+            flash("Vul een bedrag in dat groter is dan nul.")
+            return redirect(url_for("betalingen", factuur_id=factuur_id))
+
+        conn.execute(
+            """INSERT INTO betalingen (factuur_id, datum, bedrag, notitie, automatisch)
+               VALUES (?, ?, ?, ?, 0)""",
+            (
+                factuur_id,
+                geldige_datum(request.form.get("datum")),
+                bedrag,
+                request.form.get("notitie", "").strip(),
+            ),
+        )
+        herzie_betaalstatus(conn, factuur_id)
+        conn.commit()
+        conn.close()
+        flash(f"€ {nl_bedrag(bedrag)} geboekt.")
+        return redirect(url_for("betalingen", factuur_id=factuur_id))
+
+    lijst = betalingen_van(conn, factuur_id)
+    betaald = betaald_op(conn, factuur_id)
+    conn.close()
+    return render_template(
+        "betalingen.html", factuur=factuur, naam=factuurnaam(factuur),
+        betalingen=lijst, betaald=betaald,
+        openstaand=round(factuur["totaal"] - betaald, 2),
+        vandaag=date.today().isoformat(), actief="index",
+    )
+
+
+@app.route("/betaling/<int:betaling_id>/verwijder", methods=["POST"])
+def betaling_verwijder(betaling_id):
+    conn = get_db()
+    betaling = conn.execute("SELECT * FROM betalingen WHERE id=?", (betaling_id,)).fetchone()
+    if betaling is None:
+        conn.close()
+        abort(404)
+    factuur_id = betaling["factuur_id"]
+    conn.execute("DELETE FROM betalingen WHERE id=?", (betaling_id,))
+    herzie_betaalstatus(conn, factuur_id)
+    conn.commit()
+    conn.close()
+    flash(f"Betaling van € {nl_bedrag(betaling['bedrag'])} verwijderd.")
+    return redirect(url_for("betalingen", factuur_id=factuur_id))
+
+
+@app.route("/factuur/<int:factuur_id>/herinnering", methods=["POST"])
+def herinnering(factuur_id):
+    _, melding = herinnering_email(factuur_id)
+    flash(melding)
     return redirect(request.referrer or url_for("index"))
 
 
 @app.route("/factuur/<int:factuur_id>/verwijder", methods=["POST"])
 def verwijder(factuur_id):
     conn = get_db()
-    factuur = conn.execute("SELECT nummer FROM facturen WHERE id=?", (factuur_id,)).fetchone()
+    factuur = conn.execute("SELECT id, nummer FROM facturen WHERE id=?", (factuur_id,)).fetchone()
     if factuur is None:
         conn.close()
         abort(404)
     # Uren die op deze rekening stonden komen weer vrij om te factureren.
     conn.execute("UPDATE uren SET factuur_id=NULL WHERE factuur_id=?", (factuur_id,))
     conn.execute("DELETE FROM regels WHERE factuur_id=?", (factuur_id,))
+    conn.execute("DELETE FROM betalingen WHERE factuur_id=?", (factuur_id,))
     conn.execute("DELETE FROM facturen WHERE id=?", (factuur_id,))
     conn.commit()
     conn.close()
 
     # Het PDF-bestand hoort mee te gaan; anders blijft het als los bestand achter.
-    pdf = os.path.join(PDF_DIR, f"{factuur['nummer']}.pdf")
+    pdf = os.path.join(PDF_DIR, pdf_bestandsnaam(factuur))
     if os.path.exists(pdf):
         os.remove(pdf)
 
-    flash(f"Rekening {factuur['nummer']} verwijderd.")
+    flash(f"Rekening {factuurnaam(factuur)} verwijderd.")
     return redirect(request.referrer or url_for("index"))
 
 

@@ -1,0 +1,109 @@
+{% extends "_layout.html" %}
+{% block title %}Betalingen {{ naam }}{% endblock %}
+{% block head %}
+<style>
+  .balans { display: flex; flex-wrap: wrap; gap: 10px 32px; align-items: baseline; }
+  .balans div { display: flex; align-items: baseline; gap: 8px; }
+  .balans small { font-size: 13px; color: var(--text-secondary); }
+  .balans b { font-size: 19px; font-weight: 500; font-variant-numeric: tabular-nums; }
+  .balans .rest b { color: var(--info); }
+  .balans .klaar b { color: var(--ok); }
+
+  .boeking {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--divider);
+  }
+  .boeking:last-child { border-bottom: none; }
+  .boeking .wanneer { font-size: 14px; }
+  .boeking .notitie { font-size: 13px; color: var(--text-secondary); }
+  .boeking .bedrag { font-variant-numeric: tabular-nums; font-weight: 500; }
+  .boekregel { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+  .boekregel > div { flex: 1 1 140px; }
+</style>
+{% endblock %}
+{% block content %}
+
+<div class="page-head">
+  <h1>Betalingen</h1>
+  <a class="btn btn-outline" href="{{ url_for('index') }}">Terug naar rekeningen</a>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2 style="margin:0 0 4px;font-size:16px">Rekening {{ naam }} &middot; {{ factuur.klant_naam }}</h2>
+    <p>{{ factuur.datum|datum_nl }}</p>
+  </div>
+  <div class="balans">
+    <div>
+      <small>Totaal</small>
+      <b>&euro; {{ factuur.totaal|bedrag }}</b>
+    </div>
+    <div>
+      <small>Ontvangen</small>
+      <b>&euro; {{ betaald|bedrag }}</b>
+    </div>
+    <div class="{{ 'klaar' if openstaand <= 0 else 'rest' }}">
+      <small>{{ 'Helemaal betaald' if openstaand <= 0 else 'Nog openstaand' }}</small>
+      <b>&euro; {{ (openstaand if openstaand > 0 else 0)|bedrag }}</b>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2 style="margin:0 0 4px;font-size:16px">Betaling boeken</h2>
+    <p>Zodra het hele bedrag binnen is, gaat de rekening vanzelf op betaald.</p>
+  </div>
+  <form method="post" action="{{ url_for('betalingen', factuur_id=factuur.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="boekregel">
+      <div>
+        <label for="datum">Datum</label>
+        <input type="date" id="datum" name="datum" value="{{ vandaag }}" required>
+      </div>
+      <div>
+        <label for="bedrag">Bedrag</label>
+        <input type="text" inputmode="decimal" id="bedrag" name="bedrag"
+               placeholder="{{ (openstaand if openstaand > 0 else 0)|bedrag }}" required>
+      </div>
+      <div style="flex:2 1 220px">
+        <label for="notitie">Notitie</label>
+        <input type="text" id="notitie" name="notitie" placeholder="Aanbetaling, contant, tikkie">
+      </div>
+      <button type="submit" class="btn">Boeken</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2 style="margin:0 0 4px;font-size:16px">Wat er binnen is</h2>
+  </div>
+  {% if not betalingen %}
+  <p class="hint">Er is nog niets geboekt op deze rekening.</p>
+  {% else %}
+  {% for b in betalingen %}
+  <div class="boeking">
+    <span>
+      <span class="wanneer">{{ b.datum|datum_nl }}</span>
+      {% if b.notitie %}<span class="notitie">&middot; {{ b.notitie }}</span>
+      {% elif b.automatisch %}<span class="notitie">&middot; geboekt met de knop Betaald</span>{% endif %}
+    </span>
+    <span style="display:flex;align-items:center;gap:8px">
+      <span class="bedrag">&euro; {{ b.bedrag|bedrag }}</span>
+      <form method="post" action="{{ url_for('betaling_verwijder', betaling_id=b.id) }}"
+            data-bevestig="Deze betaling van &euro; {{ b.bedrag|bedrag }} verwijderen?">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-text danger">Verwijderen</button>
+      </form>
+    </span>
+  </div>
+  {% endfor %}
+  {% endif %}
+</div>
+
+{% endblock %}

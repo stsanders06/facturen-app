@@ -120,14 +120,14 @@
   {% for f in facturen %}
   <article class="card factuur">
     <a class="kaartlink" href="{{ url_for('bekijk_pdf', factuur_id=f.id) }}" target="_blank"
-       rel="noopener" aria-label="Rekening {{ f.nummer }} voor {{ f.klant_naam }} bekijken"></a>
+       rel="noopener" aria-label="Rekening {{ f.naam }} voor {{ f.klant_naam }} bekijken"></a>
     <div class="klant">
       {% if f.klant_id %}<a href="{{ url_for('klant', klant_id=f.klant_id) }}">{{ f.klant_naam }}</a>
       {%- else %}{{ f.klant_naam }}{% endif %}
     </div>
     <div class="bedrag">&euro; {{ f.totaal|bedrag }}</div>
     <div class="meta">
-      {{ f.nummer }} · {{ f.datum|datum_nl }}
+      {{ f.nummer or 'nog geen nummer' }} · {{ f.datum|datum_nl }}
       {%- if f.status != 'betaald' %} · vóór {{ f.vervalt|datum_nl }}{% endif %}
     </div>
     <div class="onderkant">
@@ -138,13 +138,16 @@
           {% else %}Betaald{% endif %}
         </span>
         {% if f.verlopen %}<span class="chip chip-verlopen">Te laat</span>{% endif %}
+        {% if f.deels_betaald %}
+        <span class="chip chip-deels">&euro; {{ f.betaald|bedrag }} van {{ f.totaal|bedrag }} binnen</span>
+        {% endif %}
       </span>
       <div class="acties">
         {#- Eén knop voor wat je op dit moment waarschijnlijk wilt doen; de rest
             zit achter de drie puntjes. Anders staan er acht knoppen per kaart. -#}
         {% if f.status == 'concept' and f.klant_email %}
         <form method="post" action="{{ url_for('verstuur', factuur_id=f.id) }}"
-              data-bevestig="Rekening {{ f.nummer }} nu mailen naar {{ f.klant_email }}?">
+              data-bevestig="Rekening {{ f.naam }} nu mailen naar {{ f.klant_email }}?">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="btn btn-text">Mailen</button>
         </form>
@@ -157,15 +160,39 @@
         </form>
         {% endif %}
 
-        {% call menu('Meer voor rekening ' ~ f.nummer) %}
+        {% call menu('Meer voor rekening ' ~ f.naam) %}
           <a class="menu-item" href="{{ url_for('bekijk_pdf', factuur_id=f.id) }}"
              target="_blank" rel="noopener">Bekijken</a>
           <a class="menu-item" href="{{ url_for('bewerk', factuur_id=f.id) }}">Bewerken</a>
           <a class="menu-item" href="{{ url_for('download_pdf', factuur_id=f.id) }}">Downloaden</a>
+          <form method="post" action="{{ url_for('kopieer', factuur_id=f.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="menu-item"
+                    title="Zelfde klant en dezelfde regels, als nieuw concept">Kopiëren naar nieuwe rekening</button>
+          </form>
+
+          {% if not f.nummer %}
+          <form method="post" action="{{ url_for('definitief', factuur_id=f.id) }}"
+                data-bevestig="Deze rekening definitief maken? Hij krijgt dan zijn nummer.">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="menu-item">Definitief maken</button>
+          </form>
+          {% endif %}
+
+          <a class="menu-item" href="{{ url_for('betalingen', factuur_id=f.id) }}">Betalingen
+            {%- if f.betaald > 0 %} (&euro; {{ f.betaald|bedrag }} binnen){% endif %}</a>
+
+          {% if f.status != 'betaald' and f.nummer and f.klant_email %}
+          <form method="post" action="{{ url_for('herinnering', factuur_id=f.id) }}"
+                data-bevestig="Een herinnering mailen naar {{ f.klant_email }}?">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="menu-item">Herinnering sturen</button>
+          </form>
+          {% endif %}
 
           {% if f.klant_email and f.status != 'concept' %}
           <form method="post" action="{{ url_for('verstuur', factuur_id=f.id) }}"
-                data-bevestig="Rekening {{ f.nummer }} nogmaals mailen naar {{ f.klant_email }}?">
+                data-bevestig="Rekening {{ f.naam }} nogmaals mailen naar {{ f.klant_email }}?">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="menu-item">Nogmaals mailen</button>
           </form>
@@ -190,7 +217,7 @@
           </form>
 
           <form method="post" action="{{ url_for('verwijder', factuur_id=f.id) }}"
-                data-bevestig="Rekening {{ f.nummer }} verwijderen? De PDF gaat mee.">
+                data-bevestig="Rekening {{ f.naam }} verwijderen? De PDF gaat mee.">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="menu-item danger gevaar">Verwijderen</button>
           </form>

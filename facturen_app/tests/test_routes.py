@@ -17,7 +17,9 @@ def test_post_zonder_kenmerk_wordt_geweigerd(client):
     assert client.post("/klanten/nieuw", data={"naam": "Jan"}).status_code == 400
 
 
-def test_nieuwe_rekening_wordt_opgeslagen_met_pdf(post, db):
+def test_nieuwe_rekening_wordt_opgeslagen_als_concept_met_pdf(post, db):
+    """Een nieuwe rekening is een concept en heeft nog geen nummer; dat komt pas als
+    hij de deur uit gaat."""
     antwoord = post("/nieuw", {
         "klant_naam": "Jan Jansen",
         "klant_email": "jan@example.com",
@@ -32,10 +34,11 @@ def test_nieuwe_rekening_wordt_opgeslagen_met_pdf(post, db):
     factuur = db.execute("SELECT * FROM facturen").fetchone()
     assert factuur["klant_naam"] == "Jan Jansen"
     assert factuur["totaal"] == 121.0
-    assert factuur["nummer"].startswith(str(date.today().year))
+    assert factuur["nummer"] == ""
+    assert factuur["status"] == "concept"
 
     import os
-    assert os.path.exists(os.path.join(facturen.PDF_DIR, f"{factuur['nummer']}.pdf"))
+    assert os.path.exists(os.path.join(facturen.PDF_DIR, f"concept-{factuur['id']}.pdf"))
 
 
 def test_rekening_zonder_regels_wordt_niet_aangemaakt(post, db):
