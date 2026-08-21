@@ -104,3 +104,16 @@ def test_een_lang_e_mailadres_rekt_de_klantgegevens_niet_op(db, client):
     db.commit()
     css = css_van(client.get(f"/klant/{klant_id}").data.decode())
     assert "anywhere" in regel_met(css, ".gegevens dd")
+
+
+def test_de_klantenlijst_heeft_een_nieuw_knop_in_plaats_van_twee_losse(client, db):
+    """"Nieuwe rekening", "Nieuwe offerte" en "Bewerken" pasten net niet op één
+    regel. Nu zit de keuze achter één knop."""
+    db.execute("INSERT INTO klanten (naam) VALUES ('Jan Jansen')")
+    db.commit()
+    inhoud = client.get("/klanten").data.decode()
+    assert "+ Nieuw" in inhoud
+    assert ">Rekening</a>" in inhoud
+    assert ">Offerte</a>" in inhoud
+    assert "Nieuwe rekening" not in inhoud
+    assert "Nieuwe offerte" not in inhoud

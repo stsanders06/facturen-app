@@ -1,5 +1,5 @@
 {% extends "_layout.html" %}
-{% from "_onderdelen.html" import zoekbalk %}
+{% from "_onderdelen.html" import menu, zoekbalk %}
 {% block title %}Klanten{% endblock %}
 {% block head %}
 <style>
@@ -91,8 +91,7 @@
   <p>Niets gevonden voor &ldquo;{{ zoek }}&rdquo;.</p>
   <a class="btn btn-outline" href="{{ url_for('klanten') }}">Alle klanten tonen</a>
   {% else %}
-  <p>Je hebt nog geen klanten opgeslagen. Zodra je er een bewaart, kun je hem kiezen
-    bij een nieuwe rekening.</p>
+  <p>Nog geen klanten. Bewaar er een en je kunt hem kiezen bij een nieuwe rekening.</p>
   <div class="acties" style="justify-content:center">
     <a class="btn" href="{{ url_for('klant_nieuw') }}">Klant toevoegen</a>
     <a class="btn btn-outline" href="{{ url_for('klanten_import') }}">Uit een CSV-bestand halen</a>
@@ -122,8 +121,10 @@
         {%- if k.openstaand > 0 %} · <span class="openstaand">&euro; {{ k.openstaand|bedrag }} openstaand</span>{% endif %}
       </span>
       <div class="acties">
-        <a class="btn btn-text" href="{{ url_for('nieuw') }}?klant={{ k.id }}">Nieuwe rekening</a>
-        <a class="btn btn-text" href="{{ url_for('offerte_nieuw') }}?klant={{ k.id }}">Nieuwe offerte</a>
+        {% call menu('Nieuw voor ' ~ k.naam, '+ Nieuw') %}
+        <a class="menu-item" href="{{ url_for('nieuw') }}?klant={{ k.id }}">Rekening</a>
+        <a class="menu-item" href="{{ url_for('offerte_nieuw') }}?klant={{ k.id }}">Offerte</a>
+        {% endcall %}
         <a class="btn btn-text" href="{{ url_for('klant_bewerk', klant_id=k.id) }}">Bewerken</a>
       </div>
     </div>

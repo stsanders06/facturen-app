@@ -131,8 +131,7 @@
       </div>
       <div class="checkregel" id="opslaan-regel">
         <input type="checkbox" id="klant_opslaan" name="klant_opslaan" value="ja" checked>
-        <label for="klant_opslaan">Deze klant bewaren, zodat je hem de volgende keer
-          kunt kiezen</label>
+        <label for="klant_opslaan">Deze klant bewaren voor de volgende keer</label>
       </div>
     </div>
   </section>
@@ -180,17 +179,14 @@
   <section class="card">
     <div class="card-head">
       <h2>Regels</h2>
-      <p>Materiaal reken je per stuk. Arbeid kan per uur, per dag of als vaste prijs
-        voor de hele klus.</p>
+      <p>Materiaal per stuk, arbeid per uur, per dag of als vaste prijs.</p>
     </div>
 
     <div class="field urenkiezer">
       <label for="regels_csv">Regels uit een CSV-bestand halen</label>
       <input type="file" id="regels_csv" accept=".csv,text/csv,text/plain">
-      <p class="hint">Handig bij een materiaallijst uit een offerte-programma of de
-        bon van de groothandel. Kopjes op de eerste regel: <b>omschrijving</b>,
-        <b>aantal</b>, <b>prijs</b> en eventueel <b>soort</b>. Het bestand wordt hier
-        in je browser gelezen en komt pas mee als je opslaat.
+      <p class="hint">Kopjes op de eerste regel: <b>omschrijving</b>, <b>aantal</b>,
+        <b>prijs</b> en eventueel <b>soort</b>. Komt pas mee als je opslaat.
         <a class="link" href="{{ url_for('regels_voorbeeld') }}">Voorbeeldbestand</a></p>
     </div>
 
@@ -209,9 +205,9 @@
         </option>
         {% endfor %}
       </select>
-      <p class="hint">Zet de nog niet gefactureerde uren als één arbeidsregel op de rekening;
-        de losse dagen blijven op de <a class="link" href="{{ url_for('klussen') }}">Uren-tab</a>.
-        Ze tellen daarna niet nog een keer mee.</p>
+      <p class="hint">Komt als één arbeidsregel op de rekening en telt daarna niet nog een
+        keer mee. De losse dagen blijven op de
+        <a class="link" href="{{ url_for('klussen') }}">Uren-tab</a>.</p>
     </div>
     {% endif %}
 

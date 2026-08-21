@@ -25,7 +25,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.12.2"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.13.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -140,16 +140,22 @@ def via_ingress():
     return bool(request.environ.get("HTTP_X_INGRESS_PATH"))
 
 
+def als_download():
+    """Of een PDF of foto naar het toestel moet in plaats van in beeld.
+
+    In de zijbalk van Home Assistant kan een bestand niet in een eigen tabblad open:
+    zo'n venster heeft de cookie van Ingress niet en Home Assistant antwoordt met
+    "401: Unauthorized". In hetzelfde venster tonen is ook niets — de PDF-weergave
+    van iOS laat daar alleen het eerste blad zien. Als download klopt het wel: het
+    toestel opent hem in zijn eigen viewer, met alle bladen, en je lijst blijft
+    gewoon staan. Op poort 8099 is er niets aan de hand en blijft bekijken bekijken."""
+    return via_ingress()
+
+
 @app.context_processor
 def _nieuw_tabblad():
-    """Of een PDF of foto in een nieuw tabblad mag openen.
-
-    In de zijbalk van Home Assistant mag dat niet. Home Assistant laat een verzoek
-    aan Ingress alleen door met een cookie die alleen binnen het paneel zelf geldt;
-    de app van Home Assistant opent een link met target="_blank" in een eigen
-    browservenster, dat die cookie niet heeft, en dan antwoordt Home Assistant met
-    "401: Unauthorized" in plaats van de PDF te tonen. Op poort 8099 speelt dat niet
-    en is een apart tabblad juist prettiger, want dan blijft je lijst openstaan."""
+    """Of een link een nieuw tabblad mag openen. In de zijbalk niet: dat venster valt
+    buiten Ingress. Zie als_download() voor het hele verhaal."""
     return {"nieuw_tabblad": Markup("") if via_ingress()
             else Markup('target="_blank" rel="noopener"')}
 
@@ -1561,7 +1567,7 @@ def bijlage(bijlage_id):
     pad = os.path.join(BIJLAGE_DIR, rij["bestand"])
     if not os.path.exists(pad):
         abort(404)
-    return send_file(pad, as_attachment=False, download_name=rij["naam"])
+    return send_file(pad, as_attachment=als_download(), download_name=rij["naam"])
 
 
 @app.route("/bijlage/<int:bijlage_id>/meesturen", methods=["POST"])
@@ -2096,7 +2102,7 @@ def _offerte_pdf_pad(offerte_id):
 @app.route("/offerte/<int:offerte_id>/bekijk")
 def bekijk_offerte(offerte_id):
     pad, nummer = _offerte_pdf_pad(offerte_id)
-    return send_file(pad, mimetype="application/pdf", as_attachment=False,
+    return send_file(pad, mimetype="application/pdf", as_attachment=als_download(),
                      download_name=f"{nummer}.pdf")
 
 
@@ -2849,9 +2855,9 @@ def _pdf_pad(factuur_id):
 
 @app.route("/factuur/<int:factuur_id>/bekijk")
 def bekijk_pdf(factuur_id):
-    """Toont de rekening in de browser zelf, zonder hem te downloaden."""
+    """Toont de rekening in de browser zelf; in de zijbalk wordt het een download."""
     pad, bestandsnaam = _pdf_pad(factuur_id)
-    return send_file(pad, mimetype="application/pdf", as_attachment=False,
+    return send_file(pad, mimetype="application/pdf", as_attachment=als_download(),
                      download_name=bestandsnaam)
 
 

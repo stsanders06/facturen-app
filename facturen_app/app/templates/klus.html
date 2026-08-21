@@ -243,8 +243,7 @@
   <section class="card">
     <div class="card-head">
       <h2>Dag erbij</h2>
-      <p>Vul in wanneer je hebt gewerkt. Loopt de eindtijd over middernacht, dan telt dat
-        gewoon door.</p>
+      <p>Werk je door tot na middernacht, dan telt dat gewoon door.</p>
     </div>
     <form method="post" action="{{ url_for('dag_erbij', klus_id=klus.id) }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -337,9 +336,8 @@
   <section class="card">
     <div class="card-head">
       <h2>Foto's en bonnetjes</h2>
-      <p>Wat je hier neerzet blijft bij de klus horen. Zet het vinkje aan bij een bon die
-        de klant moet zien: die gaat dan mee als bijlage zodra je de uren van deze klus
-        op een rekening zet en die mailt.</p>
+      <p>Blijft bij de klus horen. Vink een bon aan die de klant moet zien: die gaat mee
+        zodra je de uren op een rekening zet en mailt.</p>
     </div>
 
     <form method="post" enctype="multipart/form-data"

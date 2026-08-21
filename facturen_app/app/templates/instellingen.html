@@ -77,8 +77,7 @@
         <label for="tenaamstelling">Ten name van</label>
         <input type="text" id="tenaamstelling" name="tenaamstelling"
                value="{{ s.tenaamstelling or '' }}" placeholder="{{ s.naam }}">
-        <p class="hint">De naam waarop de bankrekening staat. Laat leeg als dat je eigen
-          naam is.</p>
+        <p class="hint">Leeg laten als dat je eigen naam is.</p>
       </div>
     </div>
   </section>
@@ -86,7 +85,7 @@
   <section class="card">
     <div class="card-head">
       <h2>Mailen</h2>
-      <p>Voor Gmail: host smtp.gmail.com, poort 587, en een app-wachtwoord in plaats van je gewone wachtwoord.</p>
+      <p>Gmail: smtp.gmail.com, poort 587, met een app-wachtwoord.</p>
     </div>
     <div class="fields">
       <div class="row">
@@ -126,13 +125,12 @@
   <div class="card-head">
     <h2>Inloggen</h2>
     {% if gebruiker %}
-    <p>Je bent ingelogd als <b>{{ gebruiker }}</b>. Dit account heb je alleen nodig als je
-      de app in je browser opent op poort 8099; via de zijbalk van Home Assistant zit
-      de login van Home Assistant er al voor.</p>
+    <p>Ingelogd als <b>{{ gebruiker }}</b>. Alleen nodig op poort 8099; in de zijbalk
+      regelt Home Assistant de inlog.</p>
     {% else %}
-    <p>Er is nog geen account. Open de app een keer op
-      <code>http://&lt;ip-van-home-assistant&gt;:8099</code>; daar kun je er een aanmaken.
-      Zolang dat niet is gebeurd, kan iedereen in je netwerk op die poort binnenkomen.</p>
+    <p>Nog geen account. Maak er een op
+      <code>http://&lt;ip-van-home-assistant&gt;:8099</code> — tot die tijd kan iedereen in
+      je netwerk daar binnen.</p>
     {% endif %}
   </div>
 
@@ -170,9 +168,8 @@
 <section class="card" style="margin-top:12px">
   <div class="card-head">
     <h2>PDF's opnieuw maken</h2>
-    <p>Heb je hierboven iets gewijzigd — je logo, IBAN of adres — dan staan bestaande
-      PDF's nog met de oude gegevens. Hiermee teken je alle rekeningen en offertes
-      opnieuw. De bedragen en regels blijven ongewijzigd.</p>
+    <p>Bestaande PDF's staan nog met je oude logo, IBAN of adres. Hiermee teken je ze
+      allemaal opnieuw; bedragen en regels blijven zoals ze zijn.</p>
   </div>
   <form method="post" action="{{ url_for('vernieuw_alles') }}"
         data-bevestig="Alle rekeningen en offertes opnieuw maken met je huidige instellingen?">

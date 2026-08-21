@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.13.0
+
+- **Een rekening openen vanuit de zijbalk downloadt hem nu.** In het venster zelf liet
+  iOS alleen het eerste blad zien, en een eigen tabblad laat Home Assistant niet toe.
+  Als download opent je toestel hem in zijn eigen viewer: alle bladen, en je lijst
+  blijft staan. Op poort 8099 gaat er nog gewoon een tabblad open.
+- **Eén "+ Nieuw"-knop op de klantenlijst** met daarachter Rekening en Offerte.
+  "Nieuwe rekening", "Nieuwe offerte" en "Bewerken" pasten samen net niet op één regel.
+- **Kortere uitleg.** Bij de instellingen en de formulieren stonden lappen tekst van
+  drie of vier regels. Die zijn teruggebracht tot wat je echt moet weten.
+
 ## 1.12.2
 
 - **Een PDF openen vanuit de zijbalk van Home Assistant gaf "401: Unauthorized".**

@@ -355,6 +355,10 @@
     font-size: 17px;
     letter-spacing: 1px;
   }
+  /* Dezelfde uitklapper, maar met een woord erop in plaats van de drie puntjes.
+     Die zijn breed uitgespatieerd en groot; een woord hoort er als gewone knop uit
+     te zien. */
+  .menu.met-opschrift > summary { font-size: 13px; letter-spacing: normal; padding: 7px 12px; }
   .menu > summary::-webkit-details-marker { display: none; }
   .menu > summary::marker { content: ""; }
   .menu[open] > summary { background: var(--primary-soft); }

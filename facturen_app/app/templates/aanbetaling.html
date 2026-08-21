@@ -11,9 +11,8 @@
   <div class="card-head">
     <h2 style="margin:0 0 4px;font-size:16px">
       Offerte {{ offerte.nummer }} &middot; {{ offerte.klant_naam }}</h2>
-    <p>Het hele bedrag is &euro; {{ offerte.totaal|bedrag }}. Hieronder maak je daar een
-      rekening van voor een deel, bijvoorbeeld om materiaal te kunnen inkopen. De offerte
-      blijft staan, zodat je de rest later kunt factureren.</p>
+    <p>Het hele bedrag is &euro; {{ offerte.totaal|bedrag }}. Maak hier een rekening voor
+      een deel; de offerte blijft staan voor de rest.</p>
   </div>
 
   <form method="post" action="{{ url_for('offerte_aanbetaling', offerte_id=offerte.id) }}">
