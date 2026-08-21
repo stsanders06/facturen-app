@@ -174,6 +174,14 @@
       <p class="hint">Komt onder de bedragen op de offerte te staan.</p>
     </div>
     {% endif %}
+    <div class="field" style="margin-top:16px">
+      <label for="kenmerk">Kenmerk voor jezelf</label>
+      <input type="text" id="kenmerk" name="kenmerk"
+             value="{{ factuur.kenmerk if factuur else '' }}"
+             placeholder="Bijv. tweede voorstel, of achterstallig onderhoud">
+      <p class="hint">Alleen om ze in je eigen lijst uit elkaar te houden. Komt niet
+        op de {{ stuk }} en de klant ziet hem niet.</p>
+    </div>
   </section>
 
   <section class="card">

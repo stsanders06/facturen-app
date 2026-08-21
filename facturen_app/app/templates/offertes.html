@@ -93,7 +93,7 @@
   {% endif %}
 </div>
 
-{{ zoekbalk(url_for('offertes'), zoek, 'Zoek op nummer, klant of e-mailadres', keuze) }}
+{{ zoekbalk(url_for('offertes'), zoek, 'Zoek op nummer, klant of kenmerk', keuze) }}
 {% endif %}
 
 {% if not offertes %}
@@ -119,6 +119,9 @@
       {%- else %}{{ o.klant_naam }}{% endif %}
     </div>
     <div class="bedrag">&euro; {{ o.totaal|bedrag }}</div>
+    {%- if o.kenmerk %}
+    <div class="kenmerk">{{ o.kenmerk }}</div>
+    {%- endif %}
     <div class="meta">
       {{ o.nummer }} · {{ o.datum|datum_nl }}
       {%- if o.geldig_tot %} · geldig tot {{ o.geldig_tot|datum_nl }}{% endif %}

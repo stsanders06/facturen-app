@@ -136,7 +136,10 @@
   /* Op een telefoon kostten merknaam én tabbladen samen twee regels. De naam mag
      daar weg: je weet welke app je open hebt. */
   @media (max-width: 620px) {
-    .appbar-inner { gap: 0; min-height: 48px; padding: 0 4px; }
+    /* 10px, niet 16: elk tabblad heeft zelf ook 6px ruimte naast zijn tekst, en
+       samen komt die tekst dan precies op dezelfde kantlijn als de kaarten eronder.
+       Met minder liep de balk net buiten de rest uit. */
+    .appbar-inner { gap: 0; min-height: 48px; padding: 0 10px; }
     .brand { display: none; }
     /* Vijf tabbladen passen op een smalle telefoon net niet; ze mogen dan opzij
        schuiven in plaats van over twee regels te breken. De schuifbalk zelf is
@@ -390,6 +393,23 @@
 
   .empty { text-align: center; padding: 40px 20px; }
   .empty p { color: var(--text-secondary); margin: 0 0 18px; }
+
+  /* ---------- Eigen kenmerk op een rekening of offerte ----------
+     Een aantekening voor jezelf, om twee stukken voor dezelfde klant uit elkaar te
+     houden. Hij staat bewust niet in dezelfde grijstint als de nummers en datums
+     eronder: dat is wat er op de PDF staat, dit is alleen van jou. */
+  .kenmerk {
+    grid-column: 1;
+    justify-self: start;
+    margin-top: 2px;
+    padding: 1px 8px;
+    border-radius: 4px;
+    background: var(--neutral-soft);
+    color: var(--text-secondary);
+    font-size: 12.5px;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
 
   /* ---------- Acties onder een kaart ---------- */
   .acties { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }

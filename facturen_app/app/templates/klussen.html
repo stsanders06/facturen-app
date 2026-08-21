@@ -58,6 +58,12 @@
     padding-top: 12px;
     border-top: 1px solid var(--divider);
   }
+  /* Twee volle knoppen naast de chip passen op een telefoon net niet: het scheelde
+     een paar pixels. Iets minder lucht ertussen en het staat op één regel. */
+  @media (max-width: 620px) {
+    .klus .onderkant { gap: 8px; }
+    .klus .onderkant .btn-text { padding-left: 10px; padding-right: 10px; }
+  }
   .klus.afgerond .naam { color: var(--text-secondary); }
   .klus .gefactureerd { color: var(--text-secondary); font-size: 13px; }
 </style>
@@ -105,10 +111,11 @@
       {%- if kl.eerste_datum %} · {{ periode_nl(kl.eerste_datum, kl.laatste_datum) }}{% endif %}
     </div>
     <div class="onderkant">
+      {# Het aantal dagen stond hier ook in, maar dan paste de chip met de knoppen
+         ernaast niet meer op één regel op een telefoon. De periode staat al boven de
+         chip en het aantal dagen staat op de klus zelf. #}
       <span class="chip chip-{{ kl.status }}">
-        {% if kl.status == 'afgerond' %}Afgerond{% else %}Lopend{% endif %}
-        {%- if kl.dagen %} · {{ kl.dagen }} dag{{ 'en' if kl.dagen != 1 }}{% endif %}
-      </span>
+        {% if kl.status == 'afgerond' %}Afgerond{% else %}Lopend{% endif %}</span>
       {% if kl.uren_gefactureerd %}
       <span class="gefactureerd">{{ kl.uren_gefactureerd|uren }} u gefactureerd</span>
       {% endif %}

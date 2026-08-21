@@ -97,7 +97,7 @@
   <a href="{{ url_for('index') }}?status=betaald" {% if keuze == 'betaald' %}class="aan"{% endif %}>Betaald</a>
 </div>
 
-{{ zoekbalk(url_for('index'), zoek, 'Zoek op nummer, klant of e-mailadres', keuze) }}
+{{ zoekbalk(url_for('index'), zoek, 'Zoek op nummer, klant of kenmerk', keuze) }}
 {% endif %}
 
 {% if not facturen %}
@@ -121,6 +121,9 @@
       {%- else %}{{ f.klant_naam }}{% endif %}
     </div>
     <div class="bedrag">&euro; {{ f.totaal|bedrag }}</div>
+    {%- if f.kenmerk %}
+    <div class="kenmerk">{{ f.kenmerk }}</div>
+    {%- endif %}
     <div class="meta">
       {{ f.nummer or 'nog geen nummer' }} · {{ f.datum|datum_nl }}
       {%- if f.status != 'betaald' %} · vóór {{ f.vervalt|datum_nl }}{% endif %}

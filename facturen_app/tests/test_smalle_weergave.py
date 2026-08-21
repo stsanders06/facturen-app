@@ -126,3 +126,27 @@ def test_verwijderen_staat_in_het_menu_op_dezelfde_kantlijn(client, maak_factuur
     css = css_van(client.get("/").data.decode())
     assert "margin-left" not in regel_met(css, ".menu-item.gevaar")
     assert ".acties .gevaar" not in css
+
+
+def test_de_tabbalk_begint_op_dezelfde_kantlijn_als_de_kaarten(client):
+    """Met minder marge liep de balk op een telefoon net buiten de rest uit. De 10px
+    is geen 16 omdat elk tabblad zelf ook 6px naast zijn tekst heeft."""
+    css = css_van(client.get("/").data.decode())
+    smal = css[css.index("@media (max-width: 620px)"):]
+    assert "padding: 0 10px" in regel_met(smal, ".appbar-inner")
+
+
+def test_een_lopende_klus_zegt_alleen_lopend(db, client):
+    """Met het aantal dagen erbij paste de chip met de knoppen ernaast niet meer op
+    één regel op een telefoon."""
+    klus_id = db.execute(
+        """INSERT INTO klussen (naam, uurtarief, gestart)
+           VALUES ('Vloer reinigen', 47.5, '2026-08-10')""").lastrowid
+    for datum in ("2026-08-10", "2026-08-11"):
+        db.execute("""INSERT INTO uren (klus_id, datum, van, tot)
+                      VALUES (?, ?, '08:00', '16:00')""", (klus_id, datum))
+    db.commit()
+
+    inhoud = client.get("/klussen").data.decode()
+    assert "Lopend" in inhoud
+    assert "2 dagen" not in inhoud

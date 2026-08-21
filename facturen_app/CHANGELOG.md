@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.15.0
+
+- **Een kenmerk voor jezelf op een rekening of offerte.** Een eigen aantekening om
+  twee stukken voor dezelfde klant uit elkaar te houden — "tweede voorstel",
+  "achterstallig onderhoud". Hij staat in je lijst en je kunt erop zoeken, maar hij
+  komt niet op de PDF en de klant ziet hem nergens. Zet je een offerte om in een
+  rekening of maak je een kopie, dan gaat het kenmerk mee.
+- **Bij een klus staat alleen nog "Lopend"**, zonder het aantal dagen erachter. Met
+  de knoppen ernaast paste dat op een telefoon niet meer op één regel.
+- **De tabbalk staat op een telefoon op dezelfde kantlijn als de rest.** Hij liep net
+  iets verder naar buiten dan de kaarten eronder.
+
 ## 1.14.0
 
 - **Verwijderen is niet meer definitief.** Bij de melding staat nu "Ongedaan maken".

@@ -27,7 +27,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.14.0"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.15.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -820,6 +820,14 @@ def init_db():
                 (klant_id, rij["klant_naam"]),
             )
 
+    # Een eigen aantekening om twee rekeningen of offertes voor dezelfde klant uit
+    # elkaar te houden. Staat alleen in de app; de klant ziet hem nergens.
+    if "kenmerk" not in factuurkolommen:
+        conn.execute("ALTER TABLE facturen ADD COLUMN kenmerk TEXT DEFAULT ''")
+    offertekolommen = {rij["name"] for rij in conn.execute("PRAGMA table_info(offertes)")}
+    if "kenmerk" not in offertekolommen:
+        conn.execute("ALTER TABLE offertes ADD COLUMN kenmerk TEXT DEFAULT ''")
+
     conn.commit()
     conn.close()
 
@@ -1180,7 +1188,7 @@ def index():
 
     zoek = request.args.get("q", "").strip()
     if zoek:
-        zichtbaar = zoek_in(zichtbaar, zoek, ["nummer", "klant_naam", "klant_email"])
+        zichtbaar = zoek_in(zichtbaar, zoek, ["nummer", "klant_naam", "klant_email", "kenmerk"])
 
     return render_template("index.html", facturen=zichtbaar, overzicht=overzicht,
                            keuze=keuze, zoek=zoek, totaal_aantal=len(facturen),
@@ -2041,8 +2049,8 @@ def nieuw():
         # concept dat je weggooit geen gat achter in de reeks.
         cur = conn.execute(
             """INSERT INTO facturen (nummer, datum, klant_id, klant_naam, klant_adres,
-               klant_email, betaalmethode, status, totaal)
-               VALUES ('', ?, ?, ?, ?, ?, ?, 'concept', ?)""",
+               klant_email, betaalmethode, status, totaal, kenmerk)
+               VALUES ('', ?, ?, ?, ?, ?, ?, 'concept', ?, ?)""",
             (
                 geldige_datum(request.form.get("datum")),
                 klant_id,
@@ -2051,6 +2059,7 @@ def nieuw():
                 request.form.get("klant_email", ""),
                 request.form.get("betaalmethode", "bank"),
                 totaal,
+                request.form.get("kenmerk", "").strip(),
             ),
         )
         factuur_id = cur.lastrowid
@@ -2103,7 +2112,7 @@ def bewerk(factuur_id):
         klant_id = bepaal_klant(conn, request.form)
         conn.execute(
             """UPDATE facturen SET datum=?, klant_id=?, klant_naam=?, klant_adres=?,
-               klant_email=?, betaalmethode=?, totaal=? WHERE id=?""",
+               klant_email=?, betaalmethode=?, totaal=?, kenmerk=? WHERE id=?""",
             (
                 geldige_datum(request.form.get("datum"), factuur["datum"]),
                 klant_id,
@@ -2112,6 +2121,7 @@ def bewerk(factuur_id):
                 request.form.get("klant_email", ""),
                 request.form.get("betaalmethode", "bank"),
                 totaal,
+                request.form.get("kenmerk", "").strip(),
                 factuur_id,
             ),
         )
@@ -2203,7 +2213,7 @@ def offertes():
 
     zoek = request.args.get("q", "").strip()
     if zoek:
-        zichtbaar = zoek_in(zichtbaar, zoek, ["nummer", "klant_naam", "klant_email"])
+        zichtbaar = zoek_in(zichtbaar, zoek, ["nummer", "klant_naam", "klant_email", "kenmerk"])
 
     return render_template("offertes.html", offertes=zichtbaar, overzicht=overzicht,
                            keuze=keuze, zoek=zoek, totaal_aantal=len(lijst),
@@ -2226,8 +2236,8 @@ def offerte_nieuw():
 
         cur = conn.execute(
             """INSERT INTO offertes (nummer, datum, geldig_tot, klant_id, klant_naam,
-               klant_adres, klant_email, status, totaal, toelichting)
-               VALUES (?, ?, ?, ?, ?, ?, ?, 'concept', ?, ?)""",
+               klant_adres, klant_email, status, totaal, toelichting, kenmerk)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'concept', ?, ?, ?)""",
             (
                 nummer,
                 datum,
@@ -2238,6 +2248,7 @@ def offerte_nieuw():
                 request.form.get("klant_email", ""),
                 totaal,
                 request.form.get("toelichting", "").strip(),
+                request.form.get("kenmerk", "").strip(),
             ),
         )
         offerte_id = cur.lastrowid
@@ -2286,7 +2297,8 @@ def offerte_bewerk(offerte_id):
         datum = geldige_datum(request.form.get("datum"), offerte["datum"])
         conn.execute(
             """UPDATE offertes SET datum=?, geldig_tot=?, klant_id=?, klant_naam=?,
-               klant_adres=?, klant_email=?, totaal=?, toelichting=? WHERE id=?""",
+               klant_adres=?, klant_email=?, totaal=?, toelichting=?, kenmerk=?
+               WHERE id=?""",
             (
                 datum,
                 lees_geldigheid(request.form, datum),
@@ -2296,6 +2308,7 @@ def offerte_bewerk(offerte_id):
                 request.form.get("klant_email", ""),
                 totaal,
                 request.form.get("toelichting", "").strip(),
+                request.form.get("kenmerk", "").strip(),
                 offerte_id,
             ),
         )
@@ -2396,8 +2409,8 @@ def offerte_naar_rekening(offerte_id):
     ).fetchall()
     cur = conn.execute(
         """INSERT INTO facturen (nummer, datum, klant_id, klant_naam, klant_adres,
-           klant_email, betaalmethode, status, totaal)
-           VALUES ('', ?, ?, ?, ?, ?, 'bank', 'concept', ?)""",
+           klant_email, betaalmethode, status, totaal, kenmerk)
+           VALUES ('', ?, ?, ?, ?, ?, 'bank', 'concept', ?, ?)""",
         (
             date.today().isoformat(),
             offerte["klant_id"],
@@ -2405,6 +2418,7 @@ def offerte_naar_rekening(offerte_id):
             offerte["klant_adres"],
             offerte["klant_email"],
             offerte["totaal"],
+            offerte["kenmerk"],
         ),
     )
     factuur_id = cur.lastrowid
@@ -2454,8 +2468,8 @@ def offerte_aanbetaling(offerte_id):
 
     cur = conn.execute(
         """INSERT INTO facturen (nummer, datum, klant_id, klant_naam, klant_adres,
-           klant_email, betaalmethode, status, totaal)
-           VALUES ('', ?, ?, ?, ?, ?, 'bank', 'concept', ?)""",
+           klant_email, betaalmethode, status, totaal, kenmerk)
+           VALUES ('', ?, ?, ?, ?, ?, 'bank', 'concept', ?, ?)""",
         (
             date.today().isoformat(),
             offerte["klant_id"],
@@ -2463,6 +2477,7 @@ def offerte_aanbetaling(offerte_id):
             offerte["klant_adres"],
             offerte["klant_email"],
             bedrag,
+            offerte["kenmerk"],
         ),
     )
     factuur_id = cur.lastrowid
@@ -3225,8 +3240,8 @@ def kopieer(factuur_id):
 
     cur = conn.execute(
         """INSERT INTO facturen (nummer, datum, klant_id, klant_naam, klant_adres,
-           klant_email, betaalmethode, status, totaal)
-           VALUES ('', ?, ?, ?, ?, ?, ?, 'concept', ?)""",
+           klant_email, betaalmethode, status, totaal, kenmerk)
+           VALUES ('', ?, ?, ?, ?, ?, ?, 'concept', ?, ?)""",
         (
             date.today().isoformat(),
             origineel["klant_id"],
@@ -3235,6 +3250,7 @@ def kopieer(factuur_id):
             origineel["klant_email"],
             origineel["betaalmethode"],
             origineel["totaal"],
+            origineel["kenmerk"],
         ),
     )
     nieuw_id = cur.lastrowid
