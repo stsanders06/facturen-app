@@ -530,6 +530,37 @@ def herstel_dubbele_nummers():
     return hersteld
 
 
+def zoek_in(rijen, term, velden):
+    """Rijen die de zoekterm bevatten in een van de opgegeven velden.
+
+    Elk woord moet ergens voorkomen, maar niet per se in hetzelfde veld: zo vindt
+    "jansen 2026" de rekening van Jansen uit dit jaar."""
+    woorden = term.lower().split()
+    if not woorden:
+        return rijen
+
+    gevonden = []
+    for rij in rijen:
+        hooiberg = " ".join(str(rij[veld] or "") for veld in velden).lower()
+        if all(woord in hooiberg for woord in woorden):
+            gevonden.append(rij)
+    return gevonden
+
+
+def factuurlijst(conn):
+    """Alle rekeningen, met de vervaldatum erbij en of ze daar overheen zijn."""
+    vandaag = date.today().isoformat()
+    lijst = []
+    for rij in conn.execute("SELECT * FROM facturen ORDER BY id DESC"):
+        factuur = dict(rij)
+        factuur["vervalt"] = vervaldatum(rij["datum"])
+        factuur["verlopen"] = (
+            rij["status"] != "betaald" and factuur["vervalt"] < vandaag
+        )
+        lijst.append(factuur)
+    return lijst
+
+
 @app.route("/")
 def index():
     # Wat er bij het opstarten is rechtgezet, hoort de gebruiker één keer te zien.
@@ -537,14 +568,17 @@ def index():
         flash(OPSTARTMELDINGEN.pop(0))
 
     conn = get_db()
-    facturen = conn.execute("SELECT * FROM facturen ORDER BY id DESC").fetchall()
+    facturen = factuurlijst(conn)
     conn.close()
 
     jaar = str(date.today().year)
     openstaand = [f for f in facturen if f["status"] != "betaald"]
+    verlopen = [f for f in openstaand if f["verlopen"]]
     overzicht = {
         "openstaand": sum(f["totaal"] for f in openstaand),
         "openstaand_aantal": len(openstaand),
+        "verlopen_aantal": len(verlopen),
+        "verlopen_bedrag": sum(f["totaal"] for f in verlopen),
         "jaar": jaar,
         "jaar_totaal": sum(f["totaal"] for f in facturen if str(f["datum"]).startswith(jaar)),
         "aantal": len(facturen),
@@ -553,13 +587,25 @@ def index():
     keuze = request.args.get("status", "alles")
     if keuze == "openstaand":
         zichtbaar = openstaand
+    elif keuze == "verlopen":
+        zichtbaar = verlopen
     elif keuze == "betaald":
         zichtbaar = [f for f in facturen if f["status"] == "betaald"]
     else:
         keuze, zichtbaar = "alles", facturen
 
+    # Wie op zijn geld wacht, wil de langst openstaande bovenaan zien; bij de rest
+    # is de nieuwste bovenaan handiger.
+    if keuze in ("openstaand", "verlopen"):
+        zichtbaar = sorted(zichtbaar, key=lambda f: f["datum"])
+
+    zoek = request.args.get("q", "").strip()
+    if zoek:
+        zichtbaar = zoek_in(zichtbaar, zoek, ["nummer", "klant_naam", "klant_email"])
+
     return render_template("index.html", facturen=zichtbaar, overzicht=overzicht,
-                           keuze=keuze, totaal_aantal=len(facturen), actief="index")
+                           keuze=keuze, zoek=zoek, totaal_aantal=len(facturen),
+                           actief="index")
 
 
 @app.route("/instellingen", methods=["GET", "POST"])
@@ -678,7 +724,11 @@ def _kolomnamen(veldnamen):
 
 @app.route("/klanten")
 def klanten():
-    return render_template("klanten.html", klanten=klantenlijst(), actief="klanten")
+    lijst = klantenlijst()
+    zoek = request.args.get("q", "").strip()
+    zichtbaar = zoek_in(lijst, zoek, ["naam", "email", "telefoon", "adres"]) if zoek else lijst
+    return render_template("klanten.html", klanten=zichtbaar, zoek=zoek,
+                           totaal_aantal=len(lijst), actief="klanten")
 
 
 @app.route("/klanten/import", methods=["GET", "POST"])
@@ -1423,12 +1473,19 @@ def offertes():
     keuze = request.args.get("status", "alles")
     if keuze in OFFERTE_STATUS:
         zichtbaar = [o for o in lijst if o["status"] == keuze]
+    elif keuze == "verlopen":
+        zichtbaar = [o for o in open_offertes
+                     if o["geldig_tot"] and o["geldig_tot"] < vandaag]
     else:
         keuze, zichtbaar = "alles", lijst
 
+    zoek = request.args.get("q", "").strip()
+    if zoek:
+        zichtbaar = zoek_in(zichtbaar, zoek, ["nummer", "klant_naam", "klant_email"])
+
     return render_template("offertes.html", offertes=zichtbaar, overzicht=overzicht,
-                           keuze=keuze, totaal_aantal=len(lijst), vandaag=vandaag,
-                           actief="offertes")
+                           keuze=keuze, zoek=zoek, totaal_aantal=len(lijst),
+                           vandaag=vandaag, actief="offertes")
 
 
 @app.route("/offertes/nieuw", methods=["GET", "POST"])

@@ -1,0 +1,22 @@
+{# Stukjes die op meerdere pagina's terugkomen. #}
+
+{% macro menu(label) %}
+{#- De drie puntjes met alles wat je niet elke dag nodig hebt. Gebruik met
+    {% call menu('Meer voor rekening 2026-001') %}...{% endcall %} -#}
+<details class="menu">
+  <summary class="btn btn-text menu-knop" role="button" title="{{ label }}" aria-label="{{ label }}">⋯</summary>
+  <div class="menu-lijst">{{ caller() }}</div>
+</details>
+{% endmacro %}
+
+{% macro zoekbalk(actie, tekst, plaatshouder, status) %}
+{#- Zoekveld dat de gekozen statusfilter vasthoudt, zodat zoeken binnen
+    "openstaand" ook binnen openstaand blijft. -#}
+<form class="zoekbalk" method="get" action="{{ actie }}" role="search">
+  {% if status and status != 'alles' %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
+  <input type="search" name="q" value="{{ tekst }}" placeholder="{{ plaatshouder }}"
+         aria-label="{{ plaatshouder }}" autocomplete="off">
+  <button type="submit" class="btn btn-outline">Zoeken</button>
+  {% if tekst %}<a class="btn btn-text" href="{{ actie }}{% if status and status != 'alles' %}?status={{ status }}{% endif %}">Wissen</a>{% endif %}
+</form>
+{% endmacro %}

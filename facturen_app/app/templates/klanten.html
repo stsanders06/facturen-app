@@ -1,4 +1,5 @@
 {% extends "_layout.html" %}
+{% from "_onderdelen.html" import zoekbalk %}
 {% block title %}Klanten{% endblock %}
 {% block head %}
 <style>
@@ -74,14 +75,23 @@
   </div>
 </div>
 
+{% if totaal_aantal %}
+{{ zoekbalk(url_for('klanten'), zoek, 'Zoek op naam, e-mail, telefoon of adres', none) }}
+{% endif %}
+
 {% if not klanten %}
 <div class="card empty">
+  {% if zoek %}
+  <p>Niets gevonden voor &ldquo;{{ zoek }}&rdquo;.</p>
+  <a class="btn btn-outline" href="{{ url_for('klanten') }}">Alle klanten tonen</a>
+  {% else %}
   <p>Je hebt nog geen klanten opgeslagen. Zodra je er een bewaart, kun je hem kiezen
     bij een nieuwe rekening.</p>
   <div class="acties" style="justify-content:center">
     <a class="btn" href="{{ url_for('klant_nieuw') }}">Klant toevoegen</a>
     <a class="btn btn-outline" href="{{ url_for('klanten_import') }}">Uit een CSV-bestand halen</a>
   </div>
+  {% endif %}
 </div>
 {% else %}
 <div class="cards">

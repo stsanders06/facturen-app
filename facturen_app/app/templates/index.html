@@ -1,4 +1,5 @@
 {% extends "_layout.html" %}
+{% from "_onderdelen.html" import menu, zoekbalk %}
 {% block title %}Rekeningen{% endblock %}
 {% block head %}
 <style>
@@ -45,6 +46,7 @@
     font-size: 13px;
     color: var(--text-secondary);
   }
+  .factuur .chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
   .factuur .onderkant {
     grid-column: 1 / -1;
     display: flex;
@@ -77,6 +79,14 @@
     <b>&euro; {{ overzicht.openstaand|bedrag }}</b>
     <small>{{ overzicht.openstaand_aantal }} rekening{{ 'en' if overzicht.openstaand_aantal != 1 }}</small>
   </div>
+  {% if overzicht.verlopen_aantal %}
+  <div class="waarschuwing">
+    <small>Te laat</small>
+    <b>&euro; {{ overzicht.verlopen_bedrag|bedrag }}</b>
+    <small>{{ overzicht.verlopen_aantal }} rekening{{ 'en' if overzicht.verlopen_aantal != 1 }}
+      over de vervaldatum</small>
+  </div>
+  {% endif %}
   <div>
     <small>Gefactureerd in {{ overzicht.jaar }}</small>
     <b>&euro; {{ overzicht.jaar_totaal|bedrag }}</b>
@@ -86,14 +96,19 @@
 <div class="filters" style="margin-bottom:12px">
   <a href="{{ url_for('index') }}" {% if keuze == 'alles' %}class="aan"{% endif %}>Alles</a>
   <a href="{{ url_for('index') }}?status=openstaand" {% if keuze == 'openstaand' %}class="aan"{% endif %}>Openstaand</a>
+  {% if overzicht.verlopen_aantal %}
+  <a href="{{ url_for('index') }}?status=verlopen" {% if keuze == 'verlopen' %}class="aan"{% endif %}>Te laat</a>
+  {% endif %}
   <a href="{{ url_for('index') }}?status=betaald" {% if keuze == 'betaald' %}class="aan"{% endif %}>Betaald</a>
 </div>
+
+{{ zoekbalk(url_for('index'), zoek, 'Zoek op nummer, klant of e-mailadres', keuze) }}
 {% endif %}
 
 {% if not facturen %}
 <div class="card empty">
   {% if totaal_aantal %}
-  <p>Geen rekeningen in deze selectie.</p>
+  <p>{% if zoek %}Niets gevonden voor &ldquo;{{ zoek }}&rdquo;.{% else %}Geen rekeningen in deze selectie.{% endif %}</p>
   <a class="btn btn-outline" href="{{ url_for('index') }}">Alles tonen</a>
   {% else %}
   <p>Je hebt nog geen rekeningen gemaakt.</p>
@@ -111,45 +126,75 @@
       {%- else %}{{ f.klant_naam }}{% endif %}
     </div>
     <div class="bedrag">&euro; {{ f.totaal|bedrag }}</div>
-    <div class="meta">{{ f.nummer }} · {{ f.datum|datum_nl }}</div>
+    <div class="meta">
+      {{ f.nummer }} · {{ f.datum|datum_nl }}
+      {%- if f.status != 'betaald' %} · vóór {{ f.vervalt|datum_nl }}{% endif %}
+    </div>
     <div class="onderkant">
-      <span class="chip chip-{{ f.status }}">
-        {% if f.status == 'concept' %}Concept
-        {% elif f.status == 'verzonden' %}Verzonden
-        {% else %}Betaald{% endif %}
+      <span class="chips">
+        <span class="chip chip-{{ f.status }}">
+          {% if f.status == 'concept' %}Concept
+          {% elif f.status == 'verzonden' %}Verzonden
+          {% else %}Betaald{% endif %}
+        </span>
+        {% if f.verlopen %}<span class="chip chip-verlopen">Te laat</span>{% endif %}
       </span>
       <div class="acties">
-        <a class="btn btn-text" href="{{ url_for('bewerk', factuur_id=f.id) }}">Bewerken</a>
-        <a class="btn btn-text" href="{{ url_for('download_pdf', factuur_id=f.id) }}">Downloaden</a>
-        <form method="post" action="{{ url_for('vernieuw_pdf', factuur_id=f.id) }}">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button type="submit" class="btn btn-text"
-                  title="Opnieuw maken met je huidige logo, IBAN en gegevens">Vernieuwen</button>
-        </form>
-        {% if f.klant_email %}
+        {#- Eén knop voor wat je op dit moment waarschijnlijk wilt doen; de rest
+            zit achter de drie puntjes. Anders staan er acht knoppen per kaart. -#}
+        {% if f.status == 'concept' and f.klant_email %}
         <form method="post" action="{{ url_for('verstuur', factuur_id=f.id) }}"
               data-bevestig="Rekening {{ f.nummer }} nu mailen naar {{ f.klant_email }}?">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="btn btn-text">Mailen</button>
         </form>
-        {% endif %}
-        {% if f.status != 'betaald' %}
+        {% elif f.status == 'concept' %}
+        <a class="btn btn-text" href="{{ url_for('bewerk', factuur_id=f.id) }}">Bewerken</a>
+        {% elif f.status == 'verzonden' %}
         <form method="post" action="{{ url_for('markeer_betaald', factuur_id=f.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="btn btn-text">Betaald</button>
         </form>
-        {% else %}
-        <form method="post" action="{{ url_for('markeer_niet_betaald', factuur_id=f.id) }}">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button type="submit" class="btn btn-text"
-                  title="Zet de rekening terug op openstaand">Toch niet betaald</button>
-        </form>
         {% endif %}
-        <form method="post" action="{{ url_for('verwijder', factuur_id=f.id) }}"
-              data-bevestig="Rekening {{ f.nummer }} verwijderen? De PDF gaat mee.">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button type="submit" class="btn btn-text danger gevaar">Verwijderen</button>
-        </form>
+
+        {% call menu('Meer voor rekening ' ~ f.nummer) %}
+          <a class="menu-item" href="{{ url_for('bekijk_pdf', factuur_id=f.id) }}"
+             target="_blank" rel="noopener">Bekijken</a>
+          <a class="menu-item" href="{{ url_for('bewerk', factuur_id=f.id) }}">Bewerken</a>
+          <a class="menu-item" href="{{ url_for('download_pdf', factuur_id=f.id) }}">Downloaden</a>
+
+          {% if f.klant_email and f.status != 'concept' %}
+          <form method="post" action="{{ url_for('verstuur', factuur_id=f.id) }}"
+                data-bevestig="Rekening {{ f.nummer }} nogmaals mailen naar {{ f.klant_email }}?">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="menu-item">Nogmaals mailen</button>
+          </form>
+          {% endif %}
+
+          {% if f.status == 'betaald' %}
+          <form method="post" action="{{ url_for('markeer_niet_betaald', factuur_id=f.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="menu-item">Toch niet betaald</button>
+          </form>
+          {% else %}
+          <form method="post" action="{{ url_for('markeer_betaald', factuur_id=f.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="menu-item">Betaald</button>
+          </form>
+          {% endif %}
+
+          <form method="post" action="{{ url_for('vernieuw_pdf', factuur_id=f.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="menu-item"
+                    title="Opnieuw maken met je huidige logo, IBAN en gegevens">PDF vernieuwen</button>
+          </form>
+
+          <form method="post" action="{{ url_for('verwijder', factuur_id=f.id) }}"
+                data-bevestig="Rekening {{ f.nummer }} verwijderen? De PDF gaat mee.">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="menu-item danger gevaar">Verwijderen</button>
+          </form>
+        {% endcall %}
       </div>
     </div>
   </article>

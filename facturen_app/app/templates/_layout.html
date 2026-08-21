@@ -337,6 +337,80 @@
     .acties .gevaar { margin-left: auto; }
   }
 
+  /* ---------- Menu achter de drie puntjes ----------
+     Elke kaart had een rij van acht knoppen; alleen wat je op dat moment
+     waarschijnlijk wilt doen staat er nu nog los, de rest zit hierachter. */
+  .menu { position: relative; }
+  .menu > summary {
+    list-style: none;
+    padding: 7px 10px;
+    line-height: 1;
+    font-size: 17px;
+    letter-spacing: 1px;
+  }
+  .menu > summary::-webkit-details-marker { display: none; }
+  .menu > summary::marker { content: ""; }
+  .menu[open] > summary { background: var(--primary-soft); }
+  .menu-lijst {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    z-index: 20;
+    min-width: 210px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-raised);
+  }
+  .menu-lijst form { display: contents; }
+  .menu-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 10px 12px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: 14px;
+    cursor: pointer;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .menu-item:hover { background: var(--primary-soft); color: var(--primary); }
+  .menu-item.danger { color: var(--danger); }
+  .menu-item.danger:hover { background: var(--danger-soft); color: var(--danger); }
+  /* Een streep boven verwijderen, zodat je er niet blind langs schuift. */
+  .menu-item.gevaar { margin-top: 4px; border-top: 1px solid var(--divider); border-radius: 0 0 6px 6px; }
+  /* Op een telefoon opent het menu tegen de rechterrand van het scherm aan. */
+  @media (max-width: 620px) {
+    .menu-lijst { right: auto; left: 0; }
+  }
+
+  /* ---------- Zoekbalk ---------- */
+  .zoekbalk { display: flex; gap: 8px; margin-bottom: 12px; }
+  .zoekbalk input {
+    flex: 1;
+    min-width: 0;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    background: var(--input-bg);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 14px;
+  }
+  .zoekbalk input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--primary-soft);
+  }
+
   /* ---------- Overzichtsbalk ---------- */
   .overzicht {
     display: flex;
@@ -358,6 +432,7 @@
     letter-spacing: -.01em;
   }
   .overzicht .let-op b { color: var(--info); }
+  .overzicht .waarschuwing b { color: var(--warn-text); }
 
   /* ---------- Filterknoppen ---------- */
   .filters { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -432,6 +507,24 @@
     if (vraag && !window.confirm(vraag)) {
       e.preventDefault();
     }
+  });
+
+  // De menu's achter de drie puntjes openen en sluiten zichzelf (<details>),
+  // maar er hoort er maar één tegelijk open te staan, en hij hoort dicht te gaan
+  // als je ergens anders klikt of op Escape drukt.
+  function sluitMenus(behalve) {
+    document.querySelectorAll('details.menu[open]').forEach(function (menu) {
+      if (menu !== behalve) { menu.removeAttribute('open'); }
+    });
+  }
+
+  document.addEventListener('click', function (e) {
+    var menu = e.target.closest ? e.target.closest('details.menu') : null;
+    sluitMenus(menu);
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { sluitMenus(null); }
   });
 </script>
 

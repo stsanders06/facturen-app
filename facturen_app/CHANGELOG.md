@@ -2,6 +2,19 @@
 
 ## 1.12.0 (in de maak)
 
+- **Rustiger kaarten.** Op elke rekening stond een rij van acht knoppen en op elke
+  offerte negen. Nu staat alleen de eerstvolgende stap er los — mailen bij een verse
+  rekening, betaald bij een verzonden rekening, geaccepteerd bij een offerte die
+  uitstaat — en zit de rest achter de drie puntjes rechts.
+- **Zoeken.** Op de rekeningen, offertes en klanten zit een zoekveld: op nummer, naam,
+  e-mailadres, telefoonnummer of adres. Losse woorden mogen uit verschillende velden
+  komen, dus "jansen 2026-007" vindt precies die ene. Zoeken blijft binnen het filter
+  dat je hebt gekozen.
+- **Te laat betaald valt op.** Rekeningen die over hun vervaldatum zijn, krijgen een
+  chip "Te laat", staan als bedrag apart in de balk bovenaan en hebben een eigen filter.
+  Bij "Openstaand" staat voortaan de oudste bovenaan, want die wacht het langst.
+- Op elke onbetaalde rekening staat nu naast de datum tot wanneer hij mag blijven staan.
+
 ### Onder de motorkap
 
 - **Tests.** De app heeft nu een testset die de nummering, de urenberekening, het

@@ -1,4 +1,5 @@
 {% extends "_layout.html" %}
+{% from "_onderdelen.html" import menu, zoekbalk %}
 {% block title %}Offertes{% endblock %}
 {% block head %}
 <style>
@@ -89,13 +90,19 @@
   <a href="{{ url_for('offertes') }}?status={{ sleutel }}"
      {% if keuze == sleutel %}class="aan"{% endif %}>{{ naam }}</a>
   {% endfor %}
+  {% if overzicht.verlopen %}
+  <a href="{{ url_for('offertes') }}?status=verlopen"
+     {% if keuze == 'verlopen' %}class="aan"{% endif %}>Verlopen</a>
+  {% endif %}
 </div>
+
+{{ zoekbalk(url_for('offertes'), zoek, 'Zoek op nummer, klant of e-mailadres', keuze) }}
 {% endif %}
 
 {% if not offertes %}
 <div class="card empty">
   {% if totaal_aantal %}
-  <p>Geen offertes in deze selectie.</p>
+  <p>{% if zoek %}Niets gevonden voor &ldquo;{{ zoek }}&rdquo;.{% else %}Geen offertes in deze selectie.{% endif %}</p>
   <a class="btn btn-outline" href="{{ url_for('offertes') }}">Alles tonen</a>
   {% else %}
   <p>Je hebt nog geen offertes gemaakt. Met een offerte geef je vooraf een prijs af;
@@ -128,53 +135,85 @@
         {% endif %}
       </span>
       <div class="acties">
-        <a class="btn btn-text" href="{{ url_for('offerte_bewerk', offerte_id=o.id) }}">Bewerken</a>
-        <a class="btn btn-text" href="{{ url_for('download_offerte', offerte_id=o.id) }}">Downloaden</a>
-        <form method="post" action="{{ url_for('vernieuw_offerte', offerte_id=o.id) }}">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button type="submit" class="btn btn-text"
-                  title="Opnieuw maken met je huidige logo en gegevens">Vernieuwen</button>
-        </form>
-        {% if o.klant_email %}
+        {#- Alleen de eerstvolgende stap staat los; de rest zit achter de puntjes. -#}
+        {% if o.status == 'concept' and o.klant_email %}
         <form method="post" action="{{ url_for('verstuur_offerte', offerte_id=o.id) }}"
               data-bevestig="Offerte {{ o.nummer }} nu mailen naar {{ o.klant_email }}?">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="btn btn-text">Mailen</button>
         </form>
-        {% endif %}
-        {% if o.status != 'geaccepteerd' %}
+        {% elif o.status == 'concept' %}
+        <a class="btn btn-text" href="{{ url_for('offerte_bewerk', offerte_id=o.id) }}">Bewerken</a>
+        {% elif o.status == 'verzonden' %}
         <form method="post" action="{{ url_for('offerte_status', offerte_id=o.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="status" value="geaccepteerd">
           <button type="submit" class="btn btn-text">Geaccepteerd</button>
         </form>
-        {% endif %}
-        {% if o.status not in ['afgewezen', 'geaccepteerd'] %}
-        <form method="post" action="{{ url_for('offerte_status', offerte_id=o.id) }}">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <input type="hidden" name="status" value="afgewezen">
-          <button type="submit" class="btn btn-text">Afgewezen</button>
-        </form>
-        {% endif %}
-        {% if o.status in ['afgewezen', 'geaccepteerd'] and not o.factuur_id %}
-        <form method="post" action="{{ url_for('offerte_status', offerte_id=o.id) }}">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <input type="hidden" name="status" value="verzonden">
-          <button type="submit" class="btn btn-text" title="Zet de offerte weer open">Toch nog open</button>
-        </form>
-        {% endif %}
-        {% if not o.factuur_id %}
+        {% elif o.status == 'geaccepteerd' and not o.factuur_id %}
         <form method="post" action="{{ url_for('offerte_naar_rekening', offerte_id=o.id) }}"
               data-bevestig="Van offerte {{ o.nummer }} een rekening maken? Je kunt hem daarna nog aanpassen voordat je hem verstuurt.">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="btn btn-text">Naar rekening</button>
         </form>
         {% endif %}
-        <form method="post" action="{{ url_for('offerte_verwijder', offerte_id=o.id) }}"
-              data-bevestig="Offerte {{ o.nummer }} verwijderen? De PDF gaat mee.">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button type="submit" class="btn btn-text danger gevaar">Verwijderen</button>
-        </form>
+
+        {% call menu('Meer voor offerte ' ~ o.nummer) %}
+          <a class="menu-item" href="{{ url_for('bekijk_offerte', offerte_id=o.id) }}"
+             target="_blank" rel="noopener">Bekijken</a>
+          <a class="menu-item" href="{{ url_for('offerte_bewerk', offerte_id=o.id) }}">Bewerken</a>
+          <a class="menu-item" href="{{ url_for('download_offerte', offerte_id=o.id) }}">Downloaden</a>
+
+          {% if o.klant_email and o.status != 'concept' %}
+          <form method="post" action="{{ url_for('verstuur_offerte', offerte_id=o.id) }}"
+                data-bevestig="Offerte {{ o.nummer }} nogmaals mailen naar {{ o.klant_email }}?">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="menu-item">Nogmaals mailen</button>
+          </form>
+          {% endif %}
+
+          {% if o.status != 'geaccepteerd' %}
+          <form method="post" action="{{ url_for('offerte_status', offerte_id=o.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="status" value="geaccepteerd">
+            <button type="submit" class="menu-item">Geaccepteerd</button>
+          </form>
+          {% endif %}
+          {% if o.status not in ['afgewezen', 'geaccepteerd'] %}
+          <form method="post" action="{{ url_for('offerte_status', offerte_id=o.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="status" value="afgewezen">
+            <button type="submit" class="menu-item">Afgewezen</button>
+          </form>
+          {% endif %}
+          {% if o.status in ['afgewezen', 'geaccepteerd'] and not o.factuur_id %}
+          <form method="post" action="{{ url_for('offerte_status', offerte_id=o.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="status" value="verzonden">
+            <button type="submit" class="menu-item" title="Zet de offerte weer open">Toch nog open</button>
+          </form>
+          {% endif %}
+
+          {% if not o.factuur_id and o.status != 'geaccepteerd' %}
+          <form method="post" action="{{ url_for('offerte_naar_rekening', offerte_id=o.id) }}"
+                data-bevestig="Van offerte {{ o.nummer }} een rekening maken? Je kunt hem daarna nog aanpassen voordat je hem verstuurt.">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="menu-item">Naar rekening</button>
+          </form>
+          {% endif %}
+
+          <form method="post" action="{{ url_for('vernieuw_offerte', offerte_id=o.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="menu-item"
+                    title="Opnieuw maken met je huidige logo en gegevens">PDF vernieuwen</button>
+          </form>
+
+          <form method="post" action="{{ url_for('offerte_verwijder', offerte_id=o.id) }}"
+                data-bevestig="Offerte {{ o.nummer }} verwijderen? De PDF gaat mee.">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="menu-item danger gevaar">Verwijderen</button>
+          </form>
+        {% endcall %}
       </div>
     </div>
   </article>
