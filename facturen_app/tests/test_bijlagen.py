@@ -68,14 +68,30 @@ def test_bijlage_is_op_te_halen(post, db, client, klus_id):
     assert antwoord.data == PNG
 
 
-def test_bijlage_verwijderen_haalt_ook_het_bestand_weg(post, db, klus_id):
+def test_bijlage_verwijderen_bewaart_het_bestand_voor_het_geval_je_terugwilt(post, db, klus_id):
+    """Een foto is niet opnieuw te maken, dus hij blijft staan zolang de bijlage in
+    de prullenbak zit. Pas als die wordt opgeruimd gaat het bestand er echt uit."""
     upload(post, klus_id)
     rij = db.execute("SELECT * FROM bijlagen").fetchone()
     pad = os.path.join(facturen.BIJLAGE_DIR, rij["bestand"])
 
     post(f"/bijlage/{rij['id']}/verwijder")
     assert db.execute("SELECT COUNT(*) FROM bijlagen").fetchone()[0] == 0
-    assert not os.path.exists(pad)
+    assert os.path.exists(pad)
+
+
+def test_een_verwijderde_bijlage_is_terug_te_halen(post, db, klus_id):
+    upload(post, klus_id)
+    rij = db.execute("SELECT * FROM bijlagen").fetchone()
+    post(f"/bijlage/{rij['id']}/verwijder")
+
+    prullenbak_id = db.execute("SELECT id FROM prullenbak").fetchone()[0]
+    post(f"/prullenbak/{prullenbak_id}/terug")
+
+    terug = db.execute("SELECT * FROM bijlagen").fetchone()
+    assert terug["id"] == rij["id"]
+    assert terug["bestand"] == rij["bestand"]
+    assert os.path.exists(os.path.join(facturen.BIJLAGE_DIR, terug["bestand"]))
 
 
 def test_klus_verwijderen_neemt_de_bijlagen_mee(post, db, klus_id):
@@ -85,7 +101,8 @@ def test_klus_verwijderen_neemt_de_bijlagen_mee(post, db, klus_id):
 
     post(f"/klus/{klus_id}/verwijder")
     assert db.execute("SELECT COUNT(*) FROM bijlagen").fetchone()[0] == 0
-    assert not os.path.exists(pad)
+    # Het bestand blijft staan tot de prullenbak wordt opgeruimd.
+    assert os.path.exists(pad)
 
 
 def test_meesturen_gaat_aan_en_uit(post, db, klus_id):

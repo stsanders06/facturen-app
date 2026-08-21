@@ -307,14 +307,78 @@
   .chip-deels { background: var(--info-soft); color: var(--info); }
 
   /* ---------- Melding ---------- */
-  .flash {
-    background: var(--warn-bg);
-    border: 1px solid var(--warn-border);
-    color: var(--warn-text);
-    padding: 12px 16px;
+  /* ---------- Meldingen ----------
+     Alles zag er eerst hetzelfde uit — geel met een rand — waardoor ook
+     "Instellingen opgeslagen" las als een waarschuwing. Nu draagt de kleur de
+     betekenis: groen als het gelukt is, rood als het niet kon, blauw als er nog
+     iets loopt. Verder dezelfde kaart als de rest van de app, met een gekleurde
+     rand aan de zijkant in plaats van er helemaal omheen. */
+  .melding {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    background: var(--card);
+    border-left: 3px solid var(--ok);
     border-radius: var(--radius-sm);
-    margin-bottom: 16px;
+    box-shadow: var(--shadow-card);
+    padding: 13px 16px;
+    margin-bottom: 12px;
     font-size: 14px;
+    position: relative;
+    overflow: hidden;
+  }
+  .melding .teken {
+    flex: none;
+    width: 18px;
+    height: 18px;
+    margin-top: 1px;
+    border-radius: 50%;
+    background: var(--ok);
+    color: var(--card);
+    font-size: 12px;
+    line-height: 18px;
+    text-align: center;
+  }
+  .melding .woorden { flex: 1; min-width: 0; }
+  .melding.fout { border-left-color: var(--danger); }
+  .melding.fout .teken { background: var(--danger); }
+  .melding.bezig { border-left-color: var(--info); }
+  .melding.bezig .teken { background: var(--info); }
+
+  /* De knop in een melding: ongedaan maken, of een mail nog tegenhouden. */
+  .melding form { margin: 0; flex: none; }
+  .melding .terugknop {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--primary);
+    padding: 6px 14px;
+    border-radius: 18px;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .melding .terugknop:hover { background: var(--primary-soft); }
+  @media (pointer: coarse), (max-width: 620px) {
+    .melding .terugknop { padding: 10px 16px; min-height: 44px; }
+  }
+
+  /* Het balkje dat leegloopt zolang je een verstuurde mail nog kunt tegenhouden.
+     Het loopt onderlangs de melding, zodat het de tekst niet in de weg zit. */
+  .melding .balk {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    height: 3px;
+    width: 100%;
+    background: var(--info);
+    transform-origin: left;
+    animation: leeglopen linear forwards;
+  }
+  @keyframes leeglopen { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+  @media (prefers-reduced-motion: reduce) {
+    .melding .balk { animation: none; opacity: .4; }
   }
 
   .versie {
@@ -517,13 +581,22 @@
 </header>
 
 <main class="container">
-  {% with messages = get_flashed_messages() %}
-    {% if messages %}
-      {% for m in messages %}
-        <div class="flash">{{ m }}</div>
-      {% endfor %}
-    {% endif %}
-  {% endwith %}
+  {% for soort, ruw in get_flashed_messages(with_categories=true) %}
+    {% set m = ruw|uit_json %}
+    <div class="melding {{ soort }}">
+      <span class="teken" aria-hidden="true">{{ '✕' if soort == 'fout' else ('·' if soort == 'bezig' else '✓') }}</span>
+      <span class="woorden">{{ m.tekst }}</span>
+      {% if m.knop %}
+      <form method="post" action="{{ m.knop.url }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="terugknop">{{ m.knop.label }}</button>
+      </form>
+      {% endif %}
+      {% if m.knop and m.knop.seconden %}
+      <span class="balk" style="animation-duration: {{ m.knop.seconden }}s"></span>
+      {% endif %}
+    </div>
+  {% endfor %}
   {% block content %}{% endblock %}
 
   <p class="versie">Facturen App {{ versie }}</p>
@@ -556,6 +629,20 @@
 
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') { sluitMenus(null); }
+  });
+
+  // Zodra het balkje leeg is, is de mail de deur uit en valt er niets meer tegen te
+  // houden. De knop laten staan zou je een klik kosten om te horen dat het te laat
+  // is. De tekst blijft zoals hij is: of het versturen ook écht lukte weten we hier
+  // nog niet, dat staat op de volgende pagina.
+  document.querySelectorAll('.melding .balk').forEach(function (balk) {
+    var seconden = parseFloat(balk.style.animationDuration) || 0;
+    if (!seconden) { return; }
+    setTimeout(function () {
+      var formulier = balk.closest('.melding').querySelector('form');
+      if (formulier) { formulier.remove(); }
+      balk.remove();
+    }, seconden * 1000);
   });
 </script>
 

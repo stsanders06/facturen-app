@@ -156,8 +156,6 @@
         {% endif %}
 
         {% call menu('Meer voor offerte ' ~ o.nummer) %}
-          <a class="menu-item" href="{{ url_for('bekijk_offerte', offerte_id=o.id) }}"
-             {{ nieuw_tabblad }}>Bekijken</a>
           <a class="menu-item" href="{{ url_for('offerte_bewerk', offerte_id=o.id) }}">Bewerken</a>
           <a class="menu-item" href="{{ url_for('download_offerte', offerte_id=o.id) }}">Downloaden</a>
           <a class="menu-item" href="{{ url_for('offerte_aanbetaling', offerte_id=o.id) }}">Aanbetaling in rekening brengen…</a>

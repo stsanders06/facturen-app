@@ -1,5 +1,6 @@
 import csv
 import io
+import json
 import logging
 import mimetypes
 import os
@@ -7,6 +8,7 @@ import secrets
 import socket
 import sqlite3
 import smtplib
+import threading
 from datetime import date, datetime, timedelta
 from email.message import EmailMessage
 from itertools import zip_longest
@@ -25,7 +27,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.13.1"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.14.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -100,6 +102,133 @@ def csrf_token():
 
 app.jinja_env.globals["csrf_token"] = csrf_token
 app.jinja_env.globals["versie"] = VERSIE
+
+
+def melding(tekst, soort="gelukt", knop=None):
+    """Een regel bovenaan de pagina na een handeling.
+
+    Drie soorten: "gelukt" voor een bevestiging, "fout" voor iets dat niet kon, en
+    "bezig" voor iets dat nog loopt en dat je kunt tegenhouden. Eerst zag alles er
+    hetzelfde uit — geel met een rand — en dan leest "Instellingen opgeslagen" als
+    een waarschuwing.
+
+    Met `knop` komt er een knop in de melding, bijvoorbeeld om het verwijderen
+    ongedaan te maken of een mail tegen te houden. Staat er `seconden` bij, dan
+    loopt er een balkje leeg en verdwijnt de knop daarna vanzelf."""
+    flash(json.dumps({"tekst": tekst, "knop": knop}, ensure_ascii=False), soort)
+
+
+def mail_straks(wat, functie, *argumenten):
+    """Zet een mail klaar en verstuurt hem pas na de bedenktijd.
+
+    Tot die tijd verandert er niets aan de rekening — een concept krijgt zijn nummer
+    ook pas als de mail echt de deur uit gaat. Houd je hem tegen, dan is er dus niets
+    terug te draaien."""
+    sleutel = secrets.token_urlsafe(8)
+
+    def versturen():
+        UITGESTELDE_MAILS.pop(sleutel, None)
+        try:
+            with app.app_context():
+                gelukt, tekst = functie(*argumenten)
+        except Exception as fout:            # de rekening kan intussen weg zijn
+            gelukt, tekst = False, f"{wat} kon niet worden verstuurd: {fout}"
+        MAILUITSLAGEN.append((tekst, "gelukt" if gelukt else "fout"))
+
+    # Zonder bedenktijd valt er niets te wachten en niets tegen te houden; dan gaat
+    # hij meteen weg en zie je de uitslag op dezelfde pagina. De tests draaien zo.
+    if MAIL_BEDENKTIJD <= 0:
+        gelukt, tekst = functie(*argumenten)
+        melding(tekst, "gelukt" if gelukt else "fout")
+        return
+
+    klok = threading.Timer(MAIL_BEDENKTIJD, versturen)
+    klok.daemon = True
+    UITGESTELDE_MAILS[sleutel] = klok
+    klok.start()
+
+    melding(f"{wat} wordt verstuurd.", "bezig",
+            knop={"label": "Toch niet",
+                  "url": url_for("mail_tegenhouden", sleutel=sleutel),
+                  "seconden": MAIL_BEDENKTIJD})
+
+
+@app.route("/mail/<sleutel>/tegenhouden", methods=["POST"])
+def mail_tegenhouden(sleutel):
+    klok = UITGESTELDE_MAILS.pop(sleutel, None)
+    if klok is None:
+        melding("Deze mail is al de deur uit.", "fout")
+    else:
+        klok.cancel()
+        melding("Tegengehouden; er is niets verstuurd.")
+    return redirect(request.referrer or url_for("index"))
+
+
+def toon_mailuitslagen():
+    """De uitslag van een mail die tijdens een vorige pagina is weggegaan."""
+    while MAILUITSLAGEN:
+        tekst, soort = MAILUITSLAGEN.pop(0)
+        melding(tekst, soort)
+
+
+def waarom_mailen_niet_kan(tabel, rij_id):
+    """Wat er nu al aan mailen in de weg staat, of None als het kan.
+
+    Alleen wat we meteen kunnen zien. Dat de mailserver het wachtwoord weigert
+    merken we pas bij het versturen zelf, maar geen e-mailadres of geen mailserver
+    hoort niet pas na de bedenktijd te blijken."""
+    conn = get_db()
+    rij = conn.execute(f"SELECT klant_email FROM {tabel} WHERE id=?", (rij_id,)).fetchone()
+    conn.close()
+    if rij is None:
+        abort(404)
+    if not rij["klant_email"]:
+        return ("Deze klant heeft geen e-mailadres. Vul dat in bij de rekening of bij "
+                "de klant.")
+    if not get_settings().get("smtp_host"):
+        return ("Er is nog geen mailserver ingesteld. Vul die in onder "
+                "Instellingen → Mailen.")
+    return None
+
+
+def mail_rekening(factuur_id, functie=None, wat=None):
+    """Zet de rekening klaar om over een paar tellen te mailen."""
+    reden = waarom_mailen_niet_kan("facturen", factuur_id)
+    if reden:
+        melding(reden, "fout")
+        return
+    if wat is None:
+        conn = get_db()
+        factuur = conn.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
+        conn.close()
+        wat = f"Rekening {factuurnaam(factuur)}"
+    mail_straks(wat, functie or verstuur_email, factuur_id)
+
+
+def mail_offerte(offerte_id):
+    reden = waarom_mailen_niet_kan("offertes", offerte_id)
+    if reden:
+        melding(reden, "fout")
+        return
+    conn = get_db()
+    offerte = conn.execute("SELECT nummer FROM offertes WHERE id=?", (offerte_id,)).fetchone()
+    conn.close()
+    mail_straks(f"Offerte {offerte['nummer']}", verstuur_offerte_email, offerte_id)
+
+
+@app.template_filter("uit_json")
+def _uit_json(waarde):
+    """De melding komt als JSON binnen omdat er een knop bij kan zitten."""
+    return json.loads(waarde)
+
+
+@app.before_request
+def toon_wat_er_intussen_gebeurde():
+    """Een mail die tijdens een vorige pagina wegging, heeft geen scherm om zijn
+    uitslag op te zetten. Die komt hier alsnog terecht."""
+    if request.method == "GET":
+        toon_mailuitslagen()
+    return None
 
 
 @app.before_request
@@ -223,7 +352,7 @@ def account_instellen():
         elif wachtwoord != nogmaals:
             fout = "De twee wachtwoorden zijn niet hetzelfde."
         if fout:
-            flash(fout)
+            melding(fout)
             return redirect(url_for("account_instellen"))
 
         conn = get_db()
@@ -235,7 +364,7 @@ def account_instellen():
         conn.close()
 
         session["gebruiker"] = naam
-        flash("Je account staat klaar. Vanaf nu log je hiermee in op poort 8099.")
+        melding("Je account staat klaar. Vanaf nu log je hiermee in op poort 8099.")
         return redirect(url_for("index"))
 
     return render_template("instellen.html", minimum=WACHTWOORD_MINIMUM)
@@ -251,7 +380,7 @@ def inloggen():
     if request.method == "POST":
         wacht = wachttijd_over()
         if wacht:
-            flash(f"Te veel mislukte pogingen. Probeer het over {wacht} minuten opnieuw.")
+            melding(f"Te veel mislukte pogingen. Probeer het over {wacht} minuten opnieuw.", "fout")
             return redirect(url_for("inloggen"))
 
         naam = request.form.get("naam", "").strip()
@@ -279,7 +408,7 @@ def inloggen():
         pogingen, _ = MISLUKTE_POGINGEN.get(_afzender(), (0, None))
         MISLUKTE_POGINGEN[_afzender()] = (pogingen + 1, datetime.now())
         # Niet verklappen wélk van de twee er niet klopte.
-        flash("Gebruikersnaam of wachtwoord klopt niet.")
+        melding("Gebruikersnaam of wachtwoord klopt niet.", "fout")
         return redirect(url_for("inloggen"))
 
     return render_template("inloggen.html", verder=request.args.get("verder", ""),
@@ -289,7 +418,7 @@ def inloggen():
 @app.route("/uitloggen", methods=["POST"])
 def uitloggen():
     session.pop("gebruiker", None)
-    flash("Je bent uitgelogd.")
+    melding("Je bent uitgelogd.")
     return redirect(url_for("inloggen"))
 
 
@@ -303,34 +432,34 @@ def wachtwoord_wijzigen():
     gebruiker = conn.execute("SELECT * FROM gebruikers ORDER BY id LIMIT 1").fetchone()
     if gebruiker is None:
         conn.close()
-        flash("Er is nog geen account om een wachtwoord van te wijzigen.")
+        melding("Er is nog geen account om een wachtwoord van te wijzigen.", "fout")
         return redirect(url_for("instellingen"))
 
     if not check_password_hash(gebruiker["wachtwoord"], huidig):
         conn.close()
-        flash("Je huidige wachtwoord klopt niet.")
+        melding("Je huidige wachtwoord klopt niet.", "fout")
         return redirect(url_for("instellingen"))
     if len(nieuw) < WACHTWOORD_MINIMUM:
         conn.close()
-        flash(f"Kies een wachtwoord van minstens {WACHTWOORD_MINIMUM} tekens.")
+        melding(f"Kies een wachtwoord van minstens {WACHTWOORD_MINIMUM} tekens.", "fout")
         return redirect(url_for("instellingen"))
     if nieuw != nogmaals:
         conn.close()
-        flash("De twee nieuwe wachtwoorden zijn niet hetzelfde.")
+        melding("De twee nieuwe wachtwoorden zijn niet hetzelfde.", "fout")
         return redirect(url_for("instellingen"))
 
     conn.execute("UPDATE gebruikers SET wachtwoord=? WHERE id=?",
                  (generate_password_hash(nieuw), gebruiker["id"]))
     conn.commit()
     conn.close()
-    flash("Je wachtwoord is gewijzigd.")
+    melding("Je wachtwoord is gewijzigd.")
     return redirect(url_for("instellingen"))
 
 
 @app.errorhandler(413)
 def te_groot(_fout):
-    flash("Dat is te veel in één keer. Samen mogen de bestanden hooguit 32 MB zijn; "
-          "kies er wat minder tegelijk.")
+    melding("Dat is te veel in één keer. Samen mogen de bestanden hooguit 32 MB zijn; "
+          "kies er wat minder tegelijk.", "fout")
     return redirect(request.referrer or url_for("instellingen"))
 
 MAANDEN = [
@@ -353,6 +482,22 @@ OFFERTE_REGEL = (
 
 # Wat er bij het opstarten is rechtgezet; wordt één keer aan de gebruiker getoond.
 OPSTARTMELDINGEN = []
+
+# ---------- Mailen met bedenktijd ----------
+# Een mail gaat niet meteen weg. Een verkeerde klant, een bedrag dat niet klopt: je
+# ziet het meestal pas op het moment dat je op mailen drukt. Deze paar tellen zijn
+# genoeg om hem nog tegen te houden, en kosten verder niets.
+MAIL_BEDENKTIJD = 10
+
+# De mails die nog in hun bedenktijd zitten: sleutel -> de klok die hem straks
+# verstuurt. Staat in het geheugen en niet in de database: gaat de add-on binnen die
+# tien tellen uit, dan is de mail simpelweg niet verstuurd, en dat is de veilige kant.
+UITGESTELDE_MAILS = {}
+
+# Wat een uitgestelde mail opleverde. De klok loopt buiten een verzoek om, dus er is
+# op dat moment geen pagina om iets op te zetten; dit wordt bij het eerstvolgende
+# bezoek getoond.
+MAILUITSLAGEN = []
 
 # Kleine voetregel onderaan elke rekening.
 BTW_REGEL = (
@@ -606,6 +751,16 @@ def init_db():
             subtotaal REAL NOT NULL,
             FOREIGN KEY (offerte_id) REFERENCES offertes (id)
         );
+
+        CREATE TABLE IF NOT EXISTS prullenbak (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            omschrijving TEXT NOT NULL,
+            -- Alle weggegooide rijen als JSON, per tabel, met hun oorspronkelijke id
+            -- erbij. Zo komt een rekening met zijn regels én betalingen in één keer
+            -- terug, en blijven verwijzingen ernaartoe kloppen.
+            inhoud TEXT NOT NULL,
+            wanneer TEXT NOT NULL
+        );
         """
     )
     conn.execute("INSERT OR IGNORE INTO settings (id) VALUES (1)")
@@ -689,6 +844,78 @@ def get_settings():
     row = conn.execute("SELECT * FROM settings WHERE id = 1").fetchone()
     conn.close()
     return dict(row) if row else {}
+
+
+# ---------- Prullenbak ----------
+# Verwijderen is niet meer definitief: wat weggaat wordt eerst hier bewaard, zodat de
+# melding erna een knop kan hebben om het terug te halen. Zonder dat is één misgetikte
+# knop genoeg om een rekening met al zijn regels en betalingen kwijt te zijn.
+
+# Hoe lang een weggegooid ding blijft staan. Lang genoeg om een vergissing de volgende
+# dag nog te herstellen, kort genoeg om de database niet vol te laten lopen.
+PRULLENBAK_DAGEN = 30
+
+
+def naar_prullenbak(conn, omschrijving, rijen, bestanden=None):
+    """Bewaart weggegooide rijen en geeft het id terug om ze mee terug te halen.
+
+    `rijen` is {"tabelnaam": [rij, ...]} in de volgorde waarin ze terug moeten:
+    eerst waar naar verwezen wordt, dan wat verwijst. De rijen gaan er met hun
+    oorspronkelijke id in, zodat verwijzingen naar de rekening blijven kloppen.
+
+    `bestanden` zijn foto's en bonnetjes in BIJLAGE_DIR. Die blijven gewoon staan
+    zolang ze in de prullenbak zitten — een foto is niet opnieuw te maken, een PDF
+    wel — en gaan pas weg als de prullenbak wordt opgeruimd."""
+    inhoud = {"rijen": {tabel: [dict(r) for r in lijst] for tabel, lijst in rijen.items()},
+              "bestanden": list(bestanden or [])}
+    prullenbak_id = conn.execute(
+        "INSERT INTO prullenbak (omschrijving, inhoud, wanneer) VALUES (?, ?, ?)",
+        (omschrijving, json.dumps(inhoud, ensure_ascii=False), datetime.now().isoformat()),
+    ).lastrowid
+    ruim_prullenbak_op(conn)
+    return prullenbak_id
+
+
+def ruim_prullenbak_op(conn):
+    """Wat te lang in de prullenbak staat gaat er echt uit, bestanden en al."""
+    grens = (datetime.now() - timedelta(days=PRULLENBAK_DAGEN)).isoformat()
+    oud = conn.execute("SELECT id, inhoud FROM prullenbak WHERE wanneer < ?", (grens,)).fetchall()
+    for rij in oud:
+        for bestand in json.loads(rij["inhoud"]).get("bestanden", []):
+            pad = os.path.join(BIJLAGE_DIR, bestand)
+            if os.path.exists(pad):
+                os.remove(pad)
+    conn.execute("DELETE FROM prullenbak WHERE wanneer < ?", (grens,))
+
+
+def terugknop(prullenbak_id):
+    """De knop die bij de melding na een verwijdering hoort."""
+    return {"label": "Ongedaan maken",
+            "url": url_for("prullenbak_terug", prullenbak_id=prullenbak_id)}
+
+
+@app.route("/prullenbak/<int:prullenbak_id>/terug", methods=["POST"])
+def prullenbak_terug(prullenbak_id):
+    conn = get_db()
+    rij = conn.execute("SELECT * FROM prullenbak WHERE id=?", (prullenbak_id,)).fetchone()
+    if rij is None:
+        conn.close()
+        melding("Dit is niet meer terug te halen.", "fout")
+        return redirect(request.referrer or url_for("index"))
+
+    for tabel, regels in json.loads(rij["inhoud"])["rijen"].items():
+        for regel in regels:
+            kolommen = ", ".join(regel.keys())
+            vraagtekens = ", ".join("?" for _ in regel)
+            # OR IGNORE: haal je twee keer hetzelfde terug, dan hoeft dat niet te
+            # klappen op een id dat er al staat.
+            conn.execute(f"INSERT OR IGNORE INTO {tabel} ({kolommen}) VALUES ({vraagtekens})",
+                         list(regel.values()))
+    conn.execute("DELETE FROM prullenbak WHERE id=?", (prullenbak_id,))
+    conn.commit()
+    conn.close()
+    melding(f"{rij['omschrijving']} staat weer terug.")
+    return redirect(request.referrer or url_for("index"))
 
 
 def factuurnaam(factuur):
@@ -917,7 +1144,7 @@ def factuurlijst(conn, klant_id=None):
 def index():
     # Wat er bij het opstarten is rechtgezet, hoort de gebruiker één keer te zien.
     while OPSTARTMELDINGEN:
-        flash(OPSTARTMELDINGEN.pop(0))
+        melding(OPSTARTMELDINGEN.pop(0))
 
     conn = get_db()
     facturen = factuurlijst(conn)
@@ -975,8 +1202,8 @@ def instellingen():
             else:
                 # Anders staat er straks een factuur zonder logo zonder dat je weet waarom.
                 os.remove(doel)
-                flash(f"{filename} kan niet op de rekening worden getekend. Gebruik een "
-                      "PNG of JPG; een HEIC-foto van een iPhone of een SVG werkt niet.")
+                melding(f"{filename} kan niet op de rekening worden getekend. Gebruik een "
+                      "PNG of JPG; een HEIC-foto van een iPhone of een SVG werkt niet.", "fout")
         conn.execute(
             """UPDATE settings SET naam=?, adres=?, telefoon=?, email=?, iban=?,
                tenaamstelling=?, logo_bestand=?, smtp_host=?, smtp_port=?, smtp_user=?,
@@ -998,7 +1225,7 @@ def instellingen():
         )
         conn.commit()
         conn.close()
-        flash("Instellingen opgeslagen.")
+        melding("Instellingen opgeslagen.")
         return redirect(url_for("instellingen"))
 
     return render_template("instellingen.html", s=get_settings(),
@@ -1094,14 +1321,14 @@ def klanten_import():
 
     bestand = request.files.get("bestand")
     if not bestand or not bestand.filename:
-        flash("Kies eerst een CSV-bestand.")
+        melding("Kies eerst een CSV-bestand.", "fout")
         return redirect(url_for("klanten_import"))
 
     lezer = _csv_lezer(bestand.read())
     kolommen, extra_adres = _kolomnamen(lezer.fieldnames)
     if "naam" not in kolommen:
-        flash("In dit bestand staat geen kolom met een naam. Zorg dat de eerste regel "
-              "de kopjes bevat, met in elk geval een kolom 'naam'.")
+        melding("In dit bestand staat geen kolom met een naam. Zorg dat de eerste regel "
+              "de kopjes bevat, met in elk geval een kolom 'naam'.", "fout")
         return redirect(url_for("klanten_import"))
 
     bijwerken = request.form.get("bijwerken") == "ja"
@@ -1152,12 +1379,12 @@ def klanten_import():
     conn.commit()
     conn.close()
 
-    melding = f"{nieuw} klant{'en' if nieuw != 1 else ''} toegevoegd"
+    tekst = f"{nieuw} klant{'en' if nieuw != 1 else ''} toegevoegd"
     if bijgewerkt:
-        melding += f", {bijgewerkt} bijgewerkt"
+        tekst += f", {bijgewerkt} bijgewerkt"
     if overgeslagen:
-        melding += (f", {overgeslagen} overgeslagen (naam leeg of stond er al)")
-    flash(melding + ".")
+        tekst += f", {overgeslagen} overgeslagen (naam leeg of stond er al)"
+    melding(tekst + ".")
     return redirect(url_for("klanten"))
 
 
@@ -1195,7 +1422,7 @@ def klant_nieuw():
     if request.method == "POST":
         naam, adres, email, telefoon, notitie = klant_uit_form(request.form)
         if not naam:
-            flash("Vul een naam in om de klant op te slaan.")
+            melding("Vul een naam in om de klant op te slaan.", "fout")
             return redirect(url_for("klant_nieuw"))
         conn = get_db()
         cur = conn.execute(
@@ -1206,7 +1433,7 @@ def klant_nieuw():
         conn.commit()
         klant_id = cur.lastrowid
         conn.close()
-        flash(f"Klant {naam} opgeslagen.")
+        melding(f"Klant {naam} opgeslagen.")
         return redirect(url_for("klant", klant_id=klant_id))
 
     return render_template("klant_form.html", klant=None, actief="klanten")
@@ -1262,7 +1489,7 @@ def klant_bewerk(klant_id):
         naam, adres, email, telefoon, notitie = klant_uit_form(request.form)
         if not naam:
             conn.close()
-            flash("Vul een naam in om de klant op te slaan.")
+            melding("Vul een naam in om de klant op te slaan.", "fout")
             return redirect(url_for("klant_bewerk", klant_id=klant_id))
         conn.execute(
             """UPDATE klanten SET naam=?, adres=?, email=?, telefoon=?, notitie=?
@@ -1271,7 +1498,7 @@ def klant_bewerk(klant_id):
         )
         conn.commit()
         conn.close()
-        flash("Klantgegevens bijgewerkt.")
+        melding("Klantgegevens bijgewerkt.")
         return redirect(url_for("klant", klant_id=klant_id))
 
     conn.close()
@@ -1281,19 +1508,22 @@ def klant_bewerk(klant_id):
 @app.route("/klant/<int:klant_id>/verwijder", methods=["POST"])
 def klant_verwijder(klant_id):
     conn = get_db()
-    gegevens = conn.execute("SELECT naam FROM klanten WHERE id=?", (klant_id,)).fetchone()
+    gegevens = conn.execute("SELECT * FROM klanten WHERE id=?", (klant_id,)).fetchone()
     if gegevens is None:
         conn.close()
         abort(404)
+    prullenbak_id = naar_prullenbak(conn, f"Klant {gegevens['naam']}", {"klanten": [gegevens]})
     # De rekeningen zelf blijven staan: daar hoort de klantnaam bij zoals hij
     # op de rekening is gedrukt. Alleen de koppeling gaat weg — ook die van klussen,
-    # anders houden die een klantnummer dat nergens meer heen wijst.
+    # anders houden die een klantnummer dat nergens meer heen wijst. Haal je de klant
+    # terug, dan krijgt hij zijn oude id en hangen ze er weer aan.
     conn.execute("UPDATE facturen SET klant_id=NULL WHERE klant_id=?", (klant_id,))
     conn.execute("UPDATE klussen SET klant_id=NULL WHERE klant_id=?", (klant_id,))
     conn.execute("DELETE FROM klanten WHERE id=?", (klant_id,))
     conn.commit()
     conn.close()
-    flash(f"Klant {gegevens['naam']} verwijderd. De rekeningen zijn blijven staan.")
+    melding(f"Klant {gegevens['naam']} verwijderd. De rekeningen zijn blijven staan.",
+            knop=terugknop(prullenbak_id))
     return redirect(url_for("klanten"))
 
 
@@ -1394,7 +1624,7 @@ def klus_nieuw():
     if request.method == "POST":
         naam, klant_id, uurtarief, notitie = klus_uit_form(request.form)
         if not naam:
-            flash("Geef de klus een naam om hem op te slaan.")
+            melding("Geef de klus een naam om hem op te slaan.", "fout")
             return redirect(url_for("klus_nieuw"))
         conn = get_db()
         cur = conn.execute(
@@ -1405,7 +1635,7 @@ def klus_nieuw():
         conn.commit()
         klus_id = cur.lastrowid
         conn.close()
-        flash(f"Klus {naam} aangemaakt. Zet hieronder je eerste dag erbij.")
+        melding(f"Klus {naam} aangemaakt. Zet hieronder je eerste dag erbij.")
         return redirect(url_for("klus", klus_id=klus_id))
 
     return render_template("klus_form.html", klus=None, klanten=klantenlijst(),
@@ -1443,7 +1673,7 @@ def klus_bewerk(klus_id):
         naam, klant_id, uurtarief, notitie = klus_uit_form(request.form)
         if not naam:
             conn.close()
-            flash("Geef de klus een naam om hem op te slaan.")
+            melding("Geef de klus een naam om hem op te slaan.", "fout")
             return redirect(url_for("klus_bewerk", klus_id=klus_id))
         conn.execute(
             "UPDATE klussen SET naam=?, klant_id=?, uurtarief=?, notitie=? WHERE id=?",
@@ -1451,7 +1681,7 @@ def klus_bewerk(klus_id):
         )
         conn.commit()
         conn.close()
-        flash("Klus bijgewerkt.")
+        melding("Klus bijgewerkt.")
         return redirect(url_for("klus", klus_id=klus_id))
 
     conn.close()
@@ -1471,33 +1701,33 @@ def klus_status(klus_id):
     conn.execute("UPDATE klussen SET status=? WHERE id=?", (nieuw_status, klus_id))
     conn.commit()
     conn.close()
-    flash("Klus weer op lopend gezet." if nieuw_status == "open" else "Klus afgerond.")
+    melding("Klus weer op lopend gezet." if nieuw_status == "open" else "Klus afgerond.")
     return redirect(request.referrer or url_for("klussen"))
 
 
 @app.route("/klus/<int:klus_id>/verwijder", methods=["POST"])
 def klus_verwijder(klus_id):
     conn = get_db()
-    gegevens = conn.execute("SELECT naam FROM klussen WHERE id=?", (klus_id,)).fetchone()
+    gegevens = conn.execute("SELECT * FROM klussen WHERE id=?", (klus_id,)).fetchone()
     if gegevens is None:
         conn.close()
         abort(404)
-    # De bestanden op schijf horen mee te gaan; anders blijven ze als losse
-    # weesbestanden in /data achter.
-    bestanden = [r["bestand"] for r in conn.execute(
-        "SELECT bestand FROM bijlagen WHERE klus_id=?", (klus_id,))]
+    bijlagen = conn.execute("SELECT * FROM bijlagen WHERE klus_id=?", (klus_id,)).fetchall()
+    prullenbak_id = naar_prullenbak(
+        conn, f"Klus {gegevens['naam']}",
+        {"klussen": [gegevens],
+         "uren": conn.execute("SELECT * FROM uren WHERE klus_id=?", (klus_id,)).fetchall(),
+         "bijlagen": bijlagen},
+        bestanden=[b["bestand"] for b in bijlagen],
+    )
     conn.execute("DELETE FROM bijlagen WHERE klus_id=?", (klus_id,))
     conn.execute("DELETE FROM uren WHERE klus_id=?", (klus_id,))
     conn.execute("DELETE FROM klussen WHERE id=?", (klus_id,))
     conn.commit()
     conn.close()
 
-    for bestand in bestanden:
-        pad = os.path.join(BIJLAGE_DIR, bestand)
-        if os.path.exists(pad):
-            os.remove(pad)
-
-    flash(f"Klus {gegevens['naam']} en de bijbehorende uren zijn verwijderd.")
+    melding(f"Klus {gegevens['naam']} en de bijbehorende uren zijn verwijderd.",
+            knop=terugknop(prullenbak_id))
     return redirect(url_for("klussen"))
 
 
@@ -1547,12 +1777,12 @@ def bijlage_erbij(klus_id):
     conn.close()
 
     if erbij:
-        flash(f"{erbij} bestand{'en' if erbij != 1 else ''} bij de klus gezet.")
+        melding(f"{erbij} bestand{'en' if erbij != 1 else ''} bij de klus gezet.")
     if geweigerd:
-        flash(f"Niet toegevoegd: {', '.join(geweigerd)}. Kies een foto (JPG, PNG, HEIC) "
-              "of een PDF.")
+        melding(f"Niet toegevoegd: {', '.join(geweigerd)}. Kies een foto (JPG, PNG, HEIC) "
+              "of een PDF.", "fout")
     if not erbij and not geweigerd:
-        flash("Er was geen bestand gekozen.")
+        melding("Er was geen bestand gekozen.", "fout")
     return redirect(url_for("klus", klus_id=klus_id))
 
 
@@ -1592,14 +1822,13 @@ def bijlage_verwijder(bijlage_id):
     if rij is None:
         conn.close()
         abort(404)
+    prullenbak_id = naar_prullenbak(conn, rij["naam"], {"bijlagen": [rij]},
+                                    bestanden=[rij["bestand"]])
     conn.execute("DELETE FROM bijlagen WHERE id=?", (bijlage_id,))
     conn.commit()
     conn.close()
 
-    pad = os.path.join(BIJLAGE_DIR, rij["bestand"])
-    if os.path.exists(pad):
-        os.remove(pad)
-    flash(f"{rij['naam']} verwijderd.")
+    melding(f"{rij['naam']} verwijderd.", knop=terugknop(prullenbak_id))
     return redirect(url_for("klus", klus_id=rij["klus_id"]))
 
 
@@ -1616,7 +1845,7 @@ def dag_erbij(klus_id):
     tot = request.form.get("tot", "").strip()
     if not van or not tot:
         conn.close()
-        flash("Vul een begin- en eindtijd in om de dag op te slaan.")
+        melding("Vul een begin- en eindtijd in om de dag op te slaan.", "fout")
         return redirect(url_for("klus", klus_id=klus_id))
 
     conn.execute(
@@ -1646,7 +1875,7 @@ def dag_bewerk(uur_id):
     tot = request.form.get("tot", "").strip()
     if not van or not tot:
         conn.close()
-        flash("Vul een begin- en eindtijd in om de dag op te slaan.")
+        melding("Vul een begin- en eindtijd in om de dag op te slaan.", "fout")
         return redirect(url_for("klus", klus_id=gegevens["klus_id"]))
 
     conn.execute(
@@ -1667,13 +1896,17 @@ def dag_bewerk(uur_id):
 @app.route("/uur/<int:uur_id>/verwijder", methods=["POST"])
 def dag_verwijder(uur_id):
     conn = get_db()
-    gegevens = conn.execute("SELECT klus_id FROM uren WHERE id=?", (uur_id,)).fetchone()
+    gegevens = conn.execute("SELECT * FROM uren WHERE id=?", (uur_id,)).fetchone()
     if gegevens is None:
         conn.close()
         abort(404)
+    prullenbak_id = naar_prullenbak(
+        conn, f"De dag van {filter_datum_nl(gegevens['datum'])}", {"uren": [gegevens]})
     conn.execute("DELETE FROM uren WHERE id=?", (uur_id,))
     conn.commit()
     conn.close()
+    melding(f"De dag van {filter_datum_nl(gegevens['datum'])} is weg.",
+            knop=terugknop(prullenbak_id))
     return redirect(url_for("klus", klus_id=gegevens["klus_id"]))
 
 
@@ -1797,8 +2030,8 @@ def nieuw():
     if request.method == "POST":
         regels, totaal = lees_regels(request.form)
         if not regels:
-            flash("Vul minstens één regel in met een omschrijving; anders is er niets "
-                  "te factureren.")
+            melding("Vul minstens één regel in met een omschrijving; anders is er niets "
+                  "te factureren.", "fout")
             return redirect(url_for("nieuw"))
 
         conn = get_db()
@@ -1829,9 +2062,9 @@ def nieuw():
 
         if request.form.get("verstuur") == "ja":
             # Versturen maakt de rekening vanzelf definitief; dan pas een nummer.
-            flash(verstuur_email(factuur_id)[1])
+            mail_rekening(factuur_id)
         else:
-            flash("Rekening opgeslagen als concept. Hij krijgt zijn nummer zodra je "
+            melding("Rekening opgeslagen als concept. Hij krijgt zijn nummer zodra je "
                   "hem verstuurt of definitief maakt.")
 
         return redirect(url_for("index"))
@@ -1863,8 +2096,8 @@ def bewerk(factuur_id):
         regels, totaal = lees_regels(request.form)
         if not regels:
             conn.close()
-            flash("Vul minstens één regel in met een omschrijving; anders is er niets "
-                  "te factureren.")
+            melding("Vul minstens één regel in met een omschrijving; anders is er niets "
+                  "te factureren.", "fout")
             return redirect(url_for("bewerk", factuur_id=factuur_id))
 
         klant_id = bepaal_klant(conn, request.form)
@@ -1888,10 +2121,10 @@ def bewerk(factuur_id):
 
         # De PDF hoort bij de oude gegevens, dus opnieuw tekenen.
         maak_pdf(factuur_id)
-        flash(f"Rekening {factuurnaam(factuur)} bijgewerkt.")
+        melding(f"Rekening {factuurnaam(factuur)} bijgewerkt.")
 
         if request.form.get("verstuur") == "ja":
-            flash(verstuur_email(factuur_id)[1])
+            mail_rekening(factuur_id)
 
         return redirect(url_for("index"))
 
@@ -1982,8 +2215,8 @@ def offerte_nieuw():
     if request.method == "POST":
         regels, totaal = lees_regels(request.form)
         if not regels:
-            flash("Vul minstens één regel in met een omschrijving; anders staat er "
-                  "niets in de offerte.")
+            melding("Vul minstens één regel in met een omschrijving; anders staat er "
+                  "niets in de offerte.", "fout")
             return redirect(url_for("offerte_nieuw"))
 
         conn = get_db()
@@ -2013,10 +2246,10 @@ def offerte_nieuw():
         conn.close()
 
         maak_offerte_pdf(offerte_id)
-        flash(f"Offerte {nummer} aangemaakt.")
+        melding(f"Offerte {nummer} aangemaakt.")
 
         if request.form.get("verstuur") == "ja":
-            flash(verstuur_offerte_email(offerte_id)[1])
+            mail_offerte(offerte_id)
 
         return redirect(url_for("offertes"))
 
@@ -2045,8 +2278,8 @@ def offerte_bewerk(offerte_id):
         regels, totaal = lees_regels(request.form)
         if not regels:
             conn.close()
-            flash("Vul minstens één regel in met een omschrijving; anders staat er "
-                  "niets in de offerte.")
+            melding("Vul minstens één regel in met een omschrijving; anders staat er "
+                  "niets in de offerte.", "fout")
             return redirect(url_for("offerte_bewerk", offerte_id=offerte_id))
 
         klant_id = bepaal_klant(conn, request.form)
@@ -2071,10 +2304,10 @@ def offerte_bewerk(offerte_id):
         conn.close()
 
         maak_offerte_pdf(offerte_id)
-        flash(f"Offerte {offerte['nummer']} bijgewerkt.")
+        melding(f"Offerte {offerte['nummer']} bijgewerkt.")
 
         if request.form.get("verstuur") == "ja":
-            flash(verstuur_offerte_email(offerte_id)[1])
+            mail_offerte(offerte_id)
 
         return redirect(url_for("offertes"))
 
@@ -2118,13 +2351,13 @@ def vernieuw_offerte(offerte_id):
     offerte = offerte_of_404(conn, offerte_id)
     conn.close()
     maak_offerte_pdf(offerte_id)
-    flash(f"Offerte {offerte['nummer']} is opnieuw gemaakt met je huidige instellingen.")
+    melding(f"Offerte {offerte['nummer']} is opnieuw gemaakt met je huidige instellingen.")
     return redirect(request.referrer or url_for("offertes"))
 
 
 @app.route("/offerte/<int:offerte_id>/verstuur", methods=["POST"])
 def verstuur_offerte(offerte_id):
-    flash(verstuur_offerte_email(offerte_id)[1])
+    mail_offerte(offerte_id)
     return redirect(request.referrer or url_for("offertes"))
 
 
@@ -2139,7 +2372,7 @@ def offerte_status(offerte_id):
     conn.execute("UPDATE offertes SET status=? WHERE id=?", (nieuw_status, offerte_id))
     conn.commit()
     conn.close()
-    flash(f"Offerte {offerte['nummer']}: {OFFERTE_STATUS[nieuw_status].lower()}.")
+    melding(f"Offerte {offerte['nummer']}: {OFFERTE_STATUS[nieuw_status].lower()}.")
     return redirect(request.referrer or url_for("offertes"))
 
 
@@ -2155,7 +2388,7 @@ def offerte_naar_rekening(offerte_id):
         ).fetchone()
         if bestaat:
             conn.close()
-            flash(f"Offerte {offerte['nummer']} is al omgezet naar een rekening.")
+            melding(f"Offerte {offerte['nummer']} is al omgezet naar een rekening.", "fout")
             return redirect(url_for("bewerk", factuur_id=offerte["factuur_id"]))
 
     regels = conn.execute(
@@ -2190,7 +2423,7 @@ def offerte_naar_rekening(offerte_id):
     conn.close()
 
     maak_pdf(factuur_id)
-    flash(f"Offerte {offerte['nummer']} staat nu als concept-rekening klaar. "
+    melding(f"Offerte {offerte['nummer']} staat nu als concept-rekening klaar. "
           "Controleer hem en verstuur hem als hij klopt; dan krijgt hij zijn nummer.")
     return redirect(url_for("bewerk", factuur_id=factuur_id))
 
@@ -2212,7 +2445,7 @@ def offerte_aanbetaling(offerte_id):
         deel = 0.0
     if not 0 < deel <= 100:
         conn.close()
-        flash("Vul een percentage in tussen 1 en 100.")
+        melding("Vul een percentage in tussen 1 en 100.", "fout")
         return redirect(url_for("offerte_aanbetaling", offerte_id=offerte_id))
 
     bedrag = round(offerte["totaal"] * deel / 100, 2)
@@ -2242,7 +2475,7 @@ def offerte_aanbetaling(offerte_id):
     conn.close()
 
     maak_pdf(factuur_id)
-    flash(f"Aanbetaling van € {nl_bedrag(bedrag)} staat als concept-rekening klaar. "
+    melding(f"Aanbetaling van € {nl_bedrag(bedrag)} staat als concept-rekening klaar. "
           "De offerte blijft staan, zodat je de rest later kunt factureren.")
     return redirect(url_for("bewerk", factuur_id=factuur_id))
 
@@ -2251,16 +2484,22 @@ def offerte_aanbetaling(offerte_id):
 def offerte_verwijder(offerte_id):
     conn = get_db()
     offerte = offerte_of_404(conn, offerte_id)
+    prullenbak_id = naar_prullenbak(conn, f"Offerte {offerte['nummer']}", {
+        "offertes": [offerte],
+        "offerte_regels": conn.execute(
+            "SELECT * FROM offerte_regels WHERE offerte_id=?", (offerte_id,)).fetchall(),
+    })
     conn.execute("DELETE FROM offerte_regels WHERE offerte_id=?", (offerte_id,))
     conn.execute("DELETE FROM offertes WHERE id=?", (offerte_id,))
     conn.commit()
     conn.close()
 
+    # De PDF mag weg: die wordt bij terughalen vanzelf opnieuw getekend.
     pdf = os.path.join(PDF_DIR, f"{offerte['nummer']}.pdf")
     if os.path.exists(pdf):
         os.remove(pdf)
 
-    flash(f"Offerte {offerte['nummer']} verwijderd.")
+    melding(f"Offerte {offerte['nummer']} verwijderd.", knop=terugknop(prullenbak_id))
     return redirect(url_for("offertes"))
 
 
@@ -2620,7 +2859,7 @@ def _teken_document(pad, doc, regels, s):
 
 def _mail_pdf(s, ontvanger, onderwerp, tekst, pad, bestandsnaam, extra=None):
     """Stuurt de PDF als bijlage, eventueel met extra bestanden erbij als (pad, naam).
-    Geeft (gelukt, melding) terug; de melding is bedoeld om aan de gebruiker te tonen
+    Geeft (gelukt, tekst) terug; die tekst is bedoeld om aan de gebruiker te tonen
     en zegt wat er precies misging."""
     msg = EmailMessage()
     msg["Subject"] = onderwerp
@@ -2710,7 +2949,7 @@ def verstuur_email(factuur_id):
         maak_pdf(factuur_id)
 
     naam = factuurnaam(factuur)
-    gelukt, melding = _mail_pdf(
+    gelukt, tekst = _mail_pdf(
         s,
         factuur["klant_email"],
         f"Rekening {naam} - {s.get('naam', '')}",
@@ -2724,7 +2963,7 @@ def verstuur_email(factuur_id):
         bonnen,
     )
     if not gelukt:
-        return False, melding
+        return False, tekst
 
     conn = get_db()
     conn.execute("UPDATE facturen SET status='verzonden' WHERE id=?", (factuur_id,))
@@ -2781,7 +3020,7 @@ def herinnering_email(factuur_id):
         bedragregel += (f" Van het totaal van € {nl_bedrag(factuur['totaal'])} is er al "
                         f"€ {nl_bedrag(betaald)} ontvangen, waarvoor dank.")
 
-    gelukt, melding = _mail_pdf(
+    gelukt, tekst = _mail_pdf(
         s,
         factuur["klant_email"],
         f"Herinnering: rekening {factuur['nummer']} - {s.get('naam', '')}",
@@ -2795,7 +3034,7 @@ def herinnering_email(factuur_id):
         bestandsnaam,
     )
     if not gelukt:
-        return False, melding
+        return False, tekst
     return True, (f"Herinnering voor rekening {factuur['nummer']} gemaild naar "
                   f"{factuur['klant_email']}.")
 
@@ -2818,7 +3057,7 @@ def verstuur_offerte_email(offerte_id):
     if not os.path.exists(pad):
         maak_offerte_pdf(offerte_id)
 
-    gelukt, melding = _mail_pdf(
+    gelukt, tekst = _mail_pdf(
         s,
         offerte["klant_email"],
         f"Offerte {offerte['nummer']} - {s.get('naam', '')}",
@@ -2831,7 +3070,7 @@ def verstuur_offerte_email(offerte_id):
         f"{offerte['nummer']}.pdf",
     )
     if not gelukt:
-        return False, melding
+        return False, tekst
 
     conn = get_db()
     if offerte["status"] == "concept":
@@ -2870,7 +3109,7 @@ def vernieuw_pdf(factuur_id):
     if factuur is None:
         abort(404)
     maak_pdf(factuur_id)
-    flash(f"Rekening {factuurnaam(factuur)} is opnieuw gemaakt met je huidige instellingen.")
+    melding(f"Rekening {factuurnaam(factuur)} is opnieuw gemaakt met je huidige instellingen.")
     return redirect(request.referrer or url_for("index"))
 
 
@@ -2885,10 +3124,10 @@ def vernieuw_alles():
     for offerte_id in offerte_ids:
         maak_offerte_pdf(offerte_id)
 
-    melding = f"{len(ids)} rekening{'en' if len(ids) != 1 else ''}"
+    tekst = f"{len(ids)} rekening{'en' if len(ids) != 1 else ''}"
     if offerte_ids:
-        melding += f" en {len(offerte_ids)} offerte{'s' if len(offerte_ids) != 1 else ''}"
-    flash(f"{melding} opnieuw gemaakt met je huidige instellingen.")
+        tekst += f" en {len(offerte_ids)} offerte{'s' if len(offerte_ids) != 1 else ''}"
+    melding(f"{tekst} opnieuw gemaakt met je huidige instellingen.")
     return redirect(url_for("instellingen"))
 
 
@@ -2900,8 +3139,7 @@ def download_pdf(factuur_id):
 
 @app.route("/factuur/<int:factuur_id>/verstuur", methods=["POST"])
 def verstuur(factuur_id):
-    _, melding = verstuur_email(factuur_id)
-    flash(melding)
+    mail_rekening(factuur_id)
     return redirect(request.referrer or url_for("index"))
 
 
@@ -2915,12 +3153,12 @@ def definitief(factuur_id):
         abort(404)
     if factuur["nummer"]:
         conn.close()
-        flash(f"Rekening {factuur['nummer']} was al definitief.")
+        melding(f"Rekening {factuur['nummer']} was al definitief.", "fout")
         return redirect(request.referrer or url_for("index"))
 
     factuur = maak_definitief(conn, factuur_id)
     conn.close()
-    flash(f"De rekening heeft nummer {factuur['nummer']} gekregen.")
+    melding(f"De rekening heeft nummer {factuur['nummer']} gekregen.")
     return redirect(request.referrer or url_for("index"))
 
 
@@ -2971,7 +3209,7 @@ def markeer_niet_betaald(factuur_id):
     )
     conn.commit()
     conn.close()
-    flash(f"Rekening {factuurnaam(factuur)} staat weer open.")
+    melding(f"Rekening {factuurnaam(factuur)} staat weer open.")
     return redirect(request.referrer or url_for("index"))
 
 
@@ -3013,7 +3251,7 @@ def kopieer(factuur_id):
     conn.close()
 
     maak_pdf(nieuw_id)
-    flash(f"Kopie van rekening {factuurnaam(origineel)} staat klaar als nieuw concept. "
+    melding(f"Kopie van rekening {factuurnaam(origineel)} staat klaar als nieuw concept. "
           "Loop de datum en de bedragen na voordat je hem verstuurt.")
     return redirect(url_for("bewerk", factuur_id=nieuw_id))
 
@@ -3035,7 +3273,7 @@ def betalingen(factuur_id):
             bedrag = 0.0
         if bedrag <= 0:
             conn.close()
-            flash("Vul een bedrag in dat groter is dan nul.")
+            melding("Vul een bedrag in dat groter is dan nul.", "fout")
             return redirect(url_for("betalingen", factuur_id=factuur_id))
 
         conn.execute(
@@ -3051,7 +3289,7 @@ def betalingen(factuur_id):
         herzie_betaalstatus(conn, factuur_id)
         conn.commit()
         conn.close()
-        flash(f"€ {nl_bedrag(bedrag)} geboekt.")
+        melding(f"€ {nl_bedrag(bedrag)} geboekt.")
         return redirect(url_for("betalingen", factuur_id=factuur_id))
 
     lijst = betalingen_van(conn, factuur_id)
@@ -3073,28 +3311,37 @@ def betaling_verwijder(betaling_id):
         conn.close()
         abort(404)
     factuur_id = betaling["factuur_id"]
+    prullenbak_id = naar_prullenbak(
+        conn, f"Betaling van € {nl_bedrag(betaling['bedrag'])}", {"betalingen": [betaling]})
     conn.execute("DELETE FROM betalingen WHERE id=?", (betaling_id,))
     herzie_betaalstatus(conn, factuur_id)
     conn.commit()
     conn.close()
-    flash(f"Betaling van € {nl_bedrag(betaling['bedrag'])} verwijderd.")
+    melding(f"Betaling van € {nl_bedrag(betaling['bedrag'])} verwijderd.",
+            knop=terugknop(prullenbak_id))
     return redirect(url_for("betalingen", factuur_id=factuur_id))
 
 
 @app.route("/factuur/<int:factuur_id>/herinnering", methods=["POST"])
 def herinnering(factuur_id):
-    _, melding = herinnering_email(factuur_id)
-    flash(melding)
+    mail_rekening(factuur_id, herinnering_email, "De herinnering")
     return redirect(request.referrer or url_for("index"))
 
 
 @app.route("/factuur/<int:factuur_id>/verwijder", methods=["POST"])
 def verwijder(factuur_id):
     conn = get_db()
-    factuur = conn.execute("SELECT id, nummer FROM facturen WHERE id=?", (factuur_id,)).fetchone()
+    factuur = conn.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
     if factuur is None:
         conn.close()
         abort(404)
+    # Alles wat aan deze rekening hangt gaat mee de prullenbak in, zodat "ongedaan
+    # maken" hem compleet terugzet en niet als lege huls.
+    prullenbak_id = naar_prullenbak(conn, f"Rekening {factuurnaam(factuur)}", {
+        "facturen": [factuur],
+        "regels": conn.execute("SELECT * FROM regels WHERE factuur_id=?", (factuur_id,)).fetchall(),
+        "betalingen": conn.execute("SELECT * FROM betalingen WHERE factuur_id=?", (factuur_id,)).fetchall(),
+    })
     # Uren die op deze rekening stonden komen weer vrij om te factureren.
     conn.execute("UPDATE uren SET factuur_id=NULL WHERE factuur_id=?", (factuur_id,))
     conn.execute("DELETE FROM regels WHERE factuur_id=?", (factuur_id,))
@@ -3103,12 +3350,12 @@ def verwijder(factuur_id):
     conn.commit()
     conn.close()
 
-    # Het PDF-bestand hoort mee te gaan; anders blijft het als los bestand achter.
+    # De PDF mag weg: die wordt bij terughalen vanzelf opnieuw getekend.
     pdf = os.path.join(PDF_DIR, pdf_bestandsnaam(factuur))
     if os.path.exists(pdf):
         os.remove(pdf)
 
-    flash(f"Rekening {factuurnaam(factuur)} verwijderd.")
+    melding(f"Rekening {factuurnaam(factuur)} verwijderd.", knop=terugknop(prullenbak_id))
     return redirect(request.referrer or url_for("index"))
 
 

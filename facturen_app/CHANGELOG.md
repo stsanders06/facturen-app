@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.14.0
+
+- **Verwijderen is niet meer definitief.** Bij de melding staat nu "Ongedaan maken".
+  Dat werkt voor een rekening, offerte, klant, klus, foto, betaling en een gewerkte
+  dag — compleet met alles wat eraan hing, dus een rekening komt met haar regels en
+  betalingen terug. Wat je weggooit blijft dertig dagen bewaard.
+- **Een mail gaat pas na tien tellen weg.** Zolang loopt er een balkje leeg met een
+  knop "Toch niet" ernaast. Een verkeerde klant of een bedrag dat niet klopt zie je
+  meestal net te laat; nu kun je hem nog tegenhouden. Een concept krijgt zijn nummer
+  ook pas als de mail écht weggaat, dus tegenhouden laat geen gat in je nummering.
+- **De meldingen zien er niet meer uit alsof er iets misgaat.** Ze waren allemaal
+  geel met een rand, ook "Instellingen opgeslagen". Nu draagt de kleur de betekenis:
+  groen als het gelukt is, rood als het niet kon, blauw als er nog iets loopt.
+- **"Bekijken" is uit het menu.** De kaart zelf opent de rekening al.
+
 ## 1.13.1
 
 - **"Verwijderen" stond in het menu een stukje naar rechts** ten opzichte van de

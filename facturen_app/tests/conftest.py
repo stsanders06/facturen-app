@@ -22,7 +22,7 @@ import main as facturen  # noqa: E402  (moet ná het zetten van DATA_DIR)
 # Tabellen in de volgorde waarin ze leeg mogen: eerst wat naar iets anders verwijst.
 TABELLEN = [
     "regels", "offerte_regels", "uren", "betalingen", "bijlagen", "facturen",
-    "offertes", "klussen", "klanten",
+    "offertes", "klussen", "klanten", "prullenbak",
 ]
 
 
@@ -37,8 +37,13 @@ TEST_HASH = facturen.generate_password_hash(TEST_WACHTWOORD)
 
 @pytest.fixture
 def app():
-    """De Flask-app, met een account klaar en na afloop een schone database."""
+    """De Flask-app, met een account klaar en na afloop een schone database.
+
+    De bedenktijd voor het mailen staat op nul: dan gaat een mail meteen weg en is
+    de uitslag in hetzelfde antwoord te zien. Wie het uitstel zelf test, zet hem
+    tijdelijk hoger (zie test_bedenktijd.py)."""
     facturen.app.config["TESTING"] = True
+    facturen.MAIL_BEDENKTIJD = 0
 
     conn = facturen.get_db()
     conn.execute(
