@@ -333,9 +333,15 @@
   /* Verwijderen hoort niet naast de knop die je het vaakst gebruikt: duw hem
      naar de overkant, zodat je er niet per ongeluk op tikt. */
   .acties .gevaar { margin-left: 22px; }
+  /* Op een telefoon blijft de knoppenrij rechts naast de status staan en neemt hij
+     dus niet de volle breedte: de status links en de knoppen rechts op één regel
+     leest rustiger dan twee lagen onder elkaar. Passen de chips en de knoppen samen
+     toch niet op één regel, dan zakken de knoppen door maar blijven ze rechts staan
+     — anders springen de drie puntjes per kaart heen en weer. */
   @media (max-width: 620px) {
-    .acties { gap: 2px 4px; width: 100%; }
-    .acties .gevaar { margin-left: auto; }
+    .acties { gap: 2px 4px; }
+    .onderkant .acties { margin-left: auto; }
+    .acties .gevaar { margin-left: 12px; }
   }
 
   /* ---------- Menu achter de drie puntjes ----------
@@ -393,16 +399,19 @@
   .menu-item.danger:hover { background: var(--danger-soft); color: var(--danger); }
   /* Een streep boven verwijderen, zodat je er niet blind langs schuift. */
   .menu-item.gevaar { margin-top: 4px; border-top: 1px solid var(--divider); border-radius: 0 0 6px 6px; }
-  /* Op een telefoon hangt het menu niet meer aan de drie puntjes maar aan de
-     knoppenrij eromheen, over de volle breedte daarvan. Met `left: 0` bij de puntjes
-     liep de lijst op een smal toestel rechts het scherm uit zodra er nog een knop
-     vóór de puntjes stond: de lijst is 210px breed en begon dan pas halverwege.
-     Ankeren aan de rij en niet aan de hele kaart, anders valt het menu pas onder de
-     kaart open in plaats van vlak onder de knop waar je op tikte. */
+  /* Op een telefoon hangt het menu niet aan de drie puntjes zelf maar aan de
+     knoppenrij eromheen, uitgelijnd op de rechterkant daarvan. Aan de puntjes zelf
+     liep de lijst van 210px op een smal toestel het scherm uit zodra er nog een knop
+     vóór de puntjes stond. Ankeren aan de rij en niet aan de hele kaart, anders valt
+     het menu pas onder de kaart open in plaats van vlak onder de knop waar je op
+     tikte. De items mogen over twee regels: "Kopiëren naar nieuwe rekening" past
+     anders niet. */
   @media (max-width: 620px) {
     .acties { position: relative; }
     .menu { position: static; }
-    .menu-lijst { left: 0; right: 0; min-width: 0; }
+    /* Nooit breder dan het scherm, ook niet bij een lang menu-item: de rij waar hij
+       aan hangt staat rechts, dus wat er te veel is zou er links uit steken. */
+    .menu-lijst { right: 0; left: auto; max-width: calc(100vw - 48px); }
     .menu-item { white-space: normal; }
   }
 

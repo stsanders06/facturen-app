@@ -43,12 +43,29 @@ def test_de_toelichting_achter_een_bedrag_mag_wel_afbreken(client):
 
 def test_het_menu_hangt_op_een_telefoon_aan_de_knoppenrij(client):
     """Hing het aan de drie puntjes zelf, dan begon de lijst van 210px pas
-    halverwege het scherm en liep hij er rechts uit."""
+    halverwege het scherm en liep hij er rechts uit. Nu hangt hij aan de rij en
+    lijnt hij uit op de rechterkant daarvan, waar de puntjes staan."""
     css = css_van(client.get("/").data.decode())
     smal = css[css.index("@media (max-width: 620px)", css.index(".menu-lijst")):]
     assert "position: static" in regel_met(smal, ".menu")
-    assert "left: 0" in regel_met(smal, ".menu-lijst")
+    assert "position: relative" in regel_met(smal, ".acties")
     assert "right: 0" in regel_met(smal, ".menu-lijst")
+    assert "left: auto" in regel_met(smal, ".menu-lijst")
+
+
+def test_de_knoppenrij_neemt_op_een_telefoon_niet_de_volle_breedte(client):
+    """Deed hij dat wel, dan werd de status naar de regel erboven geduwd en stonden
+    "Concept", "Mailen" en de drie puntjes alle drie onder elkaar."""
+    css = css_van(client.get("/").data.decode())
+    smal = css[css.index("@media (max-width: 620px)", css.index(".acties")):]
+    assert "width: 100%" not in regel_met(smal, ".acties")
+
+
+def test_de_onderkant_van_een_kaart_blijft_op_een_telefoon_een_rij(client):
+    """De status links en de knoppen rechts op één regel, niet in twee lagen."""
+    for pad, kiezer in [("/", ".factuur"), ("/offertes", ".offerte"), ("/klussen", ".klus")]:
+        css = css_van(client.get(pad).data.decode())
+        assert "flex-direction: column" not in regel_met(css, f"{kiezer} .onderkant"), pad
 
 
 def test_een_menu_item_mag_op_een_telefoon_over_twee_regels(client):

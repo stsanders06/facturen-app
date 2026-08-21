@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.12.2
+
+- **Een PDF openen vanuit de zijbalk van Home Assistant gaf "401: Unauthorized".**
+  De rekening opende in een eigen browservenster, en dat venster hoort niet bij het
+  paneel van Home Assistant — die liet het verzoek dus niet door. Vanuit de zijbalk
+  opent een rekening, offerte of foto nu in hetzelfde venster. Op poort 8099 gaat er
+  nog steeds een apart tabblad open, want daar werkte het al en blijft je lijst zo
+  gewoon openstaan.
+- **De status en de knoppen onderaan een kaart staan op een telefoon weer naast
+  elkaar**: de status links, "Mailen" en de drie puntjes rechts. Ze stonden alle drie
+  onder elkaar en dat maakte de kaarten onnodig lang. Past het samen niet op één
+  regel, dan zakken de knoppen door maar blijven ze rechts uitgelijnd.
+
 ## 1.12.1
 
 - **De app is nagelopen op een smal scherm.** Op een telefoon liepen een paar dingen

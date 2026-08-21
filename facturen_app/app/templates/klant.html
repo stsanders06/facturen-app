@@ -165,8 +165,8 @@
     </div>
     {% for o in offertes %}
     <div class="rekening">
-      <a class="kaartlink" href="{{ url_for('bekijk_offerte', offerte_id=o.id) }}" target="_blank"
-         rel="noopener" aria-label="Offerte {{ o.nummer }} bekijken"></a>
+      <a class="kaartlink" href="{{ url_for('bekijk_offerte', offerte_id=o.id) }}" {{ nieuw_tabblad }}
+         aria-label="Offerte {{ o.nummer }} bekijken"></a>
       <div class="links">
         <span class="nr">{{ o.nummer }}</span>
         <span class="datum">{{ o.datum|datum_nl }}</span>
@@ -198,8 +198,8 @@
     </div>
     {% for f in facturen %}
     <div class="rekening">
-      <a class="kaartlink" href="{{ url_for('bekijk_pdf', factuur_id=f.id) }}" target="_blank"
-         rel="noopener" aria-label="Rekening {{ f.naam }} bekijken"></a>
+      <a class="kaartlink" href="{{ url_for('bekijk_pdf', factuur_id=f.id) }}" {{ nieuw_tabblad }}
+         aria-label="Rekening {{ f.naam }} bekijken"></a>
       <div class="links">
         <span class="nr">{{ f.nummer or 'nog geen nummer' }}</span>
         <span class="datum">{{ f.datum|datum_nl }}</span>

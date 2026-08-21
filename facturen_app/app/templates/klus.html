@@ -356,7 +356,7 @@
     <div class="bijlagen">
       {% for b in bijlagen %}
       <figure class="bijlage">
-        <a href="{{ url_for('bijlage', bijlage_id=b.id) }}" target="_blank" rel="noopener"
+        <a href="{{ url_for('bijlage', bijlage_id=b.id) }}" {{ nieuw_tabblad }}
            title="{{ b.naam }} openen">
           {% if b.plaatje %}
           <img src="{{ url_for('bijlage', bijlage_id=b.id) }}" alt="{{ b.naam }}" loading="lazy">

@@ -18,13 +18,14 @@ from reportlab.lib.units import mm
 from reportlab.lib import colors
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
+from markupsafe import Markup
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.12.1"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.12.2"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -137,6 +138,20 @@ def via_ingress():
     """Of dit verzoek via de zijbalk van Home Assistant binnenkomt. Daar zit HA's
     eigen login al voor, dus dan hoef je niet nog een keer in te loggen."""
     return bool(request.environ.get("HTTP_X_INGRESS_PATH"))
+
+
+@app.context_processor
+def _nieuw_tabblad():
+    """Of een PDF of foto in een nieuw tabblad mag openen.
+
+    In de zijbalk van Home Assistant mag dat niet. Home Assistant laat een verzoek
+    aan Ingress alleen door met een cookie die alleen binnen het paneel zelf geldt;
+    de app van Home Assistant opent een link met target="_blank" in een eigen
+    browservenster, dat die cookie niet heeft, en dan antwoordt Home Assistant met
+    "401: Unauthorized" in plaats van de PDF te tonen. Op poort 8099 speelt dat niet
+    en is een apart tabblad juist prettiger, want dan blijft je lijst openstaan."""
+    return {"nieuw_tabblad": Markup("") if via_ingress()
+            else Markup('target="_blank" rel="noopener"')}
 
 
 def heeft_account(conn=None):

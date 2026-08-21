@@ -58,11 +58,6 @@
     padding-top: 12px;
     border-top: 1px solid var(--divider);
   }
-  /* Op een telefoon breekt de onderkant in twee lagen: eerst de status, dan de
-     knoppen over de volle breedte. */
-  @media (max-width: 620px) {
-    .factuur .onderkant { flex-direction: column; align-items: flex-start; gap: 8px; }
-  }
 </style>
 {% endblock %}
 {% block content %}
@@ -119,8 +114,8 @@
 <div class="cards">
   {% for f in facturen %}
   <article class="card factuur">
-    <a class="kaartlink" href="{{ url_for('bekijk_pdf', factuur_id=f.id) }}" target="_blank"
-       rel="noopener" aria-label="Rekening {{ f.naam }} voor {{ f.klant_naam }} bekijken"></a>
+    <a class="kaartlink" href="{{ url_for('bekijk_pdf', factuur_id=f.id) }}" {{ nieuw_tabblad }}
+       aria-label="Rekening {{ f.naam }} voor {{ f.klant_naam }} bekijken"></a>
     <div class="klant">
       {% if f.klant_id %}<a href="{{ url_for('klant', klant_id=f.klant_id) }}">{{ f.klant_naam }}</a>
       {%- else %}{{ f.klant_naam }}{% endif %}
@@ -162,7 +157,7 @@
 
         {% call menu('Meer voor rekening ' ~ f.naam) %}
           <a class="menu-item" href="{{ url_for('bekijk_pdf', factuur_id=f.id) }}"
-             target="_blank" rel="noopener">Bekijken</a>
+             {{ nieuw_tabblad }}>Bekijken</a>
           <a class="menu-item" href="{{ url_for('bewerk', factuur_id=f.id) }}">Bewerken</a>
           <a class="menu-item" href="{{ url_for('download_pdf', factuur_id=f.id) }}">Downloaden</a>
           <form method="post" action="{{ url_for('kopieer', factuur_id=f.id) }}">

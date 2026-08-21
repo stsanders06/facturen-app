@@ -58,9 +58,6 @@
     border-top: 1px solid var(--divider);
   }
   .offerte .chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-  @media (max-width: 620px) {
-    .offerte .onderkant { flex-direction: column; align-items: flex-start; gap: 8px; }
-  }
 </style>
 {% endblock %}
 {% block content %}
@@ -115,8 +112,8 @@
   {% for o in offertes %}
   {% set verlopen = o.geldig_tot and o.geldig_tot < vandaag and o.status in ['concept', 'verzonden'] %}
   <article class="card offerte">
-    <a class="kaartlink" href="{{ url_for('bekijk_offerte', offerte_id=o.id) }}" target="_blank"
-       rel="noopener" aria-label="Offerte {{ o.nummer }} voor {{ o.klant_naam }} bekijken"></a>
+    <a class="kaartlink" href="{{ url_for('bekijk_offerte', offerte_id=o.id) }}" {{ nieuw_tabblad }}
+       aria-label="Offerte {{ o.nummer }} voor {{ o.klant_naam }} bekijken"></a>
     <div class="klant">
       {% if o.klant_id %}<a href="{{ url_for('klant', klant_id=o.klant_id) }}">{{ o.klant_naam }}</a>
       {%- else %}{{ o.klant_naam }}{% endif %}
@@ -160,7 +157,7 @@
 
         {% call menu('Meer voor offerte ' ~ o.nummer) %}
           <a class="menu-item" href="{{ url_for('bekijk_offerte', offerte_id=o.id) }}"
-             target="_blank" rel="noopener">Bekijken</a>
+             {{ nieuw_tabblad }}>Bekijken</a>
           <a class="menu-item" href="{{ url_for('offerte_bewerk', offerte_id=o.id) }}">Bewerken</a>
           <a class="menu-item" href="{{ url_for('download_offerte', offerte_id=o.id) }}">Downloaden</a>
           <a class="menu-item" href="{{ url_for('offerte_aanbetaling', offerte_id=o.id) }}">Aanbetaling in rekening brengen…</a>
