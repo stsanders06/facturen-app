@@ -48,6 +48,10 @@
   daar zit de login van Home Assistant al voor. Wachtwoord wijzigen en uitloggen staan
   onder Instellingen.
 
+- Twee opmaakfoutjes verholpen die in de browser aan het licht kwamen: de knoppen van
+  de kaart eronder prikten dwars door een open menu heen, en het PDF-icoontje bij een
+  bijlage stond onderstreept alsof het een kapotte link was.
+
 ### Onder de motorkap
 
 - **Tests.** De app heeft nu een testset die de nummering, de urenberekening, het

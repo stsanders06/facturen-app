@@ -352,6 +352,11 @@
   .menu > summary::-webkit-details-marker { display: none; }
   .menu > summary::marker { content: ""; }
   .menu[open] > summary { background: var(--primary-soft); }
+  /* De kaart met het open menu moet boven de kaarten eronder komen te liggen. De
+     knoppen daarin liggen zelf ook op een eigen laag (.acties heeft z-index), en de
+     z-index van het menu telt alleen binnen zijn eigen kaart. Zonder deze regel
+     prikken de knoppen van de volgende kaart dwars door het menu heen. */
+  .card:has(.menu[open]) { position: relative; z-index: 30; }
   .menu-lijst {
     position: absolute;
     top: calc(100% + 4px);
