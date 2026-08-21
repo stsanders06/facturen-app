@@ -39,7 +39,6 @@
     text-align: right;
     font-size: 13px;
     color: var(--text-secondary);
-    white-space: nowrap;
   }
   .klant .cijfers b {
     display: block;
@@ -47,7 +46,14 @@
     font-weight: 500;
     color: var(--text);
     font-variant-numeric: tabular-nums;
+    /* Het bedrag zelf blijft in één stuk; het woord "gefactureerd" eronder mag
+       wél afbreken. Stond dat woord ook op nowrap, dan duwde het op een smal
+       toestel de hele kaart het scherm uit. */
+    white-space: nowrap;
   }
+  /* Een lang e-mailadres is één onafbreekbaar woord en rekte de linkerkolom op tot
+     voorbij de schermrand. Hier mag hij middenin het adres breken. */
+  .klant .naam, .klant .contact { overflow-wrap: anywhere; }
   .klant .onderkant {
     grid-column: 1 / -1;
     display: flex;

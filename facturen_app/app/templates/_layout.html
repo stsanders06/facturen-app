@@ -393,9 +393,17 @@
   .menu-item.danger:hover { background: var(--danger-soft); color: var(--danger); }
   /* Een streep boven verwijderen, zodat je er niet blind langs schuift. */
   .menu-item.gevaar { margin-top: 4px; border-top: 1px solid var(--divider); border-radius: 0 0 6px 6px; }
-  /* Op een telefoon opent het menu tegen de rechterrand van het scherm aan. */
+  /* Op een telefoon hangt het menu niet meer aan de drie puntjes maar aan de
+     knoppenrij eromheen, over de volle breedte daarvan. Met `left: 0` bij de puntjes
+     liep de lijst op een smal toestel rechts het scherm uit zodra er nog een knop
+     vóór de puntjes stond: de lijst is 210px breed en begon dan pas halverwege.
+     Ankeren aan de rij en niet aan de hele kaart, anders valt het menu pas onder de
+     kaart open in plaats van vlak onder de knop waar je op tikte. */
   @media (max-width: 620px) {
-    .menu-lijst { right: auto; left: 0; }
+    .acties { position: relative; }
+    .menu { position: static; }
+    .menu-lijst { left: 0; right: 0; min-width: 0; }
+    .menu-item { white-space: normal; }
   }
 
   /* ---------- Zoekbalk ---------- */
@@ -436,7 +444,15 @@
     font-weight: 500;
     font-variant-numeric: tabular-nums;
     letter-spacing: -.01em;
+    /* Op een telefoon brak "€ 1.407,75" na het euroteken en stond het bedrag
+       eenzaam op de volgende regel. Een bedrag hoort in één stuk te blijven; het
+       hele blokje mag in plaats daarvan omlaag springen. */
+    white-space: nowrap;
   }
+  /* Om diezelfde reden mag het label ervoor niet in "Te" en "laat" uiteenvallen.
+     Alleen het label: de toelichting erachter is een hele zin en die moet juist
+     wél kunnen afbreken. */
+  .overzicht small:first-child { white-space: nowrap; }
   .overzicht .let-op b { color: var(--info); }
   .overzicht .waarschuwing b { color: var(--warn-text); }
 

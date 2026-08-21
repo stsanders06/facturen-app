@@ -28,7 +28,9 @@
   .tegel b + small { margin-top: 2px; }
   .gegevens { display: grid; grid-template-columns: 110px 1fr; gap: 8px 16px; font-size: 15px; }
   .gegevens dt { color: var(--text-secondary); font-size: 13.5px; }
-  .gegevens dd { margin: 0; white-space: pre-line; }
+  /* Een e-mailadres is één lang woord; zonder dit rekt het de kolom voorbij de
+     schermrand op een smal toestel. */
+  .gegevens dd { margin: 0; white-space: pre-line; overflow-wrap: anywhere; }
   .rekening {
     display: flex;
     align-items: baseline;
@@ -43,13 +45,23 @@
   }
   .rekening:hover { background: var(--bg); }
   .rekening .kaartlink { position: absolute; inset: 0; z-index: 1; border-radius: var(--radius-sm); }
-  .rekening .rechts { position: relative; z-index: 2; }
   .rekening:last-child { border-bottom: none; padding-bottom: 0; }
   .rekening .links { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
   .rekening .nr { font-variant-numeric: tabular-nums; }
   .rekening .datum { font-size: 13px; color: var(--text-secondary); }
-  .rekening .rechts { display: flex; align-items: center; gap: 14px; }
-  .rekening .bedrag { font-variant-numeric: tabular-nums; font-weight: 500; }
+  /* Bedrag, status en knoppen staan naast elkaar, maar op een smal toestel paste
+     die rij niet en liep hij het scherm uit. Nu zakken de knoppen naar de regel
+     eronder in plaats van eruit te steken. */
+  .rekening .rechts {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    /* Boven de kaartlink, anders vangt die de knoppen af. */
+    position: relative;
+    z-index: 2;
+  }
+  .rekening .bedrag { font-variant-numeric: tabular-nums; font-weight: 500; white-space: nowrap; }
   .kop-acties { display: flex; gap: 8px; flex-wrap: wrap; }
 </style>
 {% endblock %}

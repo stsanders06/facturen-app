@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.12.1
+
+- **De app is nagelopen op een smal scherm.** Op een telefoon liepen een paar dingen
+  buiten beeld: bedragen als "€ 1.407,75" braken middenin na het euroteken, in de
+  klantenlijst stak het gefactureerde bedrag rechts de kaart uit, en op de klantpagina
+  vielen de knoppen achter een rekening voorbij de rand. Dat staat nu allemaal netjes
+  binnen de kaart.
+- **Het menu achter de drie puntjes past nu ook op een klein toestel.** Stond er nog een
+  knop naast de puntjes, dan begon het menu halverwege het scherm en liep de rechterkant
+  eruit. Het opent nu over de volle breedte van de kaart.
+
 ## 1.12.0
 
 - **Rustiger kaarten.** Op elke rekening stond een rij van acht knoppen en op elke

@@ -47,7 +47,7 @@ te slaan, leeg genoeg om de URLs normaal te houden.
   commentaar houden.
 - **Meldingen aan de gebruiker zijn gewone taal.** "De mailserver weigert je
   gebruikersnaam of wachtwoord", niet "SMTP authentication failed".
-- **Elke wijziging krijgt tests.** Er staan er nu 201.
+- **Elke wijziging krijgt tests.** Er staan er nu 210.
 
 ### Valkuil bij de tests
 
@@ -60,19 +60,15 @@ voor bestanden op schijf: de opruiming leegt `PDF_DIR` en `BIJLAGE_DIR`.
 
 ### Nakijken
 
-- [ ] **Smalle weergave (telefoonbreedte) is nooit bekeken.** De kaarten, het menu achter
-      de drie puntjes en de fotogalerij hebben allemaal een eigen indeling onder 620px.
-      Lukte niet omdat het Chrome-venster in volledig scherm stond en `resize_window` dan
-      wordt genegeerd. Chrome uit volledig scherm halen, dan kan het wel.
+- [x] **Smalle weergave (telefoonbreedte) nagekeken** in 1.12.1, met een headless
+      Chromium op 320, 390, 430, 620, 900 en 1280px breed. Vier fouten gevonden en
+      verholpen; geen pagina hoeft nog horizontaal te schuiven. De regels die dat
+      voorkomen staan onder test in `test_smalle_weergave.py`. De Chrome-extensie deed
+      het niet; met Playwright kun je wél op elke breedte meten en screenshots maken.
 - [ ] **iOS is niet getest.** Deze app heeft twee keer eerder een iOS-specifieke bug
       gehad met de breedte van datum- en tijdvelden (zie het commentaar onderaan
       `klus.html`). Dat soort fouten vangt geen enkele emulator; alleen kijken op het
       echte toestel helpt. Nieuwe formuliervelden dus altijd even op de telefoon nalopen.
-
-### Opruimen
-
-- [ ] Tak `app-uitbreiding` verwijderen; die is samengevoegd met `main` en toevoegt niets
-      meer.
 
 ### Ideeën die zijn blijven liggen
 
