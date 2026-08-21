@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.12.0 (in de maak)
+## 1.12.0
 
 - **Rustiger kaarten.** Op elke rekening stond een rij van acht knoppen en op elke
   offerte negen. Nu staat alleen de eerstvolgende stap er los — mailen bij een verse
