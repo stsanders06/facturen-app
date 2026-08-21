@@ -43,3 +43,23 @@ jobs:
 
       - name: yamllint
         uses: frenck/action-yamllint@v1
+
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Pakketten installeren
+        run: |
+          pip install -r facturen_app/app/requirements.txt
+          pip install -r facturen_app/tests/requirements.txt
+
+      - name: Pytest
+        run: pytest

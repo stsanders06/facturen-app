@@ -48,8 +48,7 @@ iets kwijtraakt.
 
 ## Eerste gebruik
 
-1. Ga naar **Instellingen** in de app: vul naam, adres, IBAN en eventueel een
-   Tikkie-link in. Upload je logo.
+1. Ga naar **Instellingen** in de app: vul naam, adres en IBAN in. Upload je logo.
 2. Voor automatisch mailen: vul de SMTP-gegevens in. Voor Gmail gebruik je een
    [app-wachtwoord](https://myaccount.google.com/apppasswords), niet je normale
    wachtwoord.

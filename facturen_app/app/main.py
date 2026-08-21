@@ -260,7 +260,6 @@ def init_db():
             telefoon TEXT DEFAULT '',
             email TEXT DEFAULT '',
             iban TEXT DEFAULT '',
-            tikkie_link TEXT DEFAULT '',
             logo_bestand TEXT DEFAULT '',
             smtp_host TEXT DEFAULT '',
             smtp_port INTEGER DEFAULT 587,
@@ -358,6 +357,15 @@ def init_db():
     for kolom, definitie in [("tenaamstelling", "TEXT DEFAULT ''")]:
         if kolom not in bestaand:
             conn.execute(f"ALTER TABLE settings ADD COLUMN {kolom} {definitie}")
+
+    # Tikkie is er in 1.3.0 uitgegaan; de kolom bleef achter in bestaande databases.
+    if "tikkie_link" in bestaand:
+        try:
+            conn.execute("ALTER TABLE settings DROP COLUMN tikkie_link")
+        except sqlite3.OperationalError:
+            # Te oude SQLite om een kolom te laten vallen. Niet erg: hij wordt
+            # nergens meer gelezen of geschreven en staat verder in de weg niet.
+            pass
 
     # Arbeid was er in één smaak en werd per uur gerekend; die regels houden dat.
     conn.execute("UPDATE regels SET type='arbeid_uur' WHERE type='arbeid'")
@@ -1691,8 +1699,8 @@ def maak_pdf(factuur_id):
 
 
 def maak_offerte_pdf(offerte_id):
-    """Tekent de offerte. Zelfde vel als een rekening, maar met een akkoordvak
-    onderaan in plaats van een betaalstrook."""
+    """Tekent de offerte. Zelfde vel als een rekening, maar zonder de betaalstrook
+    onderaan: er valt nog niets te betalen."""
     conn = get_db()
     offerte = conn.execute("SELECT * FROM offertes WHERE id=?", (offerte_id,)).fetchone()
     regels = conn.execute(
@@ -1706,249 +1714,310 @@ def maak_offerte_pdf(offerte_id):
     return _teken_document(os.path.join(PDF_DIR, f"{offerte['nummer']}.pdf"), doc, regels, s)
 
 
-def _teken_document(pad, factuur, regels, s):
-    """Tekent een rekening of een offerte: ruime opzet met een oranje rand en
-    merkregel bovenaan, en onderaan een afscheurbare strook — bij een rekening met
-    alles wat nodig is om te betalen, bij een offerte met een plek om te tekenen."""
-    offerte = factuur.get("soort") == "offerte"
-    titel = "Offerte" if offerte else "Rekening"
+class Vel:
+    """Eén vel papier met de opmaak van een rekening of offerte.
 
-    c = canvas.Canvas(pad, pagesize=A4)
-    c.setTitle(f"{titel} {factuur['nummer']}")
-    breedte, hoogte = A4
+    Kent de marges, de kolommen en de kleine hulpjes die overal terugkomen:
+    de oranje bies, kleine grijze kapitalen als kopje, en tekst die netjes wordt
+    afgekapt in plaats van over de volgende kolom heen te lopen. De losse
+    onderdelen van het vel staan hieronder als aparte teken-functies."""
 
-    links = 26 * mm
-    rechts = breedte - 18 * mm
-    kolom_aantal = rechts - 62 * mm
-    kolom_prijs = rechts - 32 * mm
+    def __init__(self, pad, titel, nummer):
+        self.pad = pad
+        self.titel = titel
+        self.nummer = nummer
+        self.c = canvas.Canvas(pad, pagesize=A4)
+        self.c.setTitle(f"{titel} {nummer}")
+        self.breedte, self.hoogte = A4
+        self.links = 26 * mm
+        self.rechts = self.breedte - 18 * mm
+        self.kolom_aantal = self.rechts - 62 * mm
+        self.kolom_prijs = self.rechts - 32 * mm
+        self.y = self.hoogte - 22 * mm
+        self._bies()
 
-    def rand():
+    def _bies(self):
         """De oranje bies langs de linkerkant, op elke pagina."""
-        c.setFillColor(ORANJE)
-        c.rect(0, 0, 6 * mm, hoogte, stroke=0, fill=1)
+        self.c.setFillColor(ORANJE)
+        self.c.rect(0, 0, 6 * mm, self.hoogte, stroke=0, fill=1)
 
-    def kort(tekst, font, grootte, maxbreedte):
+    def kort(self, tekst, font, grootte, maxbreedte):
+        """Kapt tekst af met een beletselteken zodra hij niet meer past."""
         tekst = tekst or ""
-        if c.stringWidth(tekst, font, grootte) <= maxbreedte:
+        if self.c.stringWidth(tekst, font, grootte) <= maxbreedte:
             return tekst
-        while tekst and c.stringWidth(tekst + "\u2026", font, grootte) > maxbreedte:
+        while tekst and self.c.stringWidth(tekst + "…", font, grootte) > maxbreedte:
             tekst = tekst[:-1]
-        return tekst + "\u2026"
+        return tekst + "…"
 
-    def label(tekst, x, y, rechts_uit=False):
+    def label(self, tekst, x, y, rechts_uit=False):
         """Kleine grijze kapitalen met ruime letterafstand."""
-        c.setFont("Helvetica-Bold", 6.5)
-        c.setFillColor(GRIJS)
+        self.c.setFont("Helvetica-Bold", 6.5)
+        self.c.setFillColor(GRIJS)
         letters = " ".join(tekst.upper())
-        (c.drawRightString if rechts_uit else c.drawString)(x, y, letters)
+        (self.c.drawRightString if rechts_uit else self.c.drawString)(x, y, letters)
 
-    rand()
-    y = hoogte - 22 * mm
+    def nieuwe_pagina(self, vervolg=False):
+        """Begint een nieuw vel. Met vervolg=True komt er bovenaan te staan waar je
+        naar kijkt, want het briefhoofd staat alleen op de eerste pagina."""
+        self.c.showPage()
+        self._bies()
+        if vervolg:
+            self.c.setFillColor(GRIJS)
+            self.c.setFont("Helvetica", 8.5)
+            self.c.drawString(self.links, self.hoogte - 18 * mm,
+                              f"{self.titel} {self.nummer} · vervolg")
+            self.y = self.hoogte - 28 * mm
+        else:
+            self.y = self.hoogte - 22 * mm
 
-    # ---- Merkregel: logo, naam, contact ----
-    tekst_x = links
+    def bewaar(self):
+        self.c.save()
+        return self.pad
+
+
+def _teken_merkregel(vel, s):
+    """Logo, bedrijfsnaam en de contactregel bovenaan het vel."""
+    c = vel.c
+    tekst_x = vel.links
     logo_bestand = s.get("logo_bestand") or ""
     logo_pad = os.path.join(LOGO_DIR, logo_bestand) if logo_bestand else None
     if logo_pad and os.path.exists(logo_pad):
         try:
-            c.drawImage(logo_pad, links, y - 12 * mm, width=16 * mm, height=14 * mm,
+            c.drawImage(logo_pad, vel.links, vel.y - 12 * mm, width=16 * mm, height=14 * mm,
                         preserveAspectRatio=True, anchor="sw", mask="auto")
-            tekst_x = links + 20 * mm
+            tekst_x = vel.links + 20 * mm
         except Exception:
-            tekst_x = links
+            # Een kapot of onleesbaar plaatje mag de rekening niet tegenhouden.
+            tekst_x = vel.links
 
     c.setFillColor(INKT)
     c.setFont("Helvetica-Bold", 13)
-    c.drawString(tekst_x, y - 3 * mm, s.get("naam", ""))
+    c.drawString(tekst_x, vel.y - 3 * mm, s.get("naam", ""))
     c.setFont("Helvetica", 8.5)
     c.setFillColor(GRIJS_DONKER)
-    contact = " \u00b7 ".join(
+    contact = " · ".join(
         deel for deel in [
             ((s.get("adres") or "").split("\n") or [""])[0].strip(),
             (s.get("telefoon") or "").strip(),
             (s.get("email") or "").strip(),
         ] if deel
     )
-    c.drawString(tekst_x, y - 8 * mm, kort(contact, "Helvetica", 8.5, rechts - tekst_x))
+    c.drawString(tekst_x, vel.y - 8 * mm,
+                 vel.kort(contact, "Helvetica", 8.5, vel.rechts - tekst_x))
 
-    # ---- Titel ----
-    y -= 30 * mm
-    c.setFillColor(ORANJE)
-    c.setFont("Helvetica", 30)
-    c.drawString(links, y, titel)
 
-    y -= 7 * mm
-    c.setFillColor(GRIJS_DONKER)
-    c.setFont("Helvetica", 9)
-    # Een offerte hoeft geen einddatum te hebben; laat je het veld leeg, dan staat er
-    # niets over geldigheid op het vel.
-    vervalt = factuur.get("geldig_tot") if offerte else vervaldatum(factuur["datum"])
-    kopregel = f"{factuur['nummer']}   \u00b7   {filter_datum_nl(factuur['datum'])}"
-    if offerte and vervalt:
-        kopregel += f"   \u00b7   geldig tot {filter_datum_nl(vervalt)}"
-    c.drawString(links, y, kopregel)
+def _teken_titel(vel, kopregel):
+    """'Rekening' of 'Offerte' in het groot, met het nummer en de datum eronder."""
+    vel.y -= 30 * mm
+    vel.c.setFillColor(ORANJE)
+    vel.c.setFont("Helvetica", 30)
+    vel.c.drawString(vel.links, vel.y, vel.titel)
 
-    # ---- Van en Voor naast elkaar ----
-    y -= 16 * mm
-    label("Van", links, y)
-    label("Voor", links + 68 * mm, y)
-    y -= 5.5 * mm
+    vel.y -= 7 * mm
+    vel.c.setFillColor(GRIJS_DONKER)
+    vel.c.setFont("Helvetica", 9)
+    vel.c.drawString(vel.links, vel.y, kopregel)
+
+
+def _teken_partijen(vel, s, doc):
+    """Van wie de rekening komt en voor wie hij is, naast elkaar."""
+    c = vel.c
+    tweede = vel.links + 68 * mm
+
+    vel.y -= 16 * mm
+    vel.label("Van", vel.links, vel.y)
+    vel.label("Voor", tweede, vel.y)
+    vel.y -= 5.5 * mm
 
     c.setFillColor(INKT)
     c.setFont("Helvetica-Bold", 9.5)
-    c.drawString(links, y, s.get("naam", ""))
-    c.drawString(links + 68 * mm, y, factuur["klant_naam"] or "")
+    c.drawString(vel.links, vel.y, s.get("naam", ""))
+    c.drawString(tweede, vel.y, doc["klant_naam"] or "")
 
     c.setFont("Helvetica", 9)
     c.setFillColor(GRIJS_DONKER)
-    links_y = rechts_y = y - 4.8 * mm
+    links_y = rechts_y = vel.y - 4.8 * mm
     for regel in (s.get("adres") or "").split("\n"):
         if regel.strip():
-            c.drawString(links, links_y, kort(regel.strip(), "Helvetica", 9, 62 * mm))
+            c.drawString(vel.links, links_y, vel.kort(regel.strip(), "Helvetica", 9, 62 * mm))
             links_y -= 4.4 * mm
-    for regel in (factuur["klant_adres"] or "").split("\n"):
+    for regel in (doc["klant_adres"] or "").split("\n"):
         if regel.strip():
-            c.drawString(links + 68 * mm, rechts_y, kort(regel.strip(), "Helvetica", 9, 62 * mm))
+            c.drawString(tweede, rechts_y, vel.kort(regel.strip(), "Helvetica", 9, 62 * mm))
             rechts_y -= 4.4 * mm
-    if factuur["klant_email"]:
-        c.drawString(links + 68 * mm, rechts_y, kort(factuur["klant_email"], "Helvetica", 9, 62 * mm))
+    if doc["klant_email"]:
+        c.drawString(tweede, rechts_y, vel.kort(doc["klant_email"], "Helvetica", 9, 62 * mm))
         rechts_y -= 4.4 * mm
 
-    y = min(links_y, rechts_y) - 12 * mm
+    vel.y = min(links_y, rechts_y) - 12 * mm
 
-    # ---- Regels ----
-    def kolomkoppen(y):
-        label("Omschrijving", links, y)
-        label("Aantal", kolom_aantal, y, rechts_uit=True)
-        label("Prijs", kolom_prijs, y, rechts_uit=True)
-        label("Bedrag", rechts, y, rechts_uit=True)
-        y -= 3 * mm
-        c.setStrokeColor(INKT)
-        c.setLineWidth(0.8)
-        c.line(links, y, rechts, y)
-        return y - 8 * mm
 
-    y = kolomkoppen(y)
+def _teken_kolomkoppen(vel):
+    """De koppen boven de regels, met de streep eronder."""
+    vel.label("Omschrijving", vel.links, vel.y)
+    vel.label("Aantal", vel.kolom_aantal, vel.y, rechts_uit=True)
+    vel.label("Prijs", vel.kolom_prijs, vel.y, rechts_uit=True)
+    vel.label("Bedrag", vel.rechts, vel.y, rechts_uit=True)
+    vel.y -= 3 * mm
+    vel.c.setStrokeColor(INKT)
+    vel.c.setLineWidth(0.8)
+    vel.c.line(vel.links, vel.y, vel.rechts, vel.y)
+    vel.y -= 8 * mm
+
+
+def _teken_regels(vel, regels):
+    """De regels zelf. Past er niets meer op, dan gaat het door op een vervolgvel."""
+    c = vel.c
+    _teken_kolomkoppen(vel)
 
     for r in regels:
-        if y < 78 * mm:
-            c.showPage()
-            rand()
-            # Op een vervolgpagina opnieuw vertellen waar je naar kijkt.
-            c.setFillColor(GRIJS)
-            c.setFont("Helvetica", 8.5)
-            c.drawString(links, hoogte - 18 * mm,
-                         f"{titel} {factuur['nummer']} · vervolg")
-            y = kolomkoppen(hoogte - 28 * mm)
+        if vel.y < 78 * mm:
+            vel.nieuwe_pagina(vervolg=True)
+            _teken_kolomkoppen(vel)
 
         soort_info = soort(r["type"])
         c.setFillColor(INKT)
         c.setFont("Helvetica", 9.5)
-        c.drawString(links, y, kort(r["omschrijving"], "Helvetica", 9.5, kolom_aantal - links - 6 * mm))
+        c.drawString(vel.links, vel.y,
+                     vel.kort(r["omschrijving"], "Helvetica", 9.5,
+                              vel.kolom_aantal - vel.links - 6 * mm))
         # Bij een vaste prijs per klus zeggen aantal en tarief niets; alleen het bedrag.
         if soort_info["eenheid"]:
             aantal = f"{r['aantal']:g}".replace(".", ",")
-            c.drawRightString(kolom_aantal, y, f"{aantal} {soort_info['eenheid']}")
-            c.drawRightString(kolom_prijs, y, nl_bedrag(r["prijs"]))
-        c.drawRightString(rechts, y, nl_bedrag(r["subtotaal"]))
+            c.drawRightString(vel.kolom_aantal, vel.y, f"{aantal} {soort_info['eenheid']}")
+            c.drawRightString(vel.kolom_prijs, vel.y, nl_bedrag(r["prijs"]))
+        c.drawRightString(vel.rechts, vel.y, nl_bedrag(r["subtotaal"]))
 
         c.setFont("Helvetica", 7.5)
         c.setFillColor(GRIJS)
-        c.drawString(links, y - 4 * mm, soort_info["naam"])
+        c.drawString(vel.links, vel.y - 4 * mm, soort_info["naam"])
 
-        y -= 9 * mm
+        vel.y -= 9 * mm
         c.setStrokeColor(LIJN)
         c.setLineWidth(0.5)
-        c.line(links, y, rechts, y)
-        y -= 7 * mm
+        c.line(vel.links, vel.y, vel.rechts, vel.y)
+        vel.y -= 7 * mm
 
-    # ---- Totaal ----
-    label("Totaal", rechts - 42 * mm, y + 1 * mm, rechts_uit=True)
-    c.setFillColor(ORANJE)
-    c.setFont("Helvetica-Bold", 17)
-    c.drawRightString(rechts, y - 1 * mm, f"\u20ac {nl_bedrag(factuur['totaal'])}")
 
-    # ---- Toelichting bij een offerte ----
-    toelichting = (factuur.get("toelichting") or "").strip()
-    if toelichting:
-        y -= 14 * mm
-        label("Toelichting", links, y)
-        y -= 5.5 * mm
+def _teken_totaal(vel, totaal):
+    """Het bedrag onder de streep, rechts uitgelijnd."""
+    vel.label("Totaal", vel.rechts - 42 * mm, vel.y + 1 * mm, rechts_uit=True)
+    vel.c.setFillColor(ORANJE)
+    vel.c.setFont("Helvetica-Bold", 17)
+    vel.c.drawRightString(vel.rechts, vel.y - 1 * mm, f"€ {nl_bedrag(totaal)}")
+
+
+def _teken_toelichting(vel, toelichting):
+    """Wat er wel en niet bij de prijs zit; staat vooral op een offerte."""
+    vel.y -= 14 * mm
+    vel.label("Toelichting", vel.links, vel.y)
+    vel.y -= 5.5 * mm
+    vel.c.setFont("Helvetica", 9)
+    vel.c.setFillColor(GRIJS_DONKER)
+    for alinea in toelichting.split("\n"):
+        for regel in _regels_afbreken(vel.c, alinea.strip(), "Helvetica", 9,
+                                      vel.rechts - vel.links):
+            vel.c.drawString(vel.links, vel.y, regel)
+            vel.y -= 4.6 * mm
+
+
+def _teken_betaalstrook(vel, doc, s, vervalt):
+    """De afscheurbare strook onderaan een rekening, met alles wat de klant nodig
+    heeft om te betalen. Bij contant afrekenen staat er 'Voldaan' en geen IBAN."""
+    c = vel.c
+    if vel.y < 80 * mm:
+        vel.nieuwe_pagina()
+
+    strook_y = 62 * mm
+    c.setStrokeColor(STIPPEL)
+    c.setLineWidth(0.8)
+    c.setDash(2, 3)
+    c.line(vel.links, strook_y, vel.rechts, strook_y)
+    c.setDash()
+
+    contant = doc.get("betaalmethode") == "cash"
+    gespreid = " ".join("VOLDAAN" if contant else "BETAALSTROOK")
+    tekstbreedte = c.stringWidth(gespreid, "Helvetica-Bold", 6.5)
+    midden = vel.links + (vel.rechts - vel.links) / 2
+    # Wit vlak zodat de stippellijn niet door de tekst heen loopt.
+    c.setFillColor(WIT)
+    c.rect(midden - tekstbreedte / 2 - 3 * mm, strook_y - 1.6 * mm,
+           tekstbreedte + 6 * mm, 3.4 * mm, stroke=0, fill=1)
+    c.setFillColor(GRIJS)
+    c.setFont("Helvetica-Bold", 6.5)
+    c.drawCentredString(midden, strook_y - 1 * mm, gespreid)
+
+    if contant:
+        c.setFillColor(INKT)
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(vel.links, strook_y - 16 * mm, "Contant afgehandeld.")
         c.setFont("Helvetica", 9)
         c.setFillColor(GRIJS_DONKER)
-        for alinea in toelichting.split("\n"):
-            for regel in _regels_afbreken(c, alinea.strip(), "Helvetica", 9,
-                                          rechts - links):
-                c.drawString(links, y, regel)
-                y -= 4.6 * mm
+        c.drawString(vel.links, strook_y - 22 * mm, "Deze rekening is ter plekke voldaan.")
+        return
 
-    # ---- Betaalstrook, altijd onderaan het vel ----
-    # Een offerte krijgt er geen: daar valt nog niets te betalen, en tot wanneer de
-    # prijs geldt staat bovenaan al naast de datum.
-    if not offerte:
-        if y < 80 * mm:
-            c.showPage()
-            rand()
-
-        strook_y = 62 * mm
-        c.setStrokeColor(STIPPEL)
-        c.setLineWidth(0.8)
-        c.setDash(2, 3)
-        c.line(links, strook_y, rechts, strook_y)
-        c.setDash()
-
-        contant = factuur.get("betaalmethode") == "cash"
-        gespreid = " ".join("VOLDAAN" if contant else "BETAALSTROOK")
-        tekstbreedte = c.stringWidth(gespreid, "Helvetica-Bold", 6.5)
-        midden = links + (rechts - links) / 2
-        c.setFillColor(WIT)
-        c.rect(midden - tekstbreedte / 2 - 3 * mm, strook_y - 1.6 * mm,
-               tekstbreedte + 6 * mm, 3.4 * mm, stroke=0, fill=1)
+    vel.label("Overmaken naar", vel.links, strook_y - 8 * mm)
+    regel_y = strook_y - 14 * mm
+    for naam, waarde in [
+        ("IBAN", s.get("iban", "")),
+        ("T.n.v.", tenaamstelling(s)),
+        ("Vóór", filter_datum_nl(vervalt)),
+    ]:
+        c.setFont("Helvetica", 9)
         c.setFillColor(GRIJS)
-        c.setFont("Helvetica-Bold", 6.5)
-        c.drawCentredString(midden, strook_y - 1 * mm, gespreid)
+        c.drawString(vel.links, regel_y, naam)
+        c.setFillColor(INKT)
+        c.drawString(vel.links + 18 * mm, regel_y, waarde or "")
+        regel_y -= 5.2 * mm
 
-        if contant:
-            c.setFillColor(INKT)
-            c.setFont("Helvetica-Bold", 11)
-            c.drawString(links, strook_y - 16 * mm, "Contant afgehandeld.")
-            c.setFont("Helvetica", 9)
-            c.setFillColor(GRIJS_DONKER)
-            c.drawString(links, strook_y - 22 * mm, "Deze rekening is ter plekke voldaan.")
-        else:
-            label("Overmaken naar", links, strook_y - 8 * mm)
-            regel_y = strook_y - 14 * mm
-            for naam, waarde in [
-                ("IBAN", s.get("iban", "")),
-                ("T.n.v.", tenaamstelling(s)),
-                ("V\u00f3\u00f3r", filter_datum_nl(vervalt)),
-            ]:
-                c.setFont("Helvetica", 9)
-                c.setFillColor(GRIJS)
-                c.drawString(links, regel_y, naam)
-                c.setFillColor(INKT)
-                c.drawString(links + 18 * mm, regel_y, waarde or "")
-                regel_y -= 5.2 * mm
+    vak_b, vak_h = 58 * mm, 20 * mm
+    vak_x, vak_y = vel.rechts - vak_b, strook_y - 26 * mm
+    c.setStrokeColor(ORANJE)
+    c.setLineWidth(1.4)
+    c.roundRect(vak_x, vak_y, vak_b, vak_h, 2 * mm, stroke=1, fill=0)
+    vel.label("Te betalen", vak_x + vak_b - 5 * mm, vak_y + vak_h - 6 * mm, rechts_uit=True)
+    c.setFillColor(ORANJE)
+    c.setFont("Helvetica-Bold", 16)
+    c.drawRightString(vak_x + vak_b - 5 * mm, vak_y + 5 * mm,
+                      f"€ {nl_bedrag(doc['totaal'])}")
 
-            vak_b, vak_h = 58 * mm, 20 * mm
-            vak_x, vak_y = rechts - vak_b, strook_y - 26 * mm
-            c.setStrokeColor(ORANJE)
-            c.setLineWidth(1.4)
-            c.roundRect(vak_x, vak_y, vak_b, vak_h, 2 * mm, stroke=1, fill=0)
-            label("Te betalen", vak_x + vak_b - 5 * mm, vak_y + vak_h - 6 * mm,
-                  rechts_uit=True)
-            c.setFillColor(ORANJE)
-            c.setFont("Helvetica-Bold", 16)
-            c.drawRightString(vak_x + vak_b - 5 * mm, vak_y + 5 * mm,
-                              f"\u20ac {nl_bedrag(factuur['totaal'])}")
 
-    # ---- Voetregel ----
-    c.setFont("Helvetica", 7)
-    c.setFillColor(GRIJS)
-    c.drawString(links, 14 * mm, OFFERTE_REGEL if offerte else BTW_REGEL)
+def _teken_voetregel(vel, offerte):
+    vel.c.setFont("Helvetica", 7)
+    vel.c.setFillColor(GRIJS)
+    vel.c.drawString(vel.links, 14 * mm, OFFERTE_REGEL if offerte else BTW_REGEL)
 
-    c.save()
-    return pad
+
+def _teken_document(pad, doc, regels, s):
+    """Tekent een rekening of een offerte: ruime opzet met een oranje rand en
+    merkregel bovenaan. Een rekening krijgt onderaan een afscheurbare betaalstrook;
+    een offerte niet, want daar valt nog niets te betalen."""
+    offerte = doc.get("soort") == "offerte"
+    vel = Vel(pad, "Offerte" if offerte else "Rekening", doc["nummer"])
+
+    # Een offerte hoeft geen einddatum te hebben; laat je het veld leeg, dan staat er
+    # niets over geldigheid op het vel.
+    vervalt = doc.get("geldig_tot") if offerte else vervaldatum(doc["datum"])
+    kopregel = f"{doc['nummer']}   ·   {filter_datum_nl(doc['datum'])}"
+    if offerte and vervalt:
+        kopregel += f"   ·   geldig tot {filter_datum_nl(vervalt)}"
+
+    _teken_merkregel(vel, s)
+    _teken_titel(vel, kopregel)
+    _teken_partijen(vel, s, doc)
+    _teken_regels(vel, regels)
+    _teken_totaal(vel, doc["totaal"])
+
+    toelichting = (doc.get("toelichting") or "").strip()
+    if toelichting:
+        _teken_toelichting(vel, toelichting)
+
+    if not offerte:
+        _teken_betaalstrook(vel, doc, s, vervalt)
+
+    _teken_voetregel(vel, offerte)
+    return vel.bewaar()
 
 
 def _mail_pdf(s, ontvanger, onderwerp, tekst, pad, bestandsnaam):

@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.12.0 (in de maak)
+
+### Onder de motorkap
+
+- **Tests.** De app heeft nu een testset die de nummering, de urenberekening, het
+  inlezen van CSV-bestanden en de PDF nakijkt. Draait automatisch bij elke wijziging.
+- De code die de PDF tekent stond in één functie van ruim tweehonderd regels; die is
+  opgesplitst in losse stukken per onderdeel van het vel. Aan de PDF zelf verandert
+  niets — die is regel voor regel hetzelfde gebleven.
+- De laatste resten van Tikkie zijn opgeruimd: de ongebruikte kolom verdwijnt uit
+  bestaande databases en de documentatie noemt hem niet meer.
+
 ## 1.11.1
 
 - Het akkoordvak onderaan de offerte is eruit. Onder de bedragen staat nu alleen nog
