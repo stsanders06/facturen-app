@@ -191,6 +191,26 @@ rekening weer, dan komen de uren gewoon vrij om opnieuw te factureren.
 Een klus die klaar is zet je op afgerond. Hij zakt dan naar onderen in de lijst, maar de
 uren blijven bewaard.
 
+### Foto's en bonnetjes
+
+Onderaan de kluspagina zet je foto's en bonnetjes neer: een bon van de groothandel, een
+foto van hoe het eruitzag voordat je begon, of van het eindresultaat. Meerdere tegelijk
+kiezen mag; JPG, PNG, HEIC en PDF worden geaccepteerd, samen hooguit 32 MB per keer.
+
+Bij elk bestand staat een knop **Meesturen**. Zet die aan bij een bon die de klant moet
+zien: zodra je de uren van deze klus op een rekening zet en die rekening mailt, gaat het
+bestand als bijlage mee. Wat je niet aanvinkt, blijft alleen voor jezelf.
+
+De bestanden staan in `/data` en gaan mee in een Home Assistant back-up. Verwijder je de
+klus, dan gaan ze mee.
+
+## De klantpagina
+
+Klik op een klant en je ziet alles van die klant bij elkaar: hoeveel er in totaal is
+gefactureerd, wat er nog openstaat, of er rekeningen over hun vervaldatum zijn, hoeveel er
+nog uitstaat aan offertes en hoeveel uren er nog te factureren zijn. Daaronder staan zijn
+klussen, zijn offertes en zijn rekeningen, elk met de knoppen die daarbij horen.
+
 ## Data en back-up
 
 Alle data (database, PDF's, logo) staat in de persistente `/data` map van de add-on.

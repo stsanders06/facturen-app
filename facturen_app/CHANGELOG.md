@@ -31,6 +31,14 @@
   concept-rekening van. De offerte blijft staan, zodat je de rest later kunt factureren.
 - **Kopiëren naar nieuwe rekening**, voor werk dat elke maand terugkomt: zelfde klant,
   zelfde regels, datum van vandaag.
+- **Foto's en bonnetjes bij een klus.** Onderaan de kluspagina zet je foto's of bonnen
+  neer, meerdere tegelijk. Vink je er een aan met "Meesturen", dan gaat die als bijlage
+  mee zodra je de uren van die klus factureert en de rekening mailt. Verwijder je de klus,
+  dan gaan de bestanden mee.
+- **De klantpagina laat meer zien:** naast gefactureerd en openstaand nu ook wat er te
+  laat is, wat er nog uitstaat aan offertes en hoeveel uren er nog te factureren zijn.
+  Openstaand houdt rekening met deelbetalingen, en bij elke rekening staat een knop naar
+  zijn betalingen.
 
 ### Onder de motorkap
 

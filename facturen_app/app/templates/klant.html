@@ -23,6 +23,9 @@
     letter-spacing: -.02em;
   }
   .tegel.open b { color: var(--info); }
+  .tegel.laat b { color: var(--warn-text); }
+  /* De onderregel van een tegel: kleiner en grijs, zodat het cijfer blijft opvallen. */
+  .tegel b + small { margin-top: 2px; }
   .gegevens { display: grid; grid-template-columns: 110px 1fr; gap: 8px 16px; font-size: 15px; }
   .gegevens dt { color: var(--text-secondary); font-size: 13.5px; }
   .gegevens dd { margin: 0; white-space: pre-line; }
@@ -67,16 +70,38 @@
     <div class="tegels">
       <div class="tegel">
         <small>Rekeningen</small>
-        <b>{{ facturen|length }}</b>
+        <b>{{ cijfers.aantal }}</b>
+        {% if cijfers.laatste %}<small>laatste {{ cijfers.laatste|datum_nl }}</small>{% endif %}
       </div>
       <div class="tegel">
         <small>Gefactureerd</small>
-        <b>&euro; {{ omzet|bedrag }}</b>
+        <b>&euro; {{ cijfers.omzet|bedrag }}</b>
       </div>
       <div class="tegel open">
         <small>Openstaand</small>
-        <b>&euro; {{ openstaand|bedrag }}</b>
+        <b>&euro; {{ cijfers.openstaand|bedrag }}</b>
       </div>
+      {% if cijfers.te_laat_aantal %}
+      <div class="tegel laat">
+        <small>Te laat</small>
+        <b>&euro; {{ cijfers.te_laat|bedrag }}</b>
+        <small>{{ cijfers.te_laat_aantal }} rekening{{ 'en' if cijfers.te_laat_aantal != 1 }}</small>
+      </div>
+      {% endif %}
+      {% if cijfers.offertes_aantal %}
+      <div class="tegel">
+        <small>Uitstaande offertes</small>
+        <b>&euro; {{ cijfers.offertes_uit|bedrag }}</b>
+        <small>{{ cijfers.offertes_aantal }} stuk{{ 's' if cijfers.offertes_aantal != 1 }}</small>
+      </div>
+      {% endif %}
+      {% if cijfers.uren_open %}
+      <div class="tegel">
+        <small>Nog te factureren uren</small>
+        <b>{{ cijfers.uren_open|uren }} u</b>
+        {% if cijfers.uren_bedrag %}<small>&euro; {{ cijfers.uren_bedrag|bedrag }}</small>{% endif %}
+      </div>
+      {% endif %}
     </div>
   </section>
 
@@ -134,6 +159,9 @@
         <span class="nr">{{ o.nummer }}</span>
         <span class="datum">{{ o.datum|datum_nl }}</span>
         <span class="chip chip-{{ o.status }}">{{ offerte_status[o.status] }}</span>
+        {% if o.geldig_tot and o.geldig_tot < vandaag and o.status in ['concept', 'verzonden'] %}
+        <span class="chip chip-verlopen">Verlopen</span>
+        {% endif %}
       </div>
       <div class="rechts">
         <span class="bedrag">&euro; {{ o.totaal|bedrag }}</span>
@@ -159,15 +187,19 @@
     {% for f in facturen %}
     <div class="rekening">
       <a class="kaartlink" href="{{ url_for('bekijk_pdf', factuur_id=f.id) }}" target="_blank"
-         rel="noopener" aria-label="Rekening {{ f.nummer }} bekijken"></a>
+         rel="noopener" aria-label="Rekening {{ f.naam }} bekijken"></a>
       <div class="links">
-        <span class="nr">{{ f.nummer }}</span>
+        <span class="nr">{{ f.nummer or 'nog geen nummer' }}</span>
         <span class="datum">{{ f.datum|datum_nl }}</span>
         <span class="chip chip-{{ f.status }}">
           {% if f.status == 'concept' %}Concept
           {% elif f.status == 'verzonden' %}Verzonden
           {% else %}Betaald{% endif %}
         </span>
+        {% if f.verlopen %}<span class="chip chip-verlopen">Te laat</span>{% endif %}
+        {% if f.deels_betaald %}
+        <span class="chip chip-deels">&euro; {{ f.betaald|bedrag }} binnen</span>
+        {% endif %}
       </div>
       <div class="rechts">
         <span class="bedrag">&euro; {{ f.totaal|bedrag }}</span>
@@ -183,7 +215,7 @@
           <button type="submit" class="btn btn-text">Betaald</button>
         </form>
         {% endif %}
-        <a class="btn btn-text" href="{{ url_for('bewerk', factuur_id=f.id) }}">Bewerken</a>
+        <a class="btn btn-text" href="{{ url_for('betalingen', factuur_id=f.id) }}">Betalingen</a>
       </div>
     </div>
     {% endfor %}

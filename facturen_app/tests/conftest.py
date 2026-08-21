@@ -21,8 +21,8 @@ import main as facturen  # noqa: E402  (moet ná het zetten van DATA_DIR)
 
 # Tabellen in de volgorde waarin ze leeg mogen: eerst wat naar iets anders verwijst.
 TABELLEN = [
-    "regels", "offerte_regels", "uren", "betalingen", "facturen", "offertes",
-    "klussen", "klanten",
+    "regels", "offerte_regels", "uren", "betalingen", "bijlagen", "facturen",
+    "offertes", "klussen", "klanten",
 ]
 
 
@@ -43,6 +43,8 @@ def app():
     conn.close()
     for pdf in pathlib.Path(facturen.PDF_DIR).glob("*.pdf"):
         pdf.unlink()
+    for bestand in pathlib.Path(facturen.BIJLAGE_DIR).iterdir():
+        bestand.unlink()
 
 
 @pytest.fixture

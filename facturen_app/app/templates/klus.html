@@ -2,6 +2,51 @@
 {% block title %}{{ klus.naam }}{% endblock %}
 {% block head %}
 <style>
+  /* ---------- Foto's en bonnetjes ---------- */
+  .uploadregel { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .uploadregel input[type=file] { flex: 1 1 240px; min-width: 0; font-size: 14px; }
+  .bijlagen {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 14px;
+    margin-top: 16px;
+  }
+  .bijlage { margin: 0; }
+  .bijlage a { display: block; }
+  .bijlage img {
+    width: 100%;
+    height: 120px;
+    object-fit: cover;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg);
+  }
+  .bestandsicoon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 120px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text-secondary);
+    font-size: 15px;
+    font-weight: 500;
+    letter-spacing: .06em;
+  }
+  .bijlage figcaption { margin-top: 6px; }
+  .bestandsnaam {
+    display: block;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .bijlage .wanneer { display: block; font-size: 12px; color: var(--text-secondary); }
+  .bijlage-acties { display: flex; flex-wrap: wrap; margin: 2px -12px 0; }
+  .bijlage-acties form { display: contents; }
+  .bijlage-acties .btn-text { padding: 6px 12px; min-height: 0; font-size: 13px; }
+  .bijlage-acties .aan { color: var(--ok); font-weight: 500; }
   .tegels {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -286,6 +331,60 @@
       {% endif %}
       {% endfor %}
     </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Foto's en bonnetjes</h2>
+      <p>Wat je hier neerzet blijft bij de klus horen. Zet het vinkje aan bij een bon die
+        de klant moet zien: die gaat dan mee als bijlage zodra je de uren van deze klus
+        op een rekening zet en die mailt.</p>
+    </div>
+
+    <form method="post" enctype="multipart/form-data"
+          action="{{ url_for('bijlage_erbij', klus_id=klus.id) }}" class="uploadregel">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="file" name="bijlage" multiple accept="image/*,.pdf,.heic"
+             aria-label="Foto's of bonnetjes kiezen">
+      <button type="submit" class="btn">Toevoegen</button>
+    </form>
+
+    {% if not bijlagen %}
+    <p class="hint" style="margin-top:14px">Er staat nog niets bij deze klus.</p>
+    {% else %}
+    <div class="bijlagen">
+      {% for b in bijlagen %}
+      <figure class="bijlage">
+        <a href="{{ url_for('bijlage', bijlage_id=b.id) }}" target="_blank" rel="noopener"
+           title="{{ b.naam }} openen">
+          {% if b.plaatje %}
+          <img src="{{ url_for('bijlage', bijlage_id=b.id) }}" alt="{{ b.naam }}" loading="lazy">
+          {% else %}
+          <span class="bestandsicoon" aria-hidden="true">PDF</span>
+          {% endif %}
+        </a>
+        <figcaption>
+          <span class="bestandsnaam" title="{{ b.naam }}">{{ b.naam }}</span>
+          <span class="wanneer">{{ b.toegevoegd|datum_nl }}</span>
+          <span class="bijlage-acties">
+            <form method="post" action="{{ url_for('bijlage_meesturen', bijlage_id=b.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-text {{ 'aan' if b.meesturen }}"
+                      title="{% if b.meesturen %}Gaat mee met de rekening{% else %}Meesturen met de rekening{% endif %}">
+                {% if b.meesturen %}✓ Gaat mee{% else %}Meesturen{% endif %}
+              </button>
+            </form>
+            <form method="post" action="{{ url_for('bijlage_verwijder', bijlage_id=b.id) }}"
+                  data-bevestig="{{ b.naam }} verwijderen?">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-text danger">Verwijderen</button>
+            </form>
+          </span>
+        </figcaption>
+      </figure>
+      {% endfor %}
+    </div>
+    {% endif %}
   </section>
 
   <section class="card">

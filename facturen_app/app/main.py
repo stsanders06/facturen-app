@@ -1,6 +1,7 @@
 import csv
 import io
 import logging
+import mimetypes
 import os
 import secrets
 import socket
@@ -28,10 +29,12 @@ DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "d
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
 PDF_DIR = os.path.join(DATA_DIR, "pdfs")
 LOGO_DIR = os.path.join(DATA_DIR, "logo")
+BIJLAGE_DIR = os.path.join(DATA_DIR, "bijlagen")
 
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(PDF_DIR, exist_ok=True)
 os.makedirs(LOGO_DIR, exist_ok=True)
+os.makedirs(BIJLAGE_DIR, exist_ok=True)
 
 
 def _secret_key():
@@ -72,9 +75,16 @@ app = Flask(__name__)
 app.secret_key = _secret_key()
 app.wsgi_app = IngressMiddleware(app.wsgi_app)
 
-# Een logo is hooguit een paar honderd kilobyte. Zonder grens kan één upload de
-# opslag van Home Assistant volschrijven.
-app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
+# Zonder grens kan één upload de opslag van Home Assistant volschrijven. Een logo is
+# hooguit een paar honderd kilobyte, maar een foto van een telefoon is zo vijf megabyte
+# en je kunt er meerdere tegelijk kiezen; vandaar deze ruimere grens voor het geheel.
+app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024
+
+# Wat je als bonnetje of werkfoto bij een klus mag zetten.
+BIJLAGE_TYPES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".heic", ".pdf"}
+
+# Wat een browser zelf als plaatje kan laten zien; de rest krijgt een bestandsicoon.
+BIJLAGE_PLAATJES = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 
 
 def csrf_token():
@@ -103,7 +113,8 @@ def controleer_csrf():
 
 @app.errorhandler(413)
 def te_groot(_fout):
-    flash("Dat bestand is te groot. Kies er een van hooguit 8 MB.")
+    flash("Dat is te veel in één keer. Samen mogen de bestanden hooguit 32 MB zijn; "
+          "kies er wat minder tegelijk.")
     return redirect(request.referrer or url_for("instellingen"))
 
 MAANDEN = [
@@ -333,6 +344,18 @@ def init_db():
             -- weer weg als je dat terugdraait, een handmatige boeking niet.
             automatisch INTEGER DEFAULT 0,
             FOREIGN KEY (factuur_id) REFERENCES facturen (id)
+        );
+
+        CREATE TABLE IF NOT EXISTS bijlagen (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            klus_id INTEGER NOT NULL,
+            bestand TEXT NOT NULL,
+            naam TEXT NOT NULL,
+            toegevoegd TEXT NOT NULL,
+            -- 1 als hij mee moet als de klus op een rekening gaat, bijvoorbeeld een
+            -- bon die de klant wil zien.
+            meesturen INTEGER DEFAULT 0,
+            FOREIGN KEY (klus_id) REFERENCES klussen (id)
         );
 
         CREATE TABLE IF NOT EXISTS offertes (
@@ -629,9 +652,9 @@ def herzie_betaalstatus(conn, factuur_id):
         )
 
 
-def factuurlijst(conn):
+def factuurlijst(conn, klant_id=None):
     """Alle rekeningen, met de vervaldatum, wat er al betaald is en wat er nog
-    openstaat."""
+    openstaat. Met een klant_id alleen die van één klant."""
     vandaag = date.today().isoformat()
     per_factuur = {
         rij["factuur_id"]: rij["som"]
@@ -640,8 +663,15 @@ def factuurlijst(conn):
         )
     }
 
+    if klant_id is None:
+        rijen = conn.execute("SELECT * FROM facturen ORDER BY id DESC")
+    else:
+        rijen = conn.execute(
+            "SELECT * FROM facturen WHERE klant_id=? ORDER BY id DESC", (klant_id,)
+        )
+
     lijst = []
-    for rij in conn.execute("SELECT * FROM facturen ORDER BY id DESC"):
+    for rij in rijen:
         factuur = dict(rij)
         # Hoe hij heet in de lijst: zijn nummer, of "concept 6" zolang hij er geen heeft.
         factuur["naam"] = factuurnaam(rij)
@@ -964,20 +994,35 @@ def klant(klant_id):
     if gegevens is None:
         conn.close()
         abort(404)
-    facturen = conn.execute(
-        "SELECT * FROM facturen WHERE klant_id=? ORDER BY id DESC", (klant_id,)
-    ).fetchall()
+    facturen = factuurlijst(conn, klant_id)
     offertes_van_klant = conn.execute(
         "SELECT * FROM offertes WHERE klant_id=? ORDER BY id DESC", (klant_id,)
     ).fetchall()
     conn.close()
 
-    omzet = sum(f["totaal"] for f in facturen)
-    openstaand = sum(f["totaal"] for f in facturen if f["status"] != "betaald")
+    vandaag = date.today().isoformat()
+    onbetaald = [f for f in facturen if f["status"] != "betaald"]
     klussen_van_klant = [k for k in klussenlijst() if k["klant_id"] == klant_id]
+    open_offertes = [o for o in offertes_van_klant
+                     if o["status"] in ("concept", "verzonden") and not o["factuur_id"]]
+
+    cijfers = {
+        "aantal": len(facturen),
+        "omzet": sum(f["totaal"] for f in facturen),
+        # Wat er nog moet komen is het totaal min wat er al is binnengekomen; anders
+        # klopt het niet zodra een klant in termijnen betaalt.
+        "openstaand": sum(f["openstaand"] for f in onbetaald),
+        "te_laat": sum(f["openstaand"] for f in facturen if f["verlopen"]),
+        "te_laat_aantal": sum(1 for f in facturen if f["verlopen"]),
+        "offertes_uit": sum(o["totaal"] for o in open_offertes),
+        "offertes_aantal": len(open_offertes),
+        "uren_open": round(sum(k["uren_open"] for k in klussen_van_klant), 2),
+        "uren_bedrag": round(sum(k["bedrag_open"] for k in klussen_van_klant), 2),
+        "laatste": max((f["datum"] for f in facturen), default=""),
+    }
     return render_template("klant.html", klant=gegevens, facturen=facturen,
                            offertes=offertes_van_klant, klussen=klussen_van_klant,
-                           omzet=omzet, openstaand=openstaand, actief="klanten")
+                           cijfers=cijfers, vandaag=vandaag, actief="klanten")
 
 
 @app.route("/klant/<int:klant_id>/bewerk", methods=["GET", "POST"])
@@ -1146,12 +1191,16 @@ def klus_nieuw():
 def klus(klus_id):
     conn = get_db()
     gegevens, dagen, totaal = klus_met_uren(conn, klus_id)
-    conn.close()
     if gegevens is None:
+        conn.close()
         abort(404)
+    bestanden = bijlagen_van(conn, klus_id)
+    conn.close()
+
     open_uren = round(sum(d["uren"] for d in dagen if d["factuur_id"] is None), 2)
     return render_template(
         "klus.html", klus=gegevens, dagen=dagen, totaal=totaal, open_uren=open_uren,
+        bijlagen=bestanden,
         bedrag=round(totaal * (gegevens["uurtarief"] or 0), 2),
         vandaag=date.today().isoformat(), actief="klussen",
     )
@@ -1208,12 +1257,125 @@ def klus_verwijder(klus_id):
     if gegevens is None:
         conn.close()
         abort(404)
+    # De bestanden op schijf horen mee te gaan; anders blijven ze als losse
+    # weesbestanden in /data achter.
+    bestanden = [r["bestand"] for r in conn.execute(
+        "SELECT bestand FROM bijlagen WHERE klus_id=?", (klus_id,))]
+    conn.execute("DELETE FROM bijlagen WHERE klus_id=?", (klus_id,))
     conn.execute("DELETE FROM uren WHERE klus_id=?", (klus_id,))
     conn.execute("DELETE FROM klussen WHERE id=?", (klus_id,))
     conn.commit()
     conn.close()
+
+    for bestand in bestanden:
+        pad = os.path.join(BIJLAGE_DIR, bestand)
+        if os.path.exists(pad):
+            os.remove(pad)
+
     flash(f"Klus {gegevens['naam']} en de bijbehorende uren zijn verwijderd.")
     return redirect(url_for("klussen"))
+
+
+def bijlagen_van(conn, klus_id):
+    """De foto's en bonnetjes bij een klus, met of ze als plaatje te tonen zijn."""
+    lijst = []
+    for rij in conn.execute(
+        "SELECT * FROM bijlagen WHERE klus_id=? ORDER BY id", (klus_id,)
+    ):
+        bijlage = dict(rij)
+        bijlage["plaatje"] = os.path.splitext(rij["bestand"])[1].lower() in BIJLAGE_PLAATJES
+        lijst.append(bijlage)
+    return lijst
+
+
+@app.route("/klus/<int:klus_id>/bijlage", methods=["POST"])
+def bijlage_erbij(klus_id):
+    """Bonnetjes en werkfoto's bij een klus zetten. Ze blijven bij de klus horen; de
+    rekening blijft een nette lijst met regels."""
+    conn = get_db()
+    if conn.execute("SELECT id FROM klussen WHERE id=?", (klus_id,)).fetchone() is None:
+        conn.close()
+        abort(404)
+
+    erbij, geweigerd = 0, []
+    for bestand in request.files.getlist("bijlage"):
+        if not bestand or not bestand.filename:
+            continue
+        veilig = secure_filename(bestand.filename) or "bijlage"
+        extensie = os.path.splitext(veilig)[1].lower()
+        if extensie not in BIJLAGE_TYPES:
+            geweigerd.append(bestand.filename)
+            continue
+
+        # Een willekeurig voorvoegsel, zodat twee keer "IMG_0001.jpg" elkaar niet
+        # overschrijft en niemand een pad kan raden.
+        opslagnaam = f"{secrets.token_hex(8)}{extensie}"
+        bestand.save(os.path.join(BIJLAGE_DIR, opslagnaam))
+        conn.execute(
+            """INSERT INTO bijlagen (klus_id, bestand, naam, toegevoegd, meesturen)
+               VALUES (?, ?, ?, ?, 0)""",
+            (klus_id, opslagnaam, veilig, date.today().isoformat()),
+        )
+        erbij += 1
+
+    conn.commit()
+    conn.close()
+
+    if erbij:
+        flash(f"{erbij} bestand{'en' if erbij != 1 else ''} bij de klus gezet.")
+    if geweigerd:
+        flash(f"Niet toegevoegd: {', '.join(geweigerd)}. Kies een foto (JPG, PNG, HEIC) "
+              "of een PDF.")
+    if not erbij and not geweigerd:
+        flash("Er was geen bestand gekozen.")
+    return redirect(url_for("klus", klus_id=klus_id))
+
+
+@app.route("/bijlage/<int:bijlage_id>")
+def bijlage(bijlage_id):
+    """Toont de foto of het bonnetje in de browser."""
+    conn = get_db()
+    rij = conn.execute("SELECT * FROM bijlagen WHERE id=?", (bijlage_id,)).fetchone()
+    conn.close()
+    if rij is None:
+        abort(404)
+    pad = os.path.join(BIJLAGE_DIR, rij["bestand"])
+    if not os.path.exists(pad):
+        abort(404)
+    return send_file(pad, as_attachment=False, download_name=rij["naam"])
+
+
+@app.route("/bijlage/<int:bijlage_id>/meesturen", methods=["POST"])
+def bijlage_meesturen(bijlage_id):
+    """Zet aan of uit of dit bestand meegaat als bijlage bij de rekening."""
+    conn = get_db()
+    rij = conn.execute("SELECT * FROM bijlagen WHERE id=?", (bijlage_id,)).fetchone()
+    if rij is None:
+        conn.close()
+        abort(404)
+    conn.execute("UPDATE bijlagen SET meesturen=? WHERE id=?",
+                 (0 if rij["meesturen"] else 1, bijlage_id))
+    conn.commit()
+    conn.close()
+    return redirect(url_for("klus", klus_id=rij["klus_id"]))
+
+
+@app.route("/bijlage/<int:bijlage_id>/verwijder", methods=["POST"])
+def bijlage_verwijder(bijlage_id):
+    conn = get_db()
+    rij = conn.execute("SELECT * FROM bijlagen WHERE id=?", (bijlage_id,)).fetchone()
+    if rij is None:
+        conn.close()
+        abort(404)
+    conn.execute("DELETE FROM bijlagen WHERE id=?", (bijlage_id,))
+    conn.commit()
+    conn.close()
+
+    pad = os.path.join(BIJLAGE_DIR, rij["bestand"])
+    if os.path.exists(pad):
+        os.remove(pad)
+    flash(f"{rij['naam']} verwijderd.")
+    return redirect(url_for("klus", klus_id=rij["klus_id"]))
 
 
 @app.route("/klus/<int:klus_id>/dag", methods=["POST"])
@@ -2231,9 +2393,10 @@ def _teken_document(pad, doc, regels, s):
     return vel.bewaar()
 
 
-def _mail_pdf(s, ontvanger, onderwerp, tekst, pad, bestandsnaam):
-    """Stuurt één PDF als bijlage. Geeft (gelukt, melding) terug; de melding is
-    bedoeld om aan de gebruiker te tonen en zegt wat er precies misging."""
+def _mail_pdf(s, ontvanger, onderwerp, tekst, pad, bestandsnaam, extra=None):
+    """Stuurt de PDF als bijlage, eventueel met extra bestanden erbij als (pad, naam).
+    Geeft (gelukt, melding) terug; de melding is bedoeld om aan de gebruiker te tonen
+    en zegt wat er precies misging."""
     msg = EmailMessage()
     msg["Subject"] = onderwerp
     msg["From"] = s.get("smtp_van") or s.get("smtp_user")
@@ -2243,6 +2406,15 @@ def _mail_pdf(s, ontvanger, onderwerp, tekst, pad, bestandsnaam):
         msg.add_attachment(
             f.read(), maintype="application", subtype="pdf", filename=bestandsnaam
         )
+
+    for extra_pad, extra_naam in extra or []:
+        if not os.path.exists(extra_pad):
+            continue
+        soort, _ = mimetypes.guess_type(extra_naam)
+        hoofd, _, onder = (soort or "application/octet-stream").partition("/")
+        with open(extra_pad, "rb") as f:
+            msg.add_attachment(f.read(), maintype=hoofd, subtype=onder,
+                               filename=extra_naam)
 
     try:
         with smtplib.SMTP(s["smtp_host"], int(s["smtp_port"]), timeout=20) as server:
@@ -2270,6 +2442,19 @@ def _mail_pdf(s, ontvanger, onderwerp, tekst, pad, bestandsnaam):
     return True, ""
 
 
+def bonnen_bij_factuur(conn, factuur_id):
+    """De bestanden die mee moeten met deze rekening: de bijlagen die op 'meesturen'
+    staan bij de klussen waarvan de uren op deze rekening staan."""
+    rijen = conn.execute(
+        """SELECT DISTINCT b.bestand, b.naam FROM bijlagen b
+           JOIN regels r ON r.klus_id = b.klus_id
+           WHERE r.factuur_id = ? AND b.meesturen = 1
+           ORDER BY b.id""",
+        (factuur_id,),
+    ).fetchall()
+    return [(os.path.join(BIJLAGE_DIR, r["bestand"]), r["naam"]) for r in rijen]
+
+
 def verstuur_email(factuur_id):
     """Mailt de rekening naar de klant en zet hem op verzonden. Een concept krijgt
     hierbij zijn nummer: de rekening gaat de deur uit, dus vanaf nu ligt hij vast."""
@@ -2284,6 +2469,7 @@ def verstuur_email(factuur_id):
     # voor een mail die nooit is verstuurd.
     if factuur["klant_email"] and s.get("smtp_host"):
         factuur = maak_definitief(conn, factuur_id)
+    bonnen = bonnen_bij_factuur(conn, factuur_id)
     conn.close()
 
     if not factuur["klant_email"]:
@@ -2304,10 +2490,13 @@ def verstuur_email(factuur_id):
         factuur["klant_email"],
         f"Rekening {naam} - {s.get('naam', '')}",
         f"Beste {factuur['klant_naam']},\n\n"
-        f"Hierbij de rekening ({naam}) voor het uitgevoerde werk.\n\n"
-        f"Met vriendelijke groet,\n{s.get('naam', '')}",
+        f"Hierbij de rekening ({naam}) voor het uitgevoerde werk."
+        + (f" De bonnetjes zitten erbij."
+           if bonnen else "")
+        + f"\n\nMet vriendelijke groet,\n{s.get('naam', '')}",
         pad,
         bestandsnaam,
+        bonnen,
     )
     if not gelukt:
         return False, melding
