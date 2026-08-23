@@ -54,6 +54,8 @@ def app():
     conn.commit()
     conn.close()
     facturen.MISLUKTE_POGINGEN.clear()
+    # Opgezochte adressen blijven anders van de ene test in de andere hangen.
+    facturen._ADRESCACHE.clear()
 
     yield facturen.app
 

@@ -39,13 +39,19 @@ def test_eigen_hoofdletters_blijven_staan():
     assert net_adres("Lange Voorhout 1, 2514EA 's-Gravenhage").endswith("'s-Gravenhage")
 
 
-@pytest.mark.parametrize("invoer", [
-    "Baker Street 221B, London NW1 6XE",
-    "Alleen een straatnaam 5",
-])
-def test_zonder_nederlandse_postcode_blijft_het_adres_ongemoeid(invoer):
-    """Een buitenlands of half ingevuld adres hoort niet verbouwd te worden."""
-    assert net_adres(invoer) == invoer
+def test_zonder_postcode_blijft_de_inhoud_ongemoeid():
+    """Een buitenlands adres wordt niet verbouwd: geen hoofdletters bijwerken, geen
+    postcode verzinnen. Alleen de komma wordt een regelovergang, want die scheidt de
+    straat van de plaats."""
+    assert net_adres("Baker Street 221B, London NW1 6XE") == \
+        "Baker Street 221B\nLondon NW1 6XE"
+    assert net_adres("Alleen een straatnaam 5") == "Alleen een straatnaam 5"
+
+
+def test_een_adres_uit_de_adressenlijst_zonder_postcode(client):
+    """Niet elk adres bij het Kadaster heeft een postcode; dan hoort de komma toch
+    een regelovergang te worden in plaats van in het veld te blijven staan."""
+    assert net_adres("Molenstraat 14, Lieshout") == "Molenstraat 14\nLieshout"
 
 
 def test_een_adres_zonder_postcode_wordt_wel_opgeschoond():
@@ -136,9 +142,10 @@ def test_wat_er_al_stond_wordt_eenmalig_opgeschoond(db):
     assert slordig["telefoon"] == "06 12345678"
 
     buiten = db.execute("SELECT * FROM klanten WHERE naam='Buitenland'").fetchone()
-    assert buiten["adres"] == "Baker Street 221B, London NW1 6XE"
+    # De komma wordt een regelovergang, verder blijft het buitenlandse adres heel.
+    assert buiten["adres"] == "Baker Street 221B\nLondon NW1 6XE"
     assert buiten["telefoon"] == "+49 30 12345678"
-    assert aangepast == 1
+    assert aangepast == 2
 
 
 def test_een_tweede_keer_opschonen_verandert_niets_meer(db):

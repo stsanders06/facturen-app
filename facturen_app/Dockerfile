@@ -13,8 +13,11 @@ COPY app/requirements.txt /opt/app/requirements.txt
 
 # freetype/jpeg/zlib zijn runtime-libs voor reportlab; de build-deps worden na
 # het installeren van de wheels weer verwijderd zodat het image klein blijft.
+# ca-certificates is nodig om adressen op te kunnen zoeken bij PDOK: zonder de
+# certificaten mislukt die verbinding, en dan blijven de suggesties stil weg.
 RUN \
     apk add --no-cache \
+        ca-certificates \
         freetype \
         jpeg \
         zlib \

@@ -14,7 +14,9 @@ import threading
 from datetime import date, datetime, timedelta
 from email.message import EmailMessage
 from itertools import zip_longest
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
+from urllib.request import Request, urlopen
+from urllib.error import URLError
 from flask import (
     Flask, abort, request, redirect, url_for, render_template, send_file, flash, session
 )
@@ -30,7 +32,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.17.0"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.18.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -2101,8 +2103,13 @@ def net_adres(tekst):
 
     gevonden = POSTCODE.search(tekst)
     if not gevonden:
-        # Wel opschonen: dubbele spaties en lege regels eruit.
-        regels = [" ".join(regel.split()) for regel in tekst.splitlines()]
+        regels = [" ".join(regel.split()) for regel in tekst.splitlines() if regel.strip()]
+        # Zonder postcode maar met een komma op één regel: die komma scheidt de straat
+        # van de plaats. Komt zo uit de adressenlijst van het Kadaster ("Molenstraat
+        # 14, Lieshout") en zo typen mensen het ook.
+        if len(regels) == 1 and "," in regels[0]:
+            straat, _, plaats = regels[0].rpartition(",")
+            regels = [straat.strip(), plaats.strip()]
         return "\n".join(regel for regel in regels if regel)
 
     straat = tekst[:gevonden.start()]
@@ -2170,6 +2177,86 @@ def net_telefoon(tekst):
     if landcode:
         return f"{landcode} {kop} {rest}"
     return f"0{kop} {rest}"
+
+
+# ---------- Adressen opzoeken ----------
+# De Locatieserver van PDOK: alle adressen van Nederland als open data van het
+# Kadaster. Geen account, geen sleutel, geen tarief. Wat je in het adresveld typt
+# gaat er wel naartoe, dus alleen bij het zoeken zelf en nooit iets anders.
+PDOK = "https://api.pdok.nl/bzk/locatieserver/search/v3_1/suggest"
+
+# Kort wachten en dan opgeven: een adresveld hoort niet te blijven hangen omdat een
+# server aan de andere kant traag is. Je kunt intussen gewoon doortypen.
+PDOK_WACHTTIJD = 4
+
+# Wat er al eens is opgezocht. Tijdens het typen komt dezelfde beginletterreeks steeds
+# terug; dit scheelt verkeer naar buiten en maakt de suggesties merkbaar sneller.
+_ADRESCACHE = {}
+ADRESCACHE_MAX = 200
+
+
+def zoek_adressen(term, aantal=5):
+    """Adressen die bij deze zoekterm passen, als lijst van (adres, toelichting).
+
+    Lukt het opzoeken niet — geen internet, PDOK plat, wat dan ook — dan komt er een
+    lege lijst terug. Suggesties zijn een gemak; zonder moet je gewoon kunnen typen."""
+    term = " ".join((term or "").split())
+    if len(term) < 3:
+        return []
+    if term in _ADRESCACHE:
+        return _ADRESCACHE[term]
+
+    adres = f"{PDOK}?{urlencode({'q': term, 'rows': aantal, 'fq': 'type:adres'})}"
+    try:
+        verzoek = Request(adres, headers={"User-Agent": f"Facturen App/{VERSIE}"})
+        with urlopen(verzoek, timeout=PDOK_WACHTTIJD) as antwoord:
+            gegevens = json.loads(antwoord.read().decode("utf-8"))
+        gevonden = [
+            net_adres(doc["weergavenaam"])
+            for doc in gegevens.get("response", {}).get("docs", [])
+            if doc.get("weergavenaam")
+        ]
+    except (URLError, OSError, ValueError, KeyError) as fout:
+        app.logger.info("Adressen opzoeken lukte niet: %s", fout)
+        return []
+
+    if len(_ADRESCACHE) >= ADRESCACHE_MAX:
+        _ADRESCACHE.clear()
+    _ADRESCACHE[term] = gevonden
+    return gevonden
+
+
+@app.route("/adressen")
+def adressuggesties():
+    """Wat het adresveld tijdens het typen ophaalt: eerst je eigen klanten, dan de
+    officiële adressen. Een adres dat je al eens hebt ingevoerd staat bovenaan, want
+    dat is meestal degene die je bedoelt."""
+    term = request.args.get("q", "").strip()
+    if len(term) < 3:
+        return {"suggesties": []}
+
+    conn = get_db()
+    eigen = conn.execute(
+        """SELECT naam, adres FROM klanten
+           WHERE adres <> '' AND (adres LIKE ? OR naam LIKE ?)
+           ORDER BY naam LIMIT 4""",
+        (f"%{term}%", f"%{term}%"),
+    ).fetchall()
+    conn.close()
+
+    # Twee klanten op hetzelfde adres — of een klant die er per ongeluk twee keer in
+    # staat — leveren anders twee regels op die er precies hetzelfde uitzien.
+    suggesties, al_gezien = [], set()
+    for rij in eigen:
+        if rij["adres"] in al_gezien:
+            continue
+        al_gezien.add(rij["adres"])
+        suggesties.append({"adres": rij["adres"], "bron": rij["naam"]})
+    for adres in zoek_adressen(term):
+        if adres not in al_gezien:
+            al_gezien.add(adres)
+            suggesties.append({"adres": adres, "bron": ""})
+    return {"suggesties": suggesties[:8]}
 
 
 def geldige_datum(waarde, terugval=None):

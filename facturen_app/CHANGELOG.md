@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.18.0
+
+- **Adressuggesties tijdens het typen.** Vanaf drie letters verschijnt er een lijstje
+  onder het adresveld. Bovenaan staan adressen van klanten die je al hebt, met hun
+  naam erbij; daaronder de officiële adressen uit de adressenlijst van het Kadaster.
+  Kiezen kan met de muis of met de pijltjes en Enter. Het gekozen adres komt er
+  meteen in de vaste vorm in te staan.
+- Wat je in het adresveld typt gaat daarvoor naar **pdok.nl**, de open adressendienst
+  van het Kadaster. Geen account, geen sleutel, en er gaat verder niets naartoe. Werkt
+  je Home Assistant zonder internet, dan krijg je alleen je eigen klanten te zien en
+  kun je verder gewoon typen.
+
 ## 1.17.0
 
 - **Adressen krijgen overal dezelfde vorm.** Typ je "nachtegaalstraat 212, 5932ch

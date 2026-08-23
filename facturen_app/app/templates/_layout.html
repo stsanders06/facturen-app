@@ -394,6 +394,54 @@
   .empty { text-align: center; padding: 40px 20px; }
   .empty p { color: var(--text-secondary); margin: 0 0 18px; }
 
+  /* ---------- Suggesties onder een adresveld ---------- */
+  .met-suggesties { position: relative; }
+  .adreslijst {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 25;
+    margin-top: 4px;
+    padding: 4px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-raised);
+    max-height: 260px;
+    overflow-y: auto;
+  }
+  .adreslijst[hidden] { display: none; }
+  .adreslijst button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 9px 11px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: 14px;
+    line-height: 1.35;
+    cursor: pointer;
+  }
+  .adreslijst button:hover,
+  .adreslijst button.gekozen { background: var(--primary-soft); }
+  /* De klantnaam bij een adres dat je al eens hebt ingevoerd. */
+  .adreslijst .vanwie {
+    display: block;
+    font-size: 12px;
+    color: var(--primary);
+    font-weight: 500;
+  }
+  .adreslijst .tweede { display: block; color: var(--text-secondary); font-size: 13px; }
+  .adreslijst .bezig {
+    padding: 9px 11px;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+
   /* ---------- Eigen kenmerk op een rekening of offerte ----------
      Een aantekening voor jezelf, om twee stukken voor dezelfde klant uit elkaar te
      houden. Hij staat bewust niet in dezelfde grijstint als de nummers en datums
@@ -734,6 +782,109 @@
       veld.value = netTelefoon(veld.value);
     }
   }, true);
+
+  // ---------- Suggesties tijdens het typen van een adres ----------
+  // Eerst je eigen klanten, daarna de officiële adressen van het Kadaster. De app
+  // haalt ze op; lukt dat niet, dan gebeurt er niets bijzonders en typ je gewoon door.
+  (function () {
+    var ADRESZOEKER = {{ url_for('adressuggesties')|tojson }};
+    // Niet bij elke aanslag naar de server: pas als je even stilvalt.
+    var WACHT = 250;
+
+    document.querySelectorAll('textarea[name$="adres"]').forEach(function (veld) {
+      var houder = document.createElement('div');
+      houder.className = 'met-suggesties';
+      veld.parentNode.insertBefore(houder, veld);
+      houder.appendChild(veld);
+
+      var lijst = document.createElement('div');
+      lijst.className = 'adreslijst';
+      lijst.hidden = true;
+      houder.appendChild(lijst);
+
+      var klok = null, laatste = '', keuzes = [], gekozen = -1;
+
+      function sluit() { lijst.hidden = true; gekozen = -1; }
+
+      function kies(index) {
+        if (index < 0 || index >= keuzes.length) { return; }
+        veld.value = keuzes[index].adres;
+        sluit();
+        veld.focus();
+      }
+
+      function teken() {
+        lijst.innerHTML = '';
+        if (!keuzes.length) { sluit(); return; }
+        keuzes.forEach(function (suggestie, i) {
+          var knop = document.createElement('button');
+          knop.type = 'button';
+          var regels = suggestie.adres.split('\n');
+          if (suggestie.bron) {
+            var wie = document.createElement('span');
+            wie.className = 'vanwie';
+            wie.textContent = suggestie.bron;
+            knop.appendChild(wie);
+          }
+          knop.appendChild(document.createTextNode(regels[0]));
+          if (regels[1]) {
+            var tweede = document.createElement('span');
+            tweede.className = 'tweede';
+            tweede.textContent = regels[1];
+            knop.appendChild(tweede);
+          }
+          // mousedown, niet click: anders sluit blur de lijst voor de klik aankomt.
+          knop.addEventListener('mousedown', function (e) { e.preventDefault(); kies(i); });
+          lijst.appendChild(knop);
+        });
+        lijst.hidden = false;
+      }
+
+      function markeer() {
+        Array.prototype.forEach.call(lijst.children, function (knop, i) {
+          knop.classList.toggle('gekozen', i === gekozen);
+        });
+      }
+
+      function zoek() {
+        var term = veld.value.replace(/\s+/g, ' ').trim();
+        if (term.length < 3 || term === laatste) { return; }
+        laatste = term;
+        fetch(ADRESZOEKER + '?q=' + encodeURIComponent(term), {
+          headers: {'Accept': 'application/json'}
+        }).then(function (r) { return r.ok ? r.json() : {suggesties: []}; })
+          .then(function (gegevens) {
+            if (document.activeElement !== veld) { return; }
+            keuzes = gegevens.suggesties || [];
+            teken();
+          }).catch(function () { sluit(); });
+      }
+
+      veld.addEventListener('input', function () {
+        clearTimeout(klok);
+        if (veld.value.trim().length < 3) { sluit(); return; }
+        klok = setTimeout(zoek, WACHT);
+      });
+
+      veld.addEventListener('keydown', function (e) {
+        if (lijst.hidden) { return; }
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          gekozen += (e.key === 'ArrowDown' ? 1 : -1);
+          if (gekozen < 0) { gekozen = keuzes.length - 1; }
+          if (gekozen >= keuzes.length) { gekozen = 0; }
+          markeer();
+        } else if (e.key === 'Enter' && gekozen >= 0) {
+          e.preventDefault();
+          kies(gekozen);
+        } else if (e.key === 'Escape') {
+          sluit();
+        }
+      });
+
+      veld.addEventListener('blur', sluit);
+    });
+  })();
 </script>
 
 </body>
