@@ -55,9 +55,14 @@ jobs:
         run: |
           mkdir -p /tmp/addon-data
           echo '{"log_level": "debug"}' > /tmp/addon-data/options.json
+          # De Ingress-header telt alleen mee als het verzoek uit het netwerk van
+          # Home Assistant komt. In deze test komt curl van de Docker-brug, dus dat
+          # netwerk geven we hier mee; in Home Assistant zelf blijft de standaard
+          # (172.30.32.0/23) gelden en is dit niet gezet.
           docker run -d --name facturen-test \
             -v /tmp/addon-data:/data \
             -p 8099:8099 \
+            -e INGRESS_NETWERK=172.16.0.0/12 \
             facturen-app:test
 
           # Wachten tot de app antwoordt. Dat doen we via de Ingress-header, want
@@ -97,6 +102,24 @@ jobs:
           grep -q "Kies je inloggegevens" /tmp/instellen.html \
             || { echo "::error::Instelscherm ontbreekt"; cat /tmp/instellen.html; exit 1; }
           echo "Inlog op poort 8099 werkt"
+
+          # En de header alleen mag de inlog niet openbreken: hij telt pas als het
+          # verzoek uit het netwerk van Home Assistant komt. Dit was een gat waarmee
+          # iedereen op het netwerk zonder wachtwoord binnenkwam.
+          docker rm -f facturen-test >/dev/null
+          docker run -d --name facturen-test \
+            -v /tmp/addon-data:/data -p 8099:8099 facturen-app:test
+          for i in $(seq 1 30); do
+            curl -sS -o /dev/null http://localhost:8099/instellen && break
+            sleep 1
+          done
+          curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' \
+            -H "X-Ingress-Path: /api/hassio_ingress/xyz" \
+            http://localhost:8099/ > /tmp/nagemaakt.txt
+          grep -qE '^302 .*/instellen$' /tmp/nagemaakt.txt \
+            || { echo "::error::Een nagemaakte Ingress-header komt langs de inlog"; \
+                 cat /tmp/nagemaakt.txt; exit 1; }
+          echo "Nagemaakte Ingress-header wordt geweigerd"
 
           docker logs facturen-test
 
