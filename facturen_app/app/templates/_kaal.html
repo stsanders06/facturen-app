@@ -21,6 +21,8 @@
     --warn-bg: #fff8e1;
     --warn-border: #ffd54f;
     --warn-text: #6b5400;
+    --ok: #2e7d43;
+    --danger: #c62828;
     --shadow-card: 0 1px 3px rgba(0, 0, 0, .11);
     --radius: 12px;
     --radius-sm: 8px;
@@ -41,6 +43,8 @@
       --warn-bg: #2a2311;
       --warn-border: #7a6420;
       --warn-text: #e8cf88;
+      --ok: #6cc48a;
+      --danger: #ef6c6c;
       --shadow-card: 0 1px 3px rgba(0, 0, 0, .5);
     }
   }
@@ -120,15 +124,36 @@
     cursor: pointer;
   }
   .btn:hover { background: var(--primary-hover); }
-  .flash {
-    background: var(--warn-bg);
-    border: 1px solid var(--warn-border);
-    color: var(--warn-text);
-    padding: 12px 16px;
+  /* Dezelfde meldingen als in de rest van de app: groen als het goed ging, rood
+     als het niet kon. Alleen zonder knop — op dit scherm valt er niets terug te
+     draaien. */
+  .melding {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    background: var(--card);
+    border-left: 3px solid var(--ok);
     border-radius: var(--radius-sm);
-    margin-bottom: 16px;
+    box-shadow: var(--shadow-card);
+    padding: 12px 14px;
+    margin-bottom: 14px;
     font-size: 14px;
+    text-align: left;
   }
+  .melding .teken {
+    flex: none;
+    width: 18px;
+    height: 18px;
+    margin-top: 1px;
+    border-radius: 50%;
+    background: var(--ok);
+    color: var(--card);
+    font-size: 12px;
+    line-height: 18px;
+    text-align: center;
+  }
+  .melding.fout { border-left-color: var(--danger); }
+  .melding.fout .teken { background: var(--danger); }
   .voet { margin: 18px 0 0; text-align: center; font-size: 12px; color: var(--text-secondary); }
 </style>
 </head>
@@ -143,9 +168,13 @@
     Facturen App
   </div>
 
-  {% with messages = get_flashed_messages() %}
-    {% for m in messages %}<div class="flash">{{ m }}</div>{% endfor %}
-  {% endwith %}
+  {% for soort, ruw in get_flashed_messages(with_categories=true) %}
+    {% set m = ruw|uit_json %}
+    <div class="melding {{ soort }}">
+      <span class="teken" aria-hidden="true">{{ '✕' if soort == 'fout' else '✓' }}</span>
+      <span class="woorden">{{ m.tekst }}</span>
+    </div>
+  {% endfor %}
 
   <div class="card">{% block content %}{% endblock %}</div>
   <p class="voet">Facturen App {{ versie }}</p>

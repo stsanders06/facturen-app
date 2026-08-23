@@ -2,7 +2,12 @@
 from conftest import facturen, TEST_GEBRUIKER, TEST_WACHTWOORD
 
 # Zo doet een verzoek zich voor als komend uit de zijbalk van Home Assistant.
-VIA_SIDEBAR = {"HTTP_X_INGRESS_PATH": "/api/hassio_ingress/abc123"}
+VIA_SIDEBAR = {
+    "HTTP_X_INGRESS_PATH": "/api/hassio_ingress/abc123",
+    # De header alleen is niet genoeg: het verzoek moet ook van de Supervisor
+    # komen, anders kan iedereen de inlog met een zelfverzonnen header omzeilen.
+    "REMOTE_ADDR": "172.30.32.2",
+}
 
 
 def test_zonder_inlog_kom_je_op_het_inlogscherm(uitgelogde_client):

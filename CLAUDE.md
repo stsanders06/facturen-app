@@ -27,15 +27,23 @@ DATA_DIR=/tmp/facturen-demo PORT=8573 .venv/bin/python facturen_app/app/main.py
 ```
 
 Op die poort vraagt de app om in te loggen. Wil je dat overslaan tijdens het testen,
-zet dan de header die Home Assistant Ingress normaal meestuurt:
+dan heb je twee dingen nodig: de header die Home Assistant Ingress meestuurt, én
+`INGRESS_NETWERK` op je eigen adres. **De header alleen is expres niet genoeg** — dat
+was een gat waarmee iedereen op het netwerk zonder wachtwoord binnenkwam, dus de app
+kijkt sinds 1.16.0 ook of het verzoek uit het netwerk van Home Assistant komt.
 
 ```bash
+INGRESS_NETWERK=127.0.0.0/8 DATA_DIR=/tmp/facturen-demo PORT=8573 \
+  .venv/bin/python facturen_app/app/main.py
 curl -H "X-Ingress-Path: /" http://127.0.0.1:8573/
 ```
 
 Voor het testen in een browser kun je de app achter een klein WSGI-laagje hangen dat
 die header voor elk verzoek zet. Gebruik `"/"` als waarde: waar genoeg om de inlog over
 te slaan, leeg genoeg om de URLs normaal te houden.
+
+Zet `INGRESS_NETWERK` nooit in `config.yaml` of in een script dat meegaat naar Home
+Assistant: daar hoort alleen het standaardnetwerk te gelden.
 
 ## Afspraken
 
@@ -47,7 +55,7 @@ te slaan, leeg genoeg om de URLs normaal te houden.
   commentaar houden.
 - **Meldingen aan de gebruiker zijn gewone taal.** "De mailserver weigert je
   gebruikersnaam of wachtwoord", niet "SMTP authentication failed".
-- **Elke wijziging krijgt tests.** Er staan er nu 254.
+- **Elke wijziging krijgt tests.** Er staan er nu 270.
 
 ### Valkuil bij de tests
 

@@ -8,7 +8,12 @@ Op poort 8099 speelt dat allemaal niet en blijft bekijken bekijken, in een apart
 tabblad, zodat je lijst openstaat.
 """
 # Zo doet een verzoek zich voor als komend uit de zijbalk van Home Assistant.
-VIA_ZIJBALK = {"HTTP_X_INGRESS_PATH": "/api/hassio_ingress/abc123"}
+VIA_ZIJBALK = {
+    "HTTP_X_INGRESS_PATH": "/api/hassio_ingress/abc123",
+    # De header alleen is niet genoeg: het verzoek moet ook van de Supervisor
+    # komen, anders kan iedereen de inlog met een zelfverzonnen header omzeilen.
+    "REMOTE_ADDR": "172.30.32.2",
+}
 
 
 def paginas_met_een_pdf_link(client, maak_factuur, maak_offerte, db, extra=None):

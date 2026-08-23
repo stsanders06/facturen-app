@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.16.0
+
+- **Belangrijk: het wachtwoord op poort 8099 was te omzeilen.** De app ging ervan uit
+  dat een verzoek uit de zijbalk van Home Assistant kwam zodra er een bepaald kenmerk
+  in stond, en dat kenmerk kan iedereen zelf meesturen. Wie dat wist, kwam op
+  `http://<ip>:8099` zonder wachtwoord binnen en kon alles inzien én veranderen. De app
+  kijkt nu ook of het verzoek écht van Home Assistant komt. **Werk zo snel mogelijk
+  bij**, zeker als die poort openstaat.
+- **Je mailwachtwoord stond in de instellingenpagina.** Het werd bij elk bezoek mee
+  teruggestuurd naar je browser, waar het in de bron van de pagina zichtbaar was. Het
+  veld blijft nu leeg; laat je het leeg, dan blijft het opgeslagen wachtwoord staan.
+- Een knop kon je na afloop naar een website van iemand anders sturen als die je een
+  geprepareerde pagina had laten openen. Nu kom je altijd binnen de app terug.
+- Op het inlogscherm stond de melding als onleesbare regel programmacode in plaats van
+  als nette tekst.
+
 ## 1.15.0
 
 - **Een kenmerk voor jezelf op een rekening of offerte.** Een eigen aantekening om

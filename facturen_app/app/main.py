@@ -1,5 +1,6 @@
 import csv
 import io
+import ipaddress
 import json
 import logging
 import mimetypes
@@ -12,6 +13,7 @@ import threading
 from datetime import date, datetime, timedelta
 from email.message import EmailMessage
 from itertools import zip_longest
+from urllib.parse import urlsplit
 from flask import (
     Flask, abort, request, redirect, url_for, render_template, send_file, flash, session
 )
@@ -27,7 +29,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.15.0"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.16.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -83,6 +85,9 @@ app.wsgi_app = IngressMiddleware(app.wsgi_app)
 # hooguit een paar honderd kilobyte, maar een foto van een telefoon is zo vijf megabyte
 # en je kunt er meerdere tegelijk kiezen; vandaar deze ruimere grens voor het geheel.
 app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024
+# Laat de browser de sessiecookie niet meesturen met verzoeken die van een andere
+# site komen. Het CSRF-kenmerk vangt dat al af; dit is de tweede grendel.
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
 # Wat je als bonnetje of werkfoto bij een klus mag zetten.
 BIJLAGE_TYPES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".heic", ".pdf"}
@@ -102,6 +107,23 @@ def csrf_token():
 
 app.jinja_env.globals["csrf_token"] = csrf_token
 app.jinja_env.globals["versie"] = VERSIE
+
+
+def terug_naar(standaard=None):
+    """Waar een handeling je naartoe terugstuurt.
+
+    De Referer-header komt van de browser en is dus door een ander te bepalen; hem
+    blind volgen maakte van elke knop een doorgeefluik naar een willekeurige website.
+    Alleen een pad binnen de app zelf, nooit een adres van buiten."""
+    referer = request.referrer or ""
+    if referer:
+        stuk = urlsplit(referer)
+        eigen = urlsplit(request.host_url)
+        if stuk.netloc == eigen.netloc:
+            pad = stuk.path + (f"?{stuk.query}" if stuk.query else "")
+            if pad.startswith("/") and not pad.startswith("//"):
+                return pad
+    return standaard or url_for("index")
 
 
 def melding(tekst, soort="gelukt", knop=None):
@@ -161,7 +183,7 @@ def mail_tegenhouden(sleutel):
     else:
         klok.cancel()
         melding("Tegengehouden; er is niets verstuurd.")
-    return redirect(request.referrer or url_for("index"))
+    return redirect(terug_naar(url_for("index")))
 
 
 def toon_mailuitslagen():
@@ -259,14 +281,38 @@ WACHTTIJD_MINUTEN = 15
 # geheugen en niet in de database: bij een herstart mag dit gerust weg zijn.
 MISLUKTE_POGINGEN = {}
 
+# Waar een Ingress-verzoek vandaan mag komen. Home Assistant zet zijn add-ons in
+# 172.30.32.0/23 en de Supervisor praat van daaruit met deze app. Voor het draaien op
+# je eigen machine kun je hier iets anders zetten (zie CLAUDE.md); standaard staat er
+# alleen het netwerk van Home Assistant, zodat een willekeurige bezoeker op poort 8099
+# de inlog niet met een zelfverzonnen header kan overslaan.
+INGRESS_NETWERKEN = [
+    ipaddress.ip_network(stuk.strip())
+    for stuk in os.environ.get("INGRESS_NETWERK", "172.30.32.0/23").split(",")
+    if stuk.strip()
+]
+
 # Pagina's die je zonder inloggen moet kunnen bereiken, anders kom je er nooit in.
 OPEN_PAGINAS = {"inloggen", "account_instellen", "static"}
 
 
 def via_ingress():
-    """Of dit verzoek via de zijbalk van Home Assistant binnenkomt. Daar zit HA's
-    eigen login al voor, dus dan hoef je niet nog een keer in te loggen."""
-    return bool(request.environ.get("HTTP_X_INGRESS_PATH"))
+    """Of dit verzoek écht via de zijbalk van Home Assistant binnenkomt.
+
+    De X-Ingress-Path-header alleen is geen bewijs: die kan iedereen zelf meesturen.
+    Wie dat deed, kwam op poort 8099 zonder wachtwoord binnen en kon alles lezen en
+    veranderen — precies waar die inlog voor bedoeld is. Daarom telt ook van wélk
+    adres het verzoek komt: Ingress loopt altijd via de Supervisor, en die zit in het
+    interne netwerk van Home Assistant. Een buitenstaander op het gewone netwerk kan
+    de header wel meesturen, maar zijn afzender niet vervalsen zonder al binnen dat
+    netwerk te zitten."""
+    if not request.environ.get("HTTP_X_INGRESS_PATH"):
+        return False
+    try:
+        afzender = ipaddress.ip_address(request.remote_addr or "")
+    except ValueError:
+        return False
+    return any(afzender in netwerk for netwerk in INGRESS_NETWERKEN)
 
 
 def als_download():
@@ -460,7 +506,7 @@ def wachtwoord_wijzigen():
 def te_groot(_fout):
     melding("Dat is te veel in één keer. Samen mogen de bestanden hooguit 32 MB zijn; "
           "kies er wat minder tegelijk.", "fout")
-    return redirect(request.referrer or url_for("instellingen"))
+    return redirect(terug_naar(url_for("instellingen")))
 
 MAANDEN = [
     "jan", "feb", "mrt", "apr", "mei", "jun",
@@ -863,6 +909,15 @@ def get_settings():
 # dag nog te herstellen, kort genoeg om de database niet vol te laten lopen.
 PRULLENBAK_DAGEN = 30
 
+# Waar een teruggehaalde rij in mag. De tabel- en kolomnamen komen uit JSON en gaan
+# rechtstreeks in de query — die kun je niet als parameter meegeven. Vandaag schrijft
+# alleen de app zelf die JSON, maar één lek waarlangs iemand hem kan aanpassen is
+# genoeg voor een vrije SQL-opdracht. Deze lijst maakt dat onmogelijk.
+TERUG_TE_ZETTEN = {
+    "facturen", "regels", "betalingen", "offertes", "offerte_regels",
+    "klanten", "klussen", "uren", "bijlagen",
+}
+
 
 def naar_prullenbak(conn, omschrijving, rijen, bestanden=None):
     """Bewaart weggegooide rijen en geeft het id terug om ze mee terug te halen.
@@ -909,10 +964,17 @@ def prullenbak_terug(prullenbak_id):
     if rij is None:
         conn.close()
         melding("Dit is niet meer terug te halen.", "fout")
-        return redirect(request.referrer or url_for("index"))
+        return redirect(terug_naar(url_for("index")))
 
     for tabel, regels in json.loads(rij["inhoud"])["rijen"].items():
+        if tabel not in TERUG_TE_ZETTEN:
+            continue
         for regel in regels:
+            kolommen_in_tabel = {k["name"] for k in
+                                 conn.execute(f"PRAGMA table_info({tabel})")}
+            regel = {k: v for k, v in regel.items() if k in kolommen_in_tabel}
+            if not regel:
+                continue
             kolommen = ", ".join(regel.keys())
             vraagtekens = ", ".join("?" for _ in regel)
             # OR IGNORE: haal je twee keer hetzelfde terug, dan hoeft dat niet te
@@ -923,7 +985,7 @@ def prullenbak_terug(prullenbak_id):
     conn.commit()
     conn.close()
     melding(f"{rij['omschrijving']} staat weer terug.")
-    return redirect(request.referrer or url_for("index"))
+    return redirect(terug_naar(url_for("index")))
 
 
 def factuurnaam(factuur):
@@ -1199,10 +1261,13 @@ def index():
 def instellingen():
     if request.method == "POST":
         conn = get_db()
+        huidig = get_settings()
         logo_bestand = request.form.get("bestaand_logo", "")
         logo_file = request.files.get("logo")
         if logo_file and logo_file.filename:
-            filename = secure_filename(logo_file.filename)
+            # secure_filename kan leeg uitkomen bij een naam van alleen vreemde tekens;
+            # opslaan onder de map zelf gaf dan een foutpagina.
+            filename = secure_filename(logo_file.filename) or "logo.png"
             doel = os.path.join(LOGO_DIR, filename)
             logo_file.save(doel)
             if bruikbaar_logo(doel):
@@ -1227,7 +1292,9 @@ def instellingen():
                 request.form.get("smtp_host", ""),
                 int(request.form.get("smtp_port") or 587),
                 request.form.get("smtp_user", ""),
-                request.form.get("smtp_pass", ""),
+                # Leeg betekent "niet gewijzigd": het veld komt bewust leeg binnen,
+                # want het opgeslagen wachtwoord wordt niet naar de browser gestuurd.
+                request.form.get("smtp_pass", "") or huidig.get("smtp_pass", ""),
                 request.form.get("smtp_van", ""),
             ),
         )
@@ -1710,7 +1777,7 @@ def klus_status(klus_id):
     conn.commit()
     conn.close()
     melding("Klus weer op lopend gezet." if nieuw_status == "open" else "Klus afgerond.")
-    return redirect(request.referrer or url_for("klussen"))
+    return redirect(terug_naar(url_for("klussen")))
 
 
 @app.route("/klus/<int:klus_id>/verwijder", methods=["POST"])
@@ -2365,13 +2432,13 @@ def vernieuw_offerte(offerte_id):
     conn.close()
     maak_offerte_pdf(offerte_id)
     melding(f"Offerte {offerte['nummer']} is opnieuw gemaakt met je huidige instellingen.")
-    return redirect(request.referrer or url_for("offertes"))
+    return redirect(terug_naar(url_for("offertes")))
 
 
 @app.route("/offerte/<int:offerte_id>/verstuur", methods=["POST"])
 def verstuur_offerte(offerte_id):
     mail_offerte(offerte_id)
-    return redirect(request.referrer or url_for("offertes"))
+    return redirect(terug_naar(url_for("offertes")))
 
 
 @app.route("/offerte/<int:offerte_id>/status", methods=["POST"])
@@ -2386,7 +2453,7 @@ def offerte_status(offerte_id):
     conn.commit()
     conn.close()
     melding(f"Offerte {offerte['nummer']}: {OFFERTE_STATUS[nieuw_status].lower()}.")
-    return redirect(request.referrer or url_for("offertes"))
+    return redirect(terug_naar(url_for("offertes")))
 
 
 @app.route("/offerte/<int:offerte_id>/naar-rekening", methods=["POST"])
@@ -3125,7 +3192,7 @@ def vernieuw_pdf(factuur_id):
         abort(404)
     maak_pdf(factuur_id)
     melding(f"Rekening {factuurnaam(factuur)} is opnieuw gemaakt met je huidige instellingen.")
-    return redirect(request.referrer or url_for("index"))
+    return redirect(terug_naar(url_for("index")))
 
 
 @app.route("/instellingen/vernieuw-alles", methods=["POST"])
@@ -3155,7 +3222,7 @@ def download_pdf(factuur_id):
 @app.route("/factuur/<int:factuur_id>/verstuur", methods=["POST"])
 def verstuur(factuur_id):
     mail_rekening(factuur_id)
-    return redirect(request.referrer or url_for("index"))
+    return redirect(terug_naar(url_for("index")))
 
 
 @app.route("/factuur/<int:factuur_id>/definitief", methods=["POST"])
@@ -3169,12 +3236,12 @@ def definitief(factuur_id):
     if factuur["nummer"]:
         conn.close()
         melding(f"Rekening {factuur['nummer']} was al definitief.", "fout")
-        return redirect(request.referrer or url_for("index"))
+        return redirect(terug_naar(url_for("index")))
 
     factuur = maak_definitief(conn, factuur_id)
     conn.close()
     melding(f"De rekening heeft nummer {factuur['nummer']} gekregen.")
-    return redirect(request.referrer or url_for("index"))
+    return redirect(terug_naar(url_for("index")))
 
 
 @app.route("/factuur/<int:factuur_id>/betaald", methods=["POST"])
@@ -3203,7 +3270,7 @@ def markeer_betaald(factuur_id):
         )
         conn.commit()
     conn.close()
-    return redirect(request.referrer or url_for("index"))
+    return redirect(terug_naar(url_for("index")))
 
 
 @app.route("/factuur/<int:factuur_id>/niet-betaald", methods=["POST"])
@@ -3225,7 +3292,7 @@ def markeer_niet_betaald(factuur_id):
     conn.commit()
     conn.close()
     melding(f"Rekening {factuurnaam(factuur)} staat weer open.")
-    return redirect(request.referrer or url_for("index"))
+    return redirect(terug_naar(url_for("index")))
 
 
 @app.route("/factuur/<int:factuur_id>/kopieer", methods=["POST"])
@@ -3341,7 +3408,7 @@ def betaling_verwijder(betaling_id):
 @app.route("/factuur/<int:factuur_id>/herinnering", methods=["POST"])
 def herinnering(factuur_id):
     mail_rekening(factuur_id, herinnering_email, "De herinnering")
-    return redirect(request.referrer or url_for("index"))
+    return redirect(terug_naar(url_for("index")))
 
 
 @app.route("/factuur/<int:factuur_id>/verwijder", methods=["POST"])
@@ -3372,7 +3439,7 @@ def verwijder(factuur_id):
         os.remove(pdf)
 
     melding(f"Rekening {factuurnaam(factuur)} verwijderd.", knop=terugknop(prullenbak_id))
-    return redirect(request.referrer or url_for("index"))
+    return redirect(terug_naar(url_for("index")))
 
 
 init_db()
