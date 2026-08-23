@@ -664,6 +664,76 @@
       balk.remove();
     }, seconden * 1000);
   });
+
+  // ---------- Adres en telefoon netjes maken ----------
+  // De app doet dit bij het opslaan sowieso, maar dan zie je het pas achteraf. Hier
+  // gebeurt het zodra je het veld verlaat, zodat je meteen ziet wat er komt te staan.
+  // Dezelfde regels als in main.py; wijkt er hier iets af, dan wint de server.
+  var KLEINE_WOORDEN = ['aan', 'de', 'den', 'der', 'des', 'het', 'in', 'op', 'over',
+                        'te', 'ten', 'ter', "'t", "'s", 'van', 'bij'];
+  var KORTE_NETNUMMERS = ['10','13','15','20','23','24','26','30','33','35','36','38',
+                          '40','43','45','46','50','53','55','58','70','71','72','73',
+                          '74','75','76','77','78','79'];
+
+  function hoofdletters(tekst) {
+    return tekst.split(/\s+/).map(function (woord, i) {
+      if (i && KLEINE_WOORDEN.indexOf(woord.toLowerCase()) !== -1) {
+        return woord.toLowerCase();
+      }
+      return woord.split('-').map(function (deel) {
+        return deel.charAt(0).toUpperCase() + deel.slice(1);
+      }).join('-');
+    }).join(' ');
+  }
+
+  function netAdres(tekst) {
+    tekst = (tekst || '').trim();
+    if (!tekst) { return ''; }
+    var gevonden = tekst.match(/\b(\d{4})\s*([A-Za-z]{2})\b(?![A-Za-z0-9])/);
+    if (!gevonden) {
+      return tekst.split(/\r?\n/).map(function (r) { return r.trim().replace(/\s+/g, ' '); })
+                  .filter(Boolean).join('\n');
+    }
+    var straat = tekst.slice(0, gevonden.index).replace(/,/g, ' ').trim().replace(/\s+/g, ' ');
+    var plaats = tekst.slice(gevonden.index + gevonden[0].length)
+                      .replace(/,/g, ' ').trim().replace(/\s+/g, ' ');
+    if (plaats && plaats === plaats.toLowerCase()) { plaats = hoofdletters(plaats); }
+    if (straat && straat === straat.toLowerCase()) { straat = hoofdletters(straat); }
+    var tweede = (gevonden[1] + ' ' + gevonden[2].toUpperCase() + ' ' + plaats).trim();
+    return straat ? straat + '\n' + tweede : tweede;
+  }
+
+  function netTelefoon(tekst) {
+    tekst = (tekst || '').trim();
+    if (!tekst) { return ''; }
+    var cijfers = tekst.replace(/[^\d+]/g, '');
+    var landcode = '';
+    if (cijfers.indexOf('+31') === 0) { landcode = '+31'; cijfers = cijfers.slice(3); }
+    else if (cijfers.indexOf('0031') === 0) { landcode = '+31'; cijfers = cijfers.slice(4); }
+    else if (cijfers.charAt(0) === '+') { return tekst; }
+    else if (cijfers.charAt(0) === '0') { cijfers = cijfers.slice(1); }
+    if (landcode) { cijfers = cijfers.replace(/^0+/, ''); }
+
+    if (!/^\d{9}$/.test(cijfers)) { return tekst.trim().replace(/\s+/g, ' '); }
+
+    var kop, rest;
+    if (cijfers.charAt(0) === '6') { kop = '6'; rest = cijfers.slice(1); }
+    else if (KORTE_NETNUMMERS.indexOf(cijfers.slice(0, 2)) !== -1) {
+      kop = cijfers.slice(0, 2); rest = cijfers.slice(2);
+    } else { kop = cijfers.slice(0, 3); rest = cijfers.slice(3); }
+
+    return landcode ? landcode + ' ' + kop + ' ' + rest : '0' + kop + ' ' + rest;
+  }
+
+  document.addEventListener('blur', function (e) {
+    var veld = e.target;
+    if (!veld || !veld.name) { return; }
+    if (/(^|_)adres$/.test(veld.name) && veld.tagName === 'TEXTAREA') {
+      veld.value = netAdres(veld.value);
+    } else if (veld.name === 'telefoon') {
+      veld.value = netTelefoon(veld.value);
+    }
+  }, true);
 </script>
 
 </body>

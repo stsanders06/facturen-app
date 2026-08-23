@@ -39,13 +39,15 @@
       </div>
       <div class="field">
         <label for="adres">Adres</label>
-        <textarea id="adres" name="adres" rows="3">{{ s.adres }}</textarea>
+        <textarea id="adres" name="adres" rows="2" autocomplete="street-address"
+                  placeholder="Nachtegaalstraat 212&#10;5932 CH Tegelen">{{ s.adres }}</textarea>
         <p class="hint">Elke regel komt onder elkaar op de rekening.</p>
       </div>
       <div class="row">
         <div class="field">
           <label for="telefoon">Telefoon</label>
-          <input type="text" id="telefoon" name="telefoon" value="{{ s.telefoon }}">
+          <input type="tel" id="telefoon" name="telefoon" autocomplete="tel"
+               placeholder="06 12345678" value="{{ s.telefoon }}">
         </div>
         <div class="field">
           <label for="email">E-mail</label>

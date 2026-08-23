@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.17.0
+
+- **Adressen krijgen overal dezelfde vorm.** Typ je "nachtegaalstraat 212, 5932ch
+  tegelen", dan staat er zodra je het veld verlaat:
+
+      Nachtegaalstraat 212
+      5932 CH Tegelen
+
+  Straat en huisnummer op de eerste regel, postcode en plaats op de tweede.
+  Tussenvoegsels blijven klein ("Alphen aan den Rijn") en wat je zelf met hoofdletters
+  schrijft blijft staan. Een buitenlands adres wordt met rust gelaten.
+- **Telefoonnummers ook.** "06-12345678" wordt "06 12345678", "+31612345678" wordt
+  "+31 6 12345678", en een vast nummer als "0773512244" wordt "077 3512244". Een
+  nummer uit een ander land blijft zoals het is.
+- Dit geldt ook voor wat er uit een CSV komt, en **wat er al in de app stond is
+  eenmalig meegenomen** — dat hoor je één keer bij het opstarten.
+- Op een telefoon opent het telefoonveld nu het cijfertoetsenbord, en je browser mag
+  adres en nummer aanvullen uit je contacten.
+
 ## 1.16.0
 
 - **Belangrijk: het wachtwoord op poort 8099 was te omzeilen.** De app ging ervan uit

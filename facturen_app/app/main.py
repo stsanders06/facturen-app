@@ -5,6 +5,7 @@ import json
 import logging
 import mimetypes
 import os
+import re
 import secrets
 import socket
 import sqlite3
@@ -29,7 +30,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.16.0"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.17.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -1074,6 +1075,37 @@ def geldig_tot(datum):
         return datum
 
 
+def net_bestaande_gegevens():
+    """Zet adressen en telefoonnummers die er al staan ook in de vaste vorm.
+
+    Eenmalig bij het opstarten, anders blijft je lijst er door elkaar uitzien: alleen
+    wat je ná deze versie opslaat zou netjes worden. Wat de opmaakregels niet als
+    Nederlands adres of nummer herkennen blijft staan zoals het is, dus een
+    buitenlandse klant verandert niet."""
+    conn = get_db()
+    aangepast = 0
+    for tabel, velden in [("klanten", ("adres", "telefoon")),
+                          ("facturen", ("klant_adres",)),
+                          ("offertes", ("klant_adres",)),
+                          ("settings", ("adres", "telefoon"))]:
+        kolommen = ", ".join(velden)
+        for rij in conn.execute(f"SELECT id, {kolommen} FROM {tabel}").fetchall():
+            nieuw = {}
+            for veld in velden:
+                oud = rij[veld] or ""
+                schoon = net_telefoon(oud) if veld == "telefoon" else net_adres(oud)
+                if schoon != oud:
+                    nieuw[veld] = schoon
+            if nieuw:
+                zetten = ", ".join(f"{veld}=?" for veld in nieuw)
+                conn.execute(f"UPDATE {tabel} SET {zetten} WHERE id=?",
+                             list(nieuw.values()) + [rij["id"]])
+                aangepast += 1
+    conn.commit()
+    conn.close()
+    return aangepast
+
+
 def herstel_dubbele_nummers():
     """Repareert rekeningen die door de oude telling hetzelfde nummer kregen.
 
@@ -1283,8 +1315,8 @@ def instellingen():
                smtp_pass=?, smtp_van=? WHERE id=1""",
             (
                 request.form.get("naam", ""),
-                request.form.get("adres", ""),
-                request.form.get("telefoon", ""),
+                net_adres(request.form.get("adres", "")),
+                net_telefoon(request.form.get("telefoon", "")),
                 request.form.get("email", ""),
                 request.form.get("iban", ""),
                 request.form.get("tenaamstelling", ""),
@@ -1329,9 +1361,9 @@ def klantenlijst():
 def klant_uit_form(form):
     return (
         form.get("naam", "").strip(),
-        form.get("adres", "").strip(),
+        net_adres(form.get("adres", "")),
         form.get("email", "").strip(),
-        form.get("telefoon", "").strip(),
+        net_telefoon(form.get("telefoon", "")),
         form.get("notitie", "").strip(),
     )
 
@@ -1421,8 +1453,11 @@ def klanten_import():
         adres_delen = [waarde("adres")] + [
             (rij.get(kop, "") or "").strip() for kop in extra_adres
         ]
-        adres = "\n".join(deel for deel in adres_delen if deel)
-        email, telefoon, notitie = waarde("email"), waarde("telefoon"), waarde("notitie")
+        # Ook wat uit een CSV komt in dezelfde vorm zetten; die bestanden zijn juist
+        # een bron van "5932ch tegelen" en "06-12345678".
+        adres = net_adres("\n".join(deel for deel in adres_delen if deel))
+        email, notitie = waarde("email"), waarde("notitie")
+        telefoon = net_telefoon(waarde("telefoon"))
 
         bestaand = conn.execute(
             "SELECT id FROM klanten WHERE naam=? COLLATE NOCASE", (naam,)
@@ -2026,6 +2061,117 @@ def lees_regels(form):
     return regels, round(totaal, 2)
 
 
+# ---------- Adressen en telefoonnummers netjes maken ----------
+# Wat je intikt komt overal terug: op de rekening, in de mail, op de klantpagina. Dat
+# hoort er hetzelfde uit te zien of je nu "5932ch tegelen" of "5932 CH Tegelen" typt.
+# Alles gaat door deze twee functies op het moment van opslaan, zodat het ook klopt
+# voor wat er via een CSV binnenkomt.
+
+# Een Nederlandse postcode: vier cijfers, dan twee letters. De letters mogen tegen de
+# cijfers aan staan of er los van.
+POSTCODE = re.compile(r"\b(\d{4})\s*([A-Za-z]{2})\b(?![A-Za-z0-9])")
+
+# Tussenvoegsels in plaatsnamen blijven klein: "Alphen aan den Rijn", niet "Aan Den".
+KLEINE_WOORDEN = {"aan", "de", "den", "der", "des", "het", "in", "op", "over", "te",
+                  "ten", "ter", "'t", "'s", "van", "bij"}
+
+
+def _hoofdletters(tekst):
+    """Elk woord met een hoofdletter, maar tussenvoegsels niet."""
+    woorden = tekst.split()
+    uit = []
+    for i, woord in enumerate(woorden):
+        if i and woord.lower() in KLEINE_WOORDEN:
+            uit.append(woord.lower())
+        else:
+            # Ook na een koppelteken hoort een hoofdletter: Berkel-Enschot.
+            uit.append("-".join(deel[:1].upper() + deel[1:] for deel in woord.split("-")))
+    return " ".join(uit)
+
+
+def net_adres(tekst):
+    """Straat en huisnummer op de eerste regel, postcode en plaats op de tweede.
+
+    Vindt de functie geen Nederlandse postcode, dan blijft het adres staan zoals het
+    is getypt — een buitenlands adres of een half ingevuld adres hoort niet door een
+    opmaakregel te worden verbouwd."""
+    tekst = (tekst or "").strip()
+    if not tekst:
+        return ""
+
+    gevonden = POSTCODE.search(tekst)
+    if not gevonden:
+        # Wel opschonen: dubbele spaties en lege regels eruit.
+        regels = [" ".join(regel.split()) for regel in tekst.splitlines()]
+        return "\n".join(regel for regel in regels if regel)
+
+    straat = tekst[:gevonden.start()]
+    plaats = tekst[gevonden.end():]
+    # Komma's en regelovergangen tussen de delen zijn scheidingstekens, geen inhoud.
+    straat = " ".join(straat.replace(",", " ").split())
+    plaats = " ".join(plaats.replace(",", " ").split())
+
+    postcode = f"{gevonden.group(1)} {gevonden.group(2).upper()}"
+    # Alleen bijwerken wat helemaal klein is getypt; wie zelf hoofdletters zet,
+    # bedoelt dat waarschijnlijk zo (McDonald, IJmuiden, 's-Gravenhage).
+    if plaats and plaats == plaats.lower():
+        plaats = _hoofdletters(plaats)
+    if straat and straat == straat.lower():
+        straat = _hoofdletters(straat)
+
+    tweede = f"{postcode} {plaats}".strip()
+    return f"{straat}\n{tweede}".strip() if straat else tweede
+
+
+# Netnummers van drie cijfers; al het andere vaste nummer heeft er vier. Zonder deze
+# lijst valt niet te zien waar het netnummer ophoudt en het abonneenummer begint.
+KORTE_NETNUMMERS = {
+    "10", "13", "15", "20", "23", "24", "26", "30", "33", "35", "36", "38", "40",
+    "43", "45", "46", "50", "53", "55", "58", "70", "71", "72", "73", "74", "75",
+    "76", "77", "78", "79",
+}
+
+
+def net_telefoon(tekst):
+    """06 12345678 voor een mobiel nummer, 077 3512244 voor een vast nummer.
+
+    Een nummer met landcode wordt +31 6 12345678. Wat er niet als Nederlands nummer
+    uitziet, wordt alleen opgeschoond en verder met rust gelaten: een buitenlands
+    nummer verkeerd opdelen is erger dan het laten staan."""
+    tekst = (tekst or "").strip()
+    if not tekst:
+        return ""
+
+    cijfers = re.sub(r"[^\d+]", "", tekst)
+    landcode = ""
+    if cijfers.startswith("+31"):
+        landcode, cijfers = "+31", cijfers[3:]
+    elif cijfers.startswith("0031"):
+        landcode, cijfers = "+31", cijfers[4:]
+    if landcode:
+        # "+31 (0)6 ..." is een gangbare schrijfwijze; die nul hoort bij de binnen-
+        # landse vorm en staat dubbel zodra de landcode er al is.
+        cijfers = cijfers.lstrip("0")
+    elif cijfers.startswith("+"):
+        return tekst  # een ander land; daar gaan we niet over
+    elif cijfers.startswith("0"):
+        cijfers = cijfers[1:]
+
+    if not cijfers.isdigit() or len(cijfers) != 9:
+        return " ".join(tekst.split())
+
+    if cijfers.startswith("6"):
+        kop, rest = "6", cijfers[1:]
+    elif cijfers[:2] in KORTE_NETNUMMERS:
+        kop, rest = cijfers[:2], cijfers[2:]
+    else:
+        kop, rest = cijfers[:3], cijfers[3:]
+
+    if landcode:
+        return f"{landcode} {kop} {rest}"
+    return f"0{kop} {rest}"
+
+
 def geldige_datum(waarde, terugval=None):
     """Een datum die niet als jaar-maand-dag te lezen is, breekt later de sortering
     en de weergave. Zo'n waarde vervangen we door de terugval."""
@@ -2073,7 +2219,7 @@ def bepaal_klant(conn, form):
             return bestaand["id"]
         return conn.execute(
             "INSERT INTO klanten (naam, adres, email) VALUES (?, ?, ?)",
-            (naam, form.get("klant_adres", "").strip(), form.get("klant_email", "").strip()),
+            (naam, net_adres(form.get("klant_adres", "")), form.get("klant_email", "").strip()),
         ).lastrowid
     return None
 
@@ -2122,7 +2268,7 @@ def nieuw():
                 geldige_datum(request.form.get("datum")),
                 klant_id,
                 request.form.get("klant_naam", ""),
-                request.form.get("klant_adres", ""),
+                net_adres(request.form.get("klant_adres", "")),
                 request.form.get("klant_email", ""),
                 request.form.get("betaalmethode", "bank"),
                 totaal,
@@ -2184,7 +2330,7 @@ def bewerk(factuur_id):
                 geldige_datum(request.form.get("datum"), factuur["datum"]),
                 klant_id,
                 request.form.get("klant_naam", ""),
-                request.form.get("klant_adres", ""),
+                net_adres(request.form.get("klant_adres", "")),
                 request.form.get("klant_email", ""),
                 request.form.get("betaalmethode", "bank"),
                 totaal,
@@ -2311,7 +2457,7 @@ def offerte_nieuw():
                 lees_geldigheid(request.form, datum),
                 klant_id,
                 request.form.get("klant_naam", ""),
-                request.form.get("klant_adres", ""),
+                net_adres(request.form.get("klant_adres", "")),
                 request.form.get("klant_email", ""),
                 totaal,
                 request.form.get("toelichting", "").strip(),
@@ -2371,7 +2517,7 @@ def offerte_bewerk(offerte_id):
                 lees_geldigheid(request.form, datum),
                 klant_id,
                 request.form.get("klant_naam", ""),
-                request.form.get("klant_adres", ""),
+                net_adres(request.form.get("klant_adres", "")),
                 request.form.get("klant_email", ""),
                 totaal,
                 request.form.get("toelichting", "").strip(),
@@ -3443,6 +3589,15 @@ def verwijder(factuur_id):
 
 
 init_db()
+
+_opgeschoond = net_bestaande_gegevens()
+if _opgeschoond:
+    OPSTARTMELDINGEN.append(
+        f"{_opgeschoond} adres{'sen' if _opgeschoond != 1 else ''} of telefoonnummer"
+        f"{'s' if _opgeschoond != 1 else ''} stond{'en' if _opgeschoond != 1 else ''} "
+        "in een andere schrijfwijze en staat nu overal hetzelfde: straat en huisnummer "
+        "op de eerste regel, postcode en plaats op de tweede."
+    )
 
 for _oud, _nieuw in herstel_dubbele_nummers():
     OPSTARTMELDINGEN.append(

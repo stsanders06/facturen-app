@@ -121,7 +121,8 @@
       </div>
       <div class="field">
         <label for="klant_adres">Adres</label>
-        <textarea id="klant_adres" name="klant_adres" rows="2">{{ factuur.klant_adres if factuur else (gekozen_klant.adres if gekozen_klant else '') }}</textarea>
+        <textarea id="klant_adres" name="klant_adres" rows="2" autocomplete="street-address"
+                placeholder="Nachtegaalstraat 212&#10;5932 CH Tegelen">{{ factuur.klant_adres if factuur else (gekozen_klant.adres if gekozen_klant else '') }}</textarea>
       </div>
       <div class="field">
         <label for="klant_email">E-mailadres</label>
