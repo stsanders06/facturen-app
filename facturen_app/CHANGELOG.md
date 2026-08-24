@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.19.0
+
+- **Aanvragen bijhouden.** Iemand belt dat hij iets wil: dat zet je er nu meteen in,
+  nog voordat er een intake of offerte is geweest. Aanvragen staan bovenaan op het
+  tabblad, met de langst wachtende eerst en hoe lang hij al ligt.
+- Op een aanvraag staan de stappen die nog moeten gebeuren: **aangevraagd → intake
+  geweest → offerte gestuurd**. Niet elke klus heeft een offerte nodig, dus die stap
+  mag je overslaan; met "Klus starten" ga je door naar de uren. Maak je de offerte
+  wel vanaf de aanvraag, dan blijft hij eraan hangen zodat je ziet welke het was.
+- **Het tabblad "Uren" heet nu "Klussen".** Een klus loopt van aanvraag tot afgerond,
+  en de uren zijn daar een stap in — ze stonden nooit los van elkaar.
+- Bij een nieuwe klus staat een vinkje "dit is nog een aanvraag". Zet je dat uit, dan
+  begin je er meteen aan zoals eerst.
+
 ## 1.18.0
 
 - **Adressuggesties tijdens het typen.** Vanaf drie letters verschijnt er een lijstje

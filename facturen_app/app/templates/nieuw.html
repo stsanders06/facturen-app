@@ -92,6 +92,10 @@
 
 <form method="post" class="cards">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  {# Kwam je hier vanaf een aanvraag, dan gaat de offerte daar straks aan vast. #}
+  {% if voor_klus|default('') %}
+  <input type="hidden" name="voor_klus" value="{{ voor_klus }}">
+  {% endif %}
 
   <section class="card">
     <div class="card-head">

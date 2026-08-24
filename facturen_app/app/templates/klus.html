@@ -195,6 +195,33 @@
   }
 
   .kop-acties { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* ---------- De stappen van een aanvraag ---------- */
+  .stappen { list-style: none; margin: 0; padding: 0; }
+  .stappen li {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--divider);
+  }
+  .stappen li:last-child { border-bottom: none; }
+  .stappen .vink {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2px solid var(--border);
+    color: var(--card);
+    font-size: 13px;
+    line-height: 19px;
+    text-align: center;
+  }
+  .stappen li.af .vink { background: var(--ok); border-color: var(--ok); }
+  .stappen .wat { flex: 1; min-width: 0; }
+  .stappen .wat small { display: block; font-size: 12.5px; color: var(--text-secondary); }
+  .stappen li:not(.af) .wat { color: var(--text-secondary); }
+  .stappen form { margin: 0; }
   .lege-lijst { color: var(--text-secondary); font-size: 14px; margin: 0; }
   .opsomming { margin: 14px 0 0; color: var(--text-secondary); font-size: 14px; }
   .opsomming a { color: var(--primary); }
@@ -217,6 +244,21 @@
 <div class="cards">
 
   <section class="card">
+    {% if klus.status == 'aangevraagd' %}
+    <div class="tegels">
+      <div class="tegel">
+        <small>Binnengekomen</small>
+        <b>{{ wachtduur(klus.aangevraagd_op) }}</b>
+        <small>{{ klus.aangevraagd_op|datum_nl }}</small>
+      </div>
+      {% if klus.uurtarief %}
+      <div class="tegel">
+        <small>Uurtarief</small>
+        <b>&euro; {{ klus.uurtarief|bedrag }}</b>
+      </div>
+      {% endif %}
+    </div>
+    {% else %}
     <div class="tegels">
       <div class="tegel">
         <small>Totaal uren</small>
@@ -231,15 +273,61 @@
         <b id="tegel-bedrag">&euro; {{ bedrag|bedrag }}</b>
       </div>
     </div>
+    {% endif %}
     <p class="opsomming">
       {% if klus.klant_naam %}Klant: <a href="{{ url_for('klant', klant_id=klus.klant_id) }}">{{ klus.klant_naam }}</a> ·
       {% endif %}
-      <span class="chip chip-{{ klus.status }}">
-        {% if klus.status == 'afgerond' %}Afgerond{% else %}Lopend{% endif %}</span>
+      <span class="chip chip-{{ klus.status }}">{{ fases[klus.status].label }}</span>
       {% if klus.notitie %}<br>{{ klus.notitie }}{% endif %}
     </p>
   </section>
 
+  {% if klus.status == 'aangevraagd' %}
+  <section class="card">
+    <div class="card-head">
+      <h2>Hoe ver staat het</h2>
+      <p>Niet elke klus heeft een offerte nodig; die stap mag je overslaan.</p>
+    </div>
+    <ol class="stappen">
+      <li class="af">
+        <span class="vink" aria-hidden="true">✓</span>
+        <span class="wat">Aangevraagd<small>{{ klus.aangevraagd_op|datum_nl }}</small></span>
+      </li>
+      <li class="{{ 'af' if klus.intake_op }}">
+        <span class="vink" aria-hidden="true">{{ '✓' if klus.intake_op else '' }}</span>
+        <span class="wat">Intake geweest
+          {%- if klus.intake_op %}<small>{{ klus.intake_op|datum_nl }}</small>{% endif %}</span>
+        <form method="post" action="{{ url_for('klus_intake', klus_id=klus.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-text">
+            {{ 'Toch niet' if klus.intake_op else 'Afvinken' }}</button>
+        </form>
+      </li>
+      <li class="{{ 'af' if offerte }}">
+        <span class="vink" aria-hidden="true">{{ '✓' if offerte else '' }}</span>
+        <span class="wat">Offerte gestuurd
+          {%- if offerte %}<small>{{ offerte.nummer }} · {{ offerte_status[offerte.status] }}</small>
+          {%- else %}<small>hoeft niet</small>{% endif %}</span>
+        {% if not offerte %}
+        <a class="btn btn-text"
+           href="{{ url_for('offerte_nieuw') }}?voor_klus={{ klus.id }}{% if klus.klant_id %}&klant={{ klus.klant_id }}{% endif %}">
+          Offerte maken</a>
+        {% else %}
+        <a class="btn btn-text" href="{{ url_for('offerte_bewerk', offerte_id=offerte.id) }}">Bekijken</a>
+        {% endif %}
+      </li>
+    </ol>
+    <div class="indienen" style="margin-top:16px">
+      <form method="post" action="{{ url_for('klus_status', klus_id=klus.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="naar" value="open">
+        <button type="submit" class="btn">Klus starten</button>
+      </form>
+    </div>
+  </section>
+  {% endif %}
+
+  {% if klus.status != 'aangevraagd' %}
   <section class="card">
     <div class="card-head">
       <h2>Dag erbij</h2>
@@ -332,6 +420,7 @@
       {% endfor %}
     </div>
   </section>
+  {% endif %}
 
   <section class="card">
     <div class="card-head">
@@ -405,6 +494,8 @@
 
   (function () {
     var lijst = document.getElementById('dagen');
+    // Bij een aanvraag staan de urenblokken er nog niet: uren zijn de stap daarna.
+    if (!lijst) { return; }
     var tarief = parseFloat(lijst.dataset.tarief) || 0;
 
     function urenTussen(van, tot) {

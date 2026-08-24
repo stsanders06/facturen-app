@@ -32,7 +32,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.18.0"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.19.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -529,6 +529,15 @@ OFFERTE_REGEL = (
     "particuliere levering van diensten."
 )
 
+# De fases die een klus doorloopt. Een aanvraag is iemand die gebeld heeft: er is nog
+# geen intake geweest en er zijn nog geen uren. Niet elke klus krijgt een offerte, dus
+# die stap mag je overslaan — je gaat gewoon door naar lopend.
+KLUS_FASES = {
+    "aangevraagd": {"label": "Aanvraag", "melding": "Terug naar aanvraag gezet."},
+    "open": {"label": "Lopend", "melding": "De klus loopt; je kunt uren bijhouden."},
+    "afgerond": {"label": "Afgerond", "melding": "Klus afgerond."},
+}
+
 # Wat er bij het opstarten is rechtgezet; wordt één keer aan de gebruiker getoond.
 OPSTARTMELDINGEN = []
 
@@ -868,6 +877,19 @@ def init_db():
                 "UPDATE facturen SET klant_id=? WHERE klant_naam=?",
                 (klant_id, rij["klant_naam"]),
             )
+
+    # Een klus begint als aanvraag en loopt door tot hij af is. De fases ervoor
+    # stonden nergens, waardoor iemand die belde alleen in je hoofd zat.
+    kluskolommen = {rij["name"] for rij in conn.execute("PRAGMA table_info(klussen)")}
+    if "aangevraagd_op" not in kluskolommen:
+        conn.execute("ALTER TABLE klussen ADD COLUMN aangevraagd_op TEXT DEFAULT ''")
+        # Wat er al staat is allang geen aanvraag meer; de startdatum is het beste
+        # wat we hebben voor wanneer het binnenkwam.
+        conn.execute("UPDATE klussen SET aangevraagd_op = gestart")
+    if "intake_op" not in kluskolommen:
+        conn.execute("ALTER TABLE klussen ADD COLUMN intake_op TEXT DEFAULT ''")
+    if "offerte_id" not in kluskolommen:
+        conn.execute("ALTER TABLE klussen ADD COLUMN offerte_id INTEGER")
 
     # Een eigen aantekening om twee rekeningen of offertes voor dezelfde klant uit
     # elkaar te houden. Staat alleen in de app; de klant ziet hem nergens.
@@ -1671,7 +1693,12 @@ def klussenlijst():
     klussen = conn.execute(
         """SELECT kl.*, k.naam AS klant_naam FROM klussen kl
            LEFT JOIN klanten k ON k.id = kl.klant_id
-           ORDER BY (kl.status = 'afgerond'), kl.id DESC"""
+           ORDER BY (kl.status <> 'aangevraagd'), (kl.status = 'afgerond'),
+                    -- Bij aanvragen staat de langst wachtende bovenaan; bij de rest
+                    -- juist de nieuwste, want daar ben je meestal mee bezig.
+                    CASE WHEN kl.status = 'aangevraagd' THEN kl.aangevraagd_op END,
+                    CASE WHEN kl.status = 'aangevraagd' THEN kl.id END,
+                    kl.id DESC"""
     ).fetchall()
     uren = conn.execute("SELECT * FROM uren ORDER BY datum").fetchall()
     conn.close()
@@ -1722,13 +1749,18 @@ def klus_uit_form(form):
 @app.route("/klussen")
 def klussen():
     lijst = klussenlijst()
+    # Aanvragen staan apart: daar valt nog niets te factureren, en ze horen juist op
+    # te vallen omdat er nog iets moet gebeuren.
+    aanvragen = [k for k in lijst if k["status"] == "aangevraagd"]
+    klussen_lijst = [k for k in lijst if k["status"] != "aangevraagd"]
     overzicht = {
-        "open_uren": round(sum(k["uren_open"] for k in lijst), 2),
-        "open_bedrag": round(sum(k["bedrag_open"] for k in lijst), 2),
-        "lopend": sum(1 for k in lijst if k["status"] != "afgerond"),
+        "open_uren": round(sum(k["uren_open"] for k in klussen_lijst), 2),
+        "open_bedrag": round(sum(k["bedrag_open"] for k in klussen_lijst), 2),
+        "lopend": sum(1 for k in klussen_lijst if k["status"] != "afgerond"),
+        "aangevraagd": len(aanvragen),
     }
-    return render_template("klussen.html", klussen=lijst, overzicht=overzicht,
-                           actief="klussen")
+    return render_template("klussen.html", klussen=klussen_lijst, aanvragen=aanvragen,
+                           overzicht=overzicht, fases=KLUS_FASES, actief="klussen")
 
 
 @app.route("/klussen/nieuw", methods=["GET", "POST"])
@@ -1738,16 +1770,24 @@ def klus_nieuw():
         if not naam:
             melding("Geef de klus een naam om hem op te slaan.", "fout")
             return redirect(url_for("klus_nieuw"))
+        vandaag = date.today().isoformat()
+        # Een klus die nog moet beginnen is een aanvraag: iemand heeft gebeld, er is
+        # nog geen intake en er zijn nog geen uren.
+        aanvraag = request.form.get("aanvraag") == "ja"
         conn = get_db()
         cur = conn.execute(
-            """INSERT INTO klussen (naam, klant_id, uurtarief, notitie, status, gestart)
-               VALUES (?, ?, ?, ?, 'open', ?)""",
-            (naam, klant_id, uurtarief, notitie, date.today().isoformat()),
+            """INSERT INTO klussen (naam, klant_id, uurtarief, notitie, status,
+               gestart, aangevraagd_op) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (naam, klant_id, uurtarief, notitie,
+             "aangevraagd" if aanvraag else "open", vandaag, vandaag),
         )
         conn.commit()
         klus_id = cur.lastrowid
         conn.close()
-        melding(f"Klus {naam} aangemaakt. Zet hieronder je eerste dag erbij.")
+        if aanvraag:
+            melding(f"Aanvraag {naam} staat erbij.")
+        else:
+            melding(f"Klus {naam} aangemaakt. Zet hieronder je eerste dag erbij.")
         return redirect(url_for("klus", klus_id=klus_id))
 
     return render_template("klus_form.html", klus=None, klanten=klantenlijst(),
@@ -1762,12 +1802,17 @@ def klus(klus_id):
         conn.close()
         abort(404)
     bestanden = bijlagen_van(conn, klus_id)
+    offerte = None
+    if gegevens["offerte_id"]:
+        offerte = conn.execute("SELECT * FROM offertes WHERE id=?",
+                               (gegevens["offerte_id"],)).fetchone()
     conn.close()
 
     open_uren = round(sum(d["uren"] for d in dagen if d["factuur_id"] is None), 2)
     return render_template(
         "klus.html", klus=gegevens, dagen=dagen, totaal=totaal, open_uren=open_uren,
-        bijlagen=bestanden,
+        bijlagen=bestanden, offerte=offerte, fases=KLUS_FASES,
+        offerte_status=OFFERTE_STATUS,
         bedrag=round(totaal * (gegevens["uurtarief"] or 0), 2),
         vandaag=date.today().isoformat(), actief="klussen",
     )
@@ -1803,18 +1848,49 @@ def klus_bewerk(klus_id):
 
 @app.route("/klus/<int:klus_id>/status", methods=["POST"])
 def klus_status(klus_id):
-    """Wisselt tussen lopend en afgerond; afgeronde klussen zakken naar onderen."""
+    """Zet de klus in een andere fase: aangevraagd, lopend of afgerond."""
     conn = get_db()
-    gegevens = conn.execute("SELECT status FROM klussen WHERE id=?", (klus_id,)).fetchone()
+    gegevens = conn.execute("SELECT * FROM klussen WHERE id=?", (klus_id,)).fetchone()
     if gegevens is None:
         conn.close()
         abort(404)
-    nieuw_status = "open" if gegevens["status"] == "afgerond" else "afgerond"
-    conn.execute("UPDATE klussen SET status=? WHERE id=?", (nieuw_status, klus_id))
+
+    gevraagd = request.form.get("naar", "")
+    if gevraagd in KLUS_FASES:
+        nieuw_status = gevraagd
+    else:
+        # Zonder opgave: de knop wisselt tussen lopend en afgerond, zoals eerst.
+        nieuw_status = "open" if gegevens["status"] == "afgerond" else "afgerond"
+
+    velden, waarden = ["status=?"], [nieuw_status]
+    # Bij het echt beginnen telt vanaf vandaag; de aanvraagdatum blijft staan zodat
+    # je kunt zien hoe lang het heeft geduurd.
+    if nieuw_status == "open" and gegevens["status"] == "aangevraagd":
+        velden.append("gestart=?")
+        waarden.append(date.today().isoformat())
+    conn.execute(f"UPDATE klussen SET {', '.join(velden)} WHERE id=?",
+                 waarden + [klus_id])
     conn.commit()
     conn.close()
-    melding("Klus weer op lopend gezet." if nieuw_status == "open" else "Klus afgerond.")
+    melding(KLUS_FASES[nieuw_status]["melding"])
     return redirect(terug_naar(url_for("klussen")))
+
+
+@app.route("/klus/<int:klus_id>/intake", methods=["POST"])
+def klus_intake(klus_id):
+    """Vinkt de intake af of haalt hem weer weg."""
+    conn = get_db()
+    gegevens = conn.execute("SELECT intake_op FROM klussen WHERE id=?", (klus_id,)).fetchone()
+    if gegevens is None:
+        conn.close()
+        abort(404)
+    weg = bool(gegevens["intake_op"])
+    conn.execute("UPDATE klussen SET intake_op=? WHERE id=?",
+                 ("" if weg else date.today().isoformat(), klus_id))
+    conn.commit()
+    conn.close()
+    melding("Intake weer opengezet." if weg else "Intake afgevinkt.")
+    return redirect(terug_naar(url_for("klus", klus_id=klus_id)))
 
 
 @app.route("/klus/<int:klus_id>/verwijder", methods=["POST"])
@@ -2259,6 +2335,29 @@ def adressuggesties():
     return {"suggesties": suggesties[:8]}
 
 
+def wachtduur(datum):
+    """Hoe lang een aanvraag al ligt, in gewone woorden.
+
+    Bij een aanvraag is dat het cijfer dat telt: niet hoeveel uur erin zit, maar hoe
+    lang die persoon al op je wacht."""
+    try:
+        dagen = (date.today() - date.fromisoformat(str(datum))).days
+    except (TypeError, ValueError):
+        return ""
+    if dagen <= 0:
+        return "vandaag"
+    if dagen == 1:
+        return "gisteren"
+    if dagen < 14:
+        return f"{dagen} dagen"
+    if dagen < 60:
+        return f"{dagen // 7} weken"
+    return f"{dagen // 30} maanden"
+
+
+app.jinja_env.globals["wachtduur"] = wachtduur
+
+
 def geldige_datum(waarde, terugval=None):
     """Een datum die niet als jaar-maand-dag te lezen is, breekt later de sortering
     en de weergave. Zo'n waarde vervangen we door de terugval."""
@@ -2553,6 +2652,12 @@ def offerte_nieuw():
         )
         offerte_id = cur.lastrowid
         bewaar_offerte_regels(conn, offerte_id, regels)
+        # Kwam je hier vanaf een aanvraag, dan hoort de offerte daaraan vast: op de
+        # klus zie je dan dat die stap is gedaan, en met welke offerte.
+        vanaf_klus = (request.form.get("voor_klus") or "").strip()
+        if vanaf_klus.isdigit():
+            conn.execute("UPDATE klussen SET offerte_id=? WHERE id=?",
+                         (offerte_id, int(vanaf_klus)))
         conn.commit()
         conn.close()
 
@@ -2577,6 +2682,8 @@ def offerte_nieuw():
         factuur=None, regels=[], klanten=klantenlijst(), gekozen_klant=gekozen,
         klussen=[], vooraf_klus="", geldig=geldig_tot(vandaag),
         standaard_geldig=geldig_tot(vandaag),
+        # Kwam je hier vanaf een aanvraag, dan gaat de offerte daar straks aan vast.
+        voor_klus=request.args.get("voor_klus", ""),
     )
 
 

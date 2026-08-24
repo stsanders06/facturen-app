@@ -44,6 +44,15 @@
         <textarea id="notitie" name="notitie" rows="2">{{ klus.notitie if klus else '' }}</textarea>
         <p class="hint">Voor jezelf. Komt niet op de rekening.</p>
       </div>
+      {% if not klus %}
+      {# Bij een bestaande klus staat de fase op de klus zelf; hier kies je alleen
+         hoe hij begint. #}
+      <div class="checkregel">
+        <input type="checkbox" id="aanvraag" name="aanvraag" value="ja" checked>
+        <label for="aanvraag">Dit is nog een aanvraag — er is nog geen intake geweest
+          en er zijn nog geen uren</label>
+      </div>
+      {% endif %}
     </div>
   </section>
 
@@ -51,7 +60,7 @@
     <a class="btn btn-outline"
        href="{% if klus %}{{ url_for('klus', klus_id=klus.id) }}{% else %}{{ url_for('klussen') }}{% endif %}">Annuleren</a>
     <button type="submit" class="btn">
-      {% if klus %}Wijzigingen opslaan{% else %}Klus aanmaken{% endif %}
+      {% if klus %}Wijzigingen opslaan{% else %}Opslaan{% endif %}
     </button>
   </div>
 
