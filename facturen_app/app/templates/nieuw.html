@@ -1,4 +1,5 @@
 {% extends "_layout.html" %}
+{% from "_onderdelen.html" import menu %}
 {# Dit formulier maakt zowel een rekening als een offerte. Ze vragen bijna hetzelfde;
    alleen de betaalmethode hoort bij een rekening en de geldigheid bij een offerte. #}
 {% set mode = mode|default('factuur') %}
@@ -67,13 +68,32 @@
     font-variant-numeric: tabular-nums;
     letter-spacing: -.02em;
   }
-  .urenkiezer {
-    background: var(--bg);
-    border-radius: var(--radius-sm);
-    padding: 12px 14px;
-    margin-bottom: 18px;
+  /* ---------- De knoppen onder de regels ---------- */
+  .regelknoppen {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 14px;
   }
-  .urenkiezer .hint { margin-top: 2px; }
+  .regelknoppen .csv-voorbeeld { font-size: 13px; }
+  /* Het menu met klussen staat in een rij knoppen en mag niet meegroeien. */
+  .regelknoppen .menu { flex: none; }
+
+  /* Bij veel regels wordt de lijst een muur; de rest komt achter deze knop
+     vandaan. Tien is wat er op een laptopscherm in één keer op past. */
+  .regel[hidden] { display: none; }
+  .meer-regels {
+    display: block;
+    width: 100%;
+    margin-top: 4px;
+    padding: 10px;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+  }
+  .meer-regels:hover { color: var(--primary); border-color: var(--primary); }
+  .meer-regels[hidden] { display: none; }
 </style>
 {% endblock %}
 {% block content %}
@@ -84,11 +104,6 @@
     {%- else %}{{ 'Nieuwe offerte' if is_offerte else 'Nieuwe rekening' }}{% endif -%}
   </h1>
 </div>
-
-{% if factuur and not is_offerte and factuur.status == 'betaald' %}
-<div class="flash">Deze rekening staat op betaald. Wijzig je het bedrag, dan klopt hij niet
-  meer met wat er is overgemaakt — zet hem dan eerst terug op openstaand.</div>
-{% endif %}
 
 <form method="post" class="cards">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -195,35 +210,6 @@
       <p>Materiaal per stuk, arbeid per uur, per dag of als vaste prijs.</p>
     </div>
 
-    <div class="field urenkiezer">
-      <label for="regels_csv">Regels uit een CSV-bestand halen</label>
-      <input type="file" id="regels_csv" accept=".csv,text/csv,text/plain">
-      <p class="hint">Kopjes op de eerste regel: <b>omschrijving</b>, <b>aantal</b>,
-        <b>prijs</b> en eventueel <b>soort</b>. Komt pas mee als je opslaat.
-        <a class="link" href="{{ url_for('regels_voorbeeld') }}">Voorbeeldbestand</a></p>
-    </div>
-
-    {% if klussen %}
-    <div class="field urenkiezer">
-      <label for="klus_uren">Uren van een klus toevoegen</label>
-      <select id="klus_uren" data-vooraf="{{ vooraf_klus or '' }}">
-        <option value="">— Kies een klus —</option>
-        {% for kl in klussen %}
-        <option value="{{ kl.id }}"
-                data-naam="{{ kl.naam }}"
-                data-uren="{{ kl.uren_open }}"
-                data-tarief="{{ '%.2f'|format(kl.uurtarief or 0) }}"
-                data-klant="{{ kl.klant_id or '' }}">
-          {{ kl.naam }} · {{ kl.uren_open|uren }} u{% if kl.klant_naam %} · {{ kl.klant_naam }}{% endif %}
-        </option>
-        {% endfor %}
-      </select>
-      <p class="hint">Komt als één arbeidsregel op de rekening en telt daarna niet nog een
-        keer mee. De losse dagen blijven op de
-        <a class="link" href="{{ url_for('klussen') }}">Uren-tab</a>.</p>
-    </div>
-    {% endif %}
-
     <div id="regels">
       {% for r in regels or [none] %}
       <div class="regel">
@@ -257,9 +243,37 @@
       {% endfor %}
     </div>
 
-    <div style="margin-top:14px">
-      <button type="button" class="btn btn-outline" id="regel-erbij">+ Regel toevoegen</button>
+    <button type="button" class="btn btn-text meer-regels" id="meer-regels" hidden></button>
+
+    {#- Drie knoppen op één rij in plaats van drie blokken onder elkaar: het inlezen
+        van een CSV en het overnemen van uren zijn dingen die je zelden doet, en die
+        namen eerder het halve scherm in beslag boven de regels waar het om gaat. -#}
+    <input type="hidden" id="vooraf-klus" value="{{ vooraf_klus or '' }}">
+    <div class="regelknoppen">
+      <button type="button" class="btn btn-outline" id="regel-erbij">+ Regel</button>
+
+      {% if klussen %}
+      {% call menu('Uren van een klus toevoegen', 'Uren van een klus') %}
+        {% for kl in klussen %}
+        <button type="button" class="menu-item klus-keuze"
+                data-klus="{{ kl.id }}"
+                data-naam="{{ kl.naam }}"
+                data-uren="{{ kl.uren_open }}"
+                data-tarief="{{ '%.2f'|format(kl.uurtarief or 0) }}"
+                data-klant="{{ kl.klant_id or '' }}">
+          {{ kl.naam }} · {{ kl.uren_open|uren }} u{% if kl.klant_naam %} · {{ kl.klant_naam }}{% endif %}
+        </button>
+        {% endfor %}
+      {% endcall %}
+      {% endif %}
+
+      <button type="button" class="btn btn-outline" id="csv-knop"
+              title="Kopjes op de eerste regel: omschrijving, aantal, prijs en eventueel soort">
+        CSV inlezen</button>
+      <a class="link csv-voorbeeld" href="{{ url_for('regels_voorbeeld') }}">voorbeeld</a>
+      <input type="file" id="regels_csv" accept=".csv,text/csv,text/plain" hidden>
     </div>
+    <p class="hint" id="regelmelding" hidden></p>
 
     <div class="totaalbalk">
       <span class="label">Totaal</span>
@@ -331,13 +345,44 @@
       nieuw.querySelectorAll('input').forEach(function (veld) {
         veld.value = veld.name === 'aantal' ? '1' : '';
       });
+      nieuw.hidden = false;
       container.appendChild(nieuw);
       pasRegelAan(nieuw);
       return nieuw;
     }
 
+    // ---- Niet meer dan tien regels tegelijk ----
+    // Bij een grote materiaallijst werd het formulier één lange muur met velden.
+    // De rest staat er nog wel: ze zijn alleen verborgen, dus ze gaan gewoon mee
+    // als je opslaat.
+    var MAX_ZICHTBAAR = 10;
+    var meerKnop = document.getElementById('meer-regels');
+    var allesTonen = false;
+
+    function pasInklappenAan() {
+      var regels = container.querySelectorAll('.regel');
+      var verbergen = !allesTonen && regels.length > MAX_ZICHTBAAR;
+      regels.forEach(function (regel, i) {
+        regel.hidden = verbergen && i >= MAX_ZICHTBAAR;
+      });
+      meerKnop.hidden = !verbergen;
+      if (verbergen) {
+        meerKnop.textContent = 'Toon alle ' + regels.length + ' regels ('
+          + (regels.length - MAX_ZICHTBAAR) + ' verborgen)';
+      }
+    }
+
+    meerKnop.addEventListener('click', function () {
+      allesTonen = true;
+      pasInklappenAan();
+    });
+
     document.getElementById('regel-erbij').addEventListener('click', function () {
-      regelErbij().querySelector('[name="omschrijving"]').focus();
+      // Een nieuwe regel achteraan moet je wel kunnen zien.
+      allesTonen = true;
+      var regel = regelErbij();
+      pasInklappenAan();
+      regel.querySelector('[name="omschrijving"]').focus();
       berekenTotaal();
     });
 
@@ -455,11 +500,18 @@
           && !eerste.querySelector('[name="prijs"]').value) {
         eerste.remove();
       }
+      // Een ingelezen prijslijst is juist de reden dat er ingeklapt moet worden.
+      pasInklappenAan();
       berekenTotaal();
       return toegevoegd;
     }
 
     var csvKeuze = document.getElementById('regels_csv');
+    var melding = document.getElementById('regelmelding');
+    var csvKnop = document.getElementById('csv-knop');
+    if (csvKnop && csvKeuze) {
+      csvKnop.addEventListener('click', function () { csvKeuze.click(); });
+    }
     if (csvKeuze) {
       csvKeuze.addEventListener('change', function () {
         var bestand = csvKeuze.files && csvKeuze.files[0];
@@ -469,10 +521,11 @@
           var aantal = verwerkCsv(String(lezer.result));
           csvKeuze.value = '';
           if (aantal) {
-            csvKeuze.parentNode.querySelector('.hint').insertAdjacentHTML('afterend',
-              '<p class="hint" style="color:var(--ok)">' + aantal + ' regel'
-              + (aantal === 1 ? '' : 's') + ' uit ' + bestand.name
-              + ' toegevoegd. Controleer de bedragen voordat je opslaat.</p>');
+            melding.textContent = aantal + ' regel' + (aantal === 1 ? '' : 's')
+              + ' uit ' + bestand.name + ' toegevoegd. Controleer de bedragen '
+              + 'voordat je opslaat.';
+            melding.style.color = 'var(--ok)';
+            melding.hidden = false;
           }
         };
         lezer.readAsText(bestand, 'utf-8');
@@ -481,9 +534,10 @@
 
     // Uren van een klus komen als één arbeidsregel op de rekening: het totaal
     // aantal uren maal het uurtarief van die klus, niet elke dag apart.
-    var klusKeuze = document.getElementById('klus_uren');
+    // Elke klus is nu een knop in het menu; de gegevens staan als data- op de knop.
     var zetKlusOpRekening = function (optie) {
-        if (!optie || !optie.value) return;
+        if (!optie || !optie.dataset.klus) return;
+        allesTonen = true;
         var regel = regelErbij();
         regel.querySelector('.soort').value = 'arbeid_uur';
         pasRegelAan(regel);
@@ -492,7 +546,7 @@
         regel.querySelector('[name="prijs"]').value = optie.dataset.tarief || '';
         // Onthouden bij welke klus deze regel hoort, zodat die uren daarna als
         // gefactureerd gelden en niet nog een keer meetellen.
-        regel.querySelector('[name="regel_klus"]').value = optie.value;
+        regel.querySelector('[name="regel_klus"]').value = optie.dataset.klus;
 
         // Een lege beginregel is dan alleen nog in de weg.
         var eerste = container.children[0];
@@ -508,15 +562,13 @@
           pasKlantAan(true);
         }
 
-        klusKeuze.value = '';
+        pasInklappenAan();
         berekenTotaal();
     };
 
-    if (klusKeuze) {
-      klusKeuze.addEventListener('change', function () {
-        zetKlusOpRekening(klusKeuze.options[klusKeuze.selectedIndex]);
-      });
-    }
+    document.querySelectorAll('.klus-keuze').forEach(function (knop) {
+      knop.addEventListener('click', function () { zetKlusOpRekening(knop); });
+    });
 
     container.addEventListener('change', function (e) {
       if (!e.target.classList.contains('soort')) return;
@@ -534,11 +586,13 @@
       } else {
         e.target.closest('.regel').remove();
       }
+      pasInklappenAan();
       berekenTotaal();
     });
 
     container.addEventListener('input', berekenTotaal);
     container.querySelectorAll('.regel').forEach(pasRegelAan);
+    pasInklappenAan();
     berekenTotaal();
 
     // Klant kiezen vult de gegevens in. Bij een bestaande klant heeft "bewaren"
@@ -562,9 +616,10 @@
 
     // Kom je vanaf een klus binnen ("Op rekening zetten"), dan staat hij er al op.
     // Dit gebeurt als laatste, want het vult ook de klant in.
-    if (klusKeuze && klusKeuze.dataset.vooraf) {
+    var voorafKlus = document.getElementById('vooraf-klus');
+    if (voorafKlus && voorafKlus.value) {
       zetKlusOpRekening(
-        klusKeuze.querySelector('option[value="' + klusKeuze.dataset.vooraf + '"]'));
+        document.querySelector('.klus-keuze[data-klus="' + voorafKlus.value + '"]'));
     }
 
     // Een lege rekening of offerte levert een PDF van € 0,00 op en verbruikt wel een

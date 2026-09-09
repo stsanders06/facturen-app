@@ -165,8 +165,8 @@
     </div>
     {% for o in offertes %}
     <div class="rekening">
-      <a class="kaartlink" href="{{ url_for('bekijk_offerte', offerte_id=o.id) }}" {{ nieuw_tabblad }}
-         aria-label="Offerte {{ o.nummer }} bekijken"></a>
+      <a class="kaartlink" href="{{ url_for('offerte_bewerk', offerte_id=o.id) }}"
+         aria-label="Offerte {{ o.nummer }} bewerken"></a>
       <div class="links">
         <span class="nr">{{ o.nummer }}</span>
         <span class="datum">{{ o.datum|datum_nl }}</span>
@@ -184,7 +184,8 @@
           <button type="submit" class="btn btn-text">Naar rekening</button>
         </form>
         {% endif %}
-        <a class="btn btn-text" href="{{ url_for('offerte_bewerk', offerte_id=o.id) }}">Bewerken</a>
+        <a class="btn btn-text" href="{{ url_for('bekijk_offerte', offerte_id=o.id) }}"
+           {{ nieuw_tabblad }}>PDF</a>
       </div>
     </div>
     {% endfor %}
@@ -198,8 +199,8 @@
     </div>
     {% for f in facturen %}
     <div class="rekening">
-      <a class="kaartlink" href="{{ url_for('bekijk_pdf', factuur_id=f.id) }}" {{ nieuw_tabblad }}
-         aria-label="Rekening {{ f.naam }} bekijken"></a>
+      <a class="kaartlink" href="{{ url_for('bewerk', factuur_id=f.id) }}"
+         aria-label="Rekening {{ f.naam }} bewerken"></a>
       <div class="links">
         <span class="nr">{{ f.nummer or 'nog geen nummer' }}</span>
         <span class="datum">{{ f.datum|datum_nl }}</span>
@@ -228,6 +229,8 @@
         </form>
         {% endif %}
         <a class="btn btn-text" href="{{ url_for('betalingen', factuur_id=f.id) }}">Betalingen</a>
+        <a class="btn btn-text" href="{{ url_for('bekijk_pdf', factuur_id=f.id) }}"
+           {{ nieuw_tabblad }}>PDF</a>
       </div>
     </div>
     {% endfor %}

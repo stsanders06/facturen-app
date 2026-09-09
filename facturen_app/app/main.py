@@ -32,7 +32,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.19.0"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.20.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -784,6 +784,14 @@ def init_db():
             FOREIGN KEY (klus_id) REFERENCES klussen (id)
         );
 
+        CREATE TABLE IF NOT EXISTS notities (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            klus_id INTEGER NOT NULL,
+            wanneer TEXT NOT NULL,
+            tekst TEXT NOT NULL,
+            FOREIGN KEY (klus_id) REFERENCES klussen (id)
+        );
+
         CREATE TABLE IF NOT EXISTS offertes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             nummer TEXT NOT NULL,
@@ -891,6 +899,12 @@ def init_db():
     if "offerte_id" not in kluskolommen:
         conn.execute("ALTER TABLE klussen ADD COLUMN offerte_id INTEGER")
 
+    # Een foto kan bij een notitie horen in plaats van bij de bonnen. Zo blijven de
+    # foto's van wat je hebt gezien los van de bonnetjes die de klant moet zien.
+    bijlagekolommen = {rij["name"] for rij in conn.execute("PRAGMA table_info(bijlagen)")}
+    if "notitie_id" not in bijlagekolommen:
+        conn.execute("ALTER TABLE bijlagen ADD COLUMN notitie_id INTEGER")
+
     # Een eigen aantekening om twee rekeningen of offertes voor dezelfde klant uit
     # elkaar te houden. Staat alleen in de app; de klant ziet hem nergens.
     if "kenmerk" not in factuurkolommen:
@@ -940,7 +954,7 @@ PRULLENBAK_DAGEN = 30
 # genoeg voor een vrije SQL-opdracht. Deze lijst maakt dat onmogelijk.
 TERUG_TE_ZETTEN = {
     "facturen", "regels", "betalingen", "offertes", "offerte_regels",
-    "klanten", "klussen", "uren", "bijlagen",
+    "klanten", "klussen", "uren", "bijlagen", "notities",
 }
 
 
@@ -1802,6 +1816,7 @@ def klus(klus_id):
         conn.close()
         abort(404)
     bestanden = bijlagen_van(conn, klus_id)
+    aantekeningen = notities_van(conn, klus_id)
     offerte = None
     if gegevens["offerte_id"]:
         offerte = conn.execute("SELECT * FROM offertes WHERE id=?",
@@ -1811,7 +1826,7 @@ def klus(klus_id):
     open_uren = round(sum(d["uren"] for d in dagen if d["factuur_id"] is None), 2)
     return render_template(
         "klus.html", klus=gegevens, dagen=dagen, totaal=totaal, open_uren=open_uren,
-        bijlagen=bestanden, offerte=offerte, fases=KLUS_FASES,
+        bijlagen=bestanden, notities=aantekeningen, offerte=offerte, fases=KLUS_FASES,
         offerte_status=OFFERTE_STATUS,
         bedrag=round(totaal * (gegevens["uurtarief"] or 0), 2),
         vandaag=date.today().isoformat(), actief="klussen",
@@ -1905,9 +1920,12 @@ def klus_verwijder(klus_id):
         conn, f"Klus {gegevens['naam']}",
         {"klussen": [gegevens],
          "uren": conn.execute("SELECT * FROM uren WHERE klus_id=?", (klus_id,)).fetchall(),
+         "notities": conn.execute("SELECT * FROM notities WHERE klus_id=?",
+                                  (klus_id,)).fetchall(),
          "bijlagen": bijlagen},
         bestanden=[b["bestand"] for b in bijlagen],
     )
+    conn.execute("DELETE FROM notities WHERE klus_id=?", (klus_id,))
     conn.execute("DELETE FROM bijlagen WHERE klus_id=?", (klus_id,))
     conn.execute("DELETE FROM uren WHERE klus_id=?", (klus_id,))
     conn.execute("DELETE FROM klussen WHERE id=?", (klus_id,))
@@ -1919,29 +1937,40 @@ def klus_verwijder(klus_id):
     return redirect(url_for("klussen"))
 
 
-def bijlagen_van(conn, klus_id):
-    """De foto's en bonnetjes bij een klus, met of ze als plaatje te tonen zijn."""
+def bijlagen_van(conn, klus_id, notitie_id=None):
+    """De foto's en bonnetjes bij een klus, met of ze als plaatje te tonen zijn.
+
+    Zonder `notitie_id` krijg je de bonnen: alles wat niet bij een notitie hoort."""
     lijst = []
     for rij in conn.execute(
         "SELECT * FROM bijlagen WHERE klus_id=? ORDER BY id", (klus_id,)
     ):
         bijlage = dict(rij)
+        if (bijlage.get("notitie_id") or None) != notitie_id:
+            continue
         bijlage["plaatje"] = os.path.splitext(rij["bestand"])[1].lower() in BIJLAGE_PLAATJES
         lijst.append(bijlage)
     return lijst
 
 
-@app.route("/klus/<int:klus_id>/bijlage", methods=["POST"])
-def bijlage_erbij(klus_id):
-    """Bonnetjes en werkfoto's bij een klus zetten. Ze blijven bij de klus horen; de
-    rekening blijft een nette lijst met regels."""
-    conn = get_db()
-    if conn.execute("SELECT id FROM klussen WHERE id=?", (klus_id,)).fetchone() is None:
-        conn.close()
-        abort(404)
+def notities_van(conn, klus_id):
+    """De notities bij een klus, de nieuwste bovenaan, elk met zijn eigen foto's."""
+    lijst = []
+    for rij in conn.execute(
+        "SELECT * FROM notities WHERE klus_id=? ORDER BY wanneer DESC, id DESC", (klus_id,)
+    ):
+        notitie = dict(rij)
+        notitie["fotos"] = bijlagen_van(conn, klus_id, notitie_id=rij["id"])
+        lijst.append(notitie)
+    return lijst
 
+
+def bewaar_bestanden(conn, klus_id, bestanden, notitie_id=None):
+    """Zet gekozen foto's en PDF's op schijf en in de database.
+
+    Geeft terug hoeveel er bij kwamen en welke er niet door de keuring kwamen."""
     erbij, geweigerd = 0, []
-    for bestand in request.files.getlist("bijlage"):
+    for bestand in bestanden:
         if not bestand or not bestand.filename:
             continue
         veilig = secure_filename(bestand.filename) or "bijlage"
@@ -1955,12 +1984,105 @@ def bijlage_erbij(klus_id):
         opslagnaam = f"{secrets.token_hex(8)}{extensie}"
         bestand.save(os.path.join(BIJLAGE_DIR, opslagnaam))
         conn.execute(
-            """INSERT INTO bijlagen (klus_id, bestand, naam, toegevoegd, meesturen)
-               VALUES (?, ?, ?, ?, 0)""",
-            (klus_id, opslagnaam, veilig, date.today().isoformat()),
+            """INSERT INTO bijlagen (klus_id, bestand, naam, toegevoegd, meesturen, notitie_id)
+               VALUES (?, ?, ?, ?, 0, ?)""",
+            (klus_id, opslagnaam, veilig, date.today().isoformat(), notitie_id),
         )
         erbij += 1
+    return erbij, geweigerd
 
+
+@app.route("/klus/<int:klus_id>/notitie", methods=["POST"])
+def notitie_erbij(klus_id):
+    """Een aantekening bij een klus, met eventueel foto's erbij.
+
+    Foto's bij een notitie horen bij het verhaal — hoe het eruitzag, wat er is
+    afgesproken. De bonnetjes verderop op de pagina zijn iets anders: die kunnen
+    met de rekening mee naar de klant."""
+    conn = get_db()
+    if conn.execute("SELECT id FROM klussen WHERE id=?", (klus_id,)).fetchone() is None:
+        conn.close()
+        abort(404)
+
+    tekst = (request.form.get("tekst") or "").strip()
+    fotos = [b for b in request.files.getlist("foto") if b and b.filename]
+    if not tekst and not fotos:
+        conn.close()
+        melding("Schrijf iets op of kies een foto.", "fout")
+        return redirect(url_for("klus", klus_id=klus_id))
+
+    wanneer = geldige_datum(request.form.get("wanneer"), date.today().isoformat())
+    notitie_id = conn.execute(
+        "INSERT INTO notities (klus_id, wanneer, tekst) VALUES (?, ?, ?)",
+        (klus_id, wanneer, tekst),
+    ).lastrowid
+    erbij, geweigerd = bewaar_bestanden(conn, klus_id, fotos, notitie_id=notitie_id)
+    conn.commit()
+    conn.close()
+
+    hoeveel = "1 foto" if erbij == 1 else f"{erbij} foto's"
+    melding("Notitie bewaard." if not erbij else f"Notitie bewaard, met {hoeveel}.")
+    if geweigerd:
+        melding(f"Niet toegevoegd: {', '.join(geweigerd)}. Kies een foto (JPG, PNG, HEIC) "
+                "of een PDF.", "fout")
+    return redirect(url_for("klus", klus_id=klus_id))
+
+
+@app.route("/notitie/<int:notitie_id>/foto", methods=["POST"])
+def notitie_foto(notitie_id):
+    """Er later nog een foto bij zetten."""
+    conn = get_db()
+    rij = conn.execute("SELECT * FROM notities WHERE id=?", (notitie_id,)).fetchone()
+    if rij is None:
+        conn.close()
+        abort(404)
+    erbij, geweigerd = bewaar_bestanden(conn, rij["klus_id"],
+                                        request.files.getlist("foto"), notitie_id=notitie_id)
+    conn.commit()
+    conn.close()
+
+    if erbij:
+        hoeveel = "1 foto" if erbij == 1 else f"{erbij} foto's"
+        melding(f"{hoeveel} bij de notitie gezet.")
+    if geweigerd:
+        melding(f"Niet toegevoegd: {', '.join(geweigerd)}. Kies een foto (JPG, PNG, HEIC) "
+                "of een PDF.", "fout")
+    if not erbij and not geweigerd:
+        melding("Er was geen bestand gekozen.", "fout")
+    return redirect(url_for("klus", klus_id=rij["klus_id"]))
+
+
+@app.route("/notitie/<int:notitie_id>/verwijder", methods=["POST"])
+def notitie_verwijder(notitie_id):
+    """De notitie en de foto's die eraan hangen gaan samen naar de prullenbak."""
+    conn = get_db()
+    rij = conn.execute("SELECT * FROM notities WHERE id=?", (notitie_id,)).fetchone()
+    if rij is None:
+        conn.close()
+        abort(404)
+    fotos = conn.execute("SELECT * FROM bijlagen WHERE notitie_id=?", (notitie_id,)).fetchall()
+    prullenbak_id = naar_prullenbak(
+        conn, "Notitie bij de klus", {"notities": [rij], "bijlagen": fotos},
+        bestanden=[f["bestand"] for f in fotos],
+    )
+    conn.execute("DELETE FROM bijlagen WHERE notitie_id=?", (notitie_id,))
+    conn.execute("DELETE FROM notities WHERE id=?", (notitie_id,))
+    conn.commit()
+    conn.close()
+    melding("Notitie verwijderd.", knop=terugknop(prullenbak_id))
+    return redirect(url_for("klus", klus_id=rij["klus_id"]))
+
+
+@app.route("/klus/<int:klus_id>/bijlage", methods=["POST"])
+def bijlage_erbij(klus_id):
+    """Bonnetjes en werkfoto's bij een klus zetten. Ze blijven bij de klus horen; de
+    rekening blijft een nette lijst met regels."""
+    conn = get_db()
+    if conn.execute("SELECT id FROM klussen WHERE id=?", (klus_id,)).fetchone() is None:
+        conn.close()
+        abort(404)
+
+    erbij, geweigerd = bewaar_bestanden(conn, klus_id, request.files.getlist("bijlage"))
     conn.commit()
     conn.close()
 

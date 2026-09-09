@@ -1,5 +1,11 @@
 """Het overzicht bovenaan de rekeningenpagina en de knoppen op de kaarten."""
+import re
 from datetime import date, timedelta
+
+
+def menu_van(inhoud):
+    """Alleen wat er achter de drie puntjes zit, zonder de knoppen ernaast."""
+    return "".join(re.findall(r'<details class="menu".*?</details>', inhoud, re.S))
 
 
 def dagen_geleden(aantal):
@@ -67,12 +73,25 @@ def test_een_kaart_heeft_hooguit_een_losse_knop_naast_het_menu(db, client, maak_
 
 
 def test_het_menu_bevat_de_minder_gebruikte_acties(db, client, maak_factuur):
-    """"Bekijken" staat er bewust niet bij: de kaart zelf opent de rekening al."""
+    """"Bewerken" staat er bewust niet bij: de kaart zelf is die knop geworden."""
     maak_factuur(status="verzonden")
     inhoud = client.get("/").data.decode()
-    assert ">Bekijken<" not in inhoud
-    for actie in ["Bewerken", "Downloaden", "PDF vernieuwen", "Verwijderen"]:
+    assert ">Bewerken<" not in menu_van(inhoud)
+    for actie in ["PDF bekijken", "Downloaden", "PDF vernieuwen", "Verwijderen"]:
         assert actie in inhoud, actie
+
+
+def test_een_klik_op_de_kaart_opent_het_bewerkscherm(db, client, maak_factuur):
+    """Bekijken kon al vanuit het menu; bewerken is wat je vanuit de lijst wilt."""
+    factuur_id = maak_factuur(status="verzonden")
+    inhoud = client.get("/").data.decode()
+    assert f'class="kaartlink" href="/factuur/{factuur_id}/bewerk"' in inhoud
+
+
+def test_de_pdf_zit_achter_de_drie_puntjes(db, client, maak_factuur):
+    factuur_id = maak_factuur(status="verzonden")
+    menu = menu_van(client.get("/").data.decode())
+    assert f'href="/factuur/{factuur_id}/bekijk"' in menu
 
 
 def test_concept_met_mailadres_zet_mailen_vooraan(db, client, maak_factuur):

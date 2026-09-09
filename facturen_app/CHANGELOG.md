@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.20.0
+
+- **Klikken op een rekening of offerte opent nu het bewerkscherm** in plaats van de
+  PDF. Dat is wat je vanuit een lijst meestal wilt. De PDF is er niet uit: die staat
+  onder de drie puntjes als "PDF bekijken", en op de klantpagina als knop.
+- De waarschuwing **"Deze rekening staat op betaald"** boven het bewerkscherm is weg.
+- **De regels bij een rekening en een offerte zijn opgeruimd.** Het inlezen van een
+  CSV en het overnemen van uren van een klus zaten in twee grote grijze vakken boven
+  de regels; het zijn nu gewoon knoppen onder de lijst, naast "+ Regel".
+- **Staan er meer dan tien regels, dan worden ze ingeklapt** met een knop "Toon alle
+  … regels" eronder. Bij een lange materiaallijst was het formulier één muur met
+  velden. De verborgen regels gaan gewoon mee als je opslaat.
+- **Notities bij een klus, met foto's erbij.** Wat er is besproken of is opgevallen,
+  met de datum en de foto's die erbij horen. Los van de bonnetjes: die kunnen met de
+  rekening mee naar de klant, een notitie blijft altijd bij de klus.
+- Een notitie mag ook alleen een foto zijn, je kunt er later foto's bij zetten, en
+  een verwijderde notitie staat dertig dagen in de prullenbak.
+
 ## 1.19.0
 
 - **Aanvragen bijhouden.** Iemand belt dat hij iets wil: dat zet je er nu meteen in,

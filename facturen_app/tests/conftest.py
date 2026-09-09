@@ -21,7 +21,8 @@ import main as facturen  # noqa: E402  (moet ná het zetten van DATA_DIR)
 
 # Tabellen in de volgorde waarin ze leeg mogen: eerst wat naar iets anders verwijst.
 TABELLEN = [
-    "regels", "offerte_regels", "uren", "betalingen", "bijlagen", "facturen",
+    "regels", "offerte_regels", "uren", "betalingen", "bijlagen", "notities",
+    "facturen",
     "offertes", "klussen", "klanten", "prullenbak",
 ]
 

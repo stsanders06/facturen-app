@@ -194,6 +194,53 @@
     }
   }
 
+  /* ---------- Notities ---------- */
+  .notitie-form { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  /* Net als bij een gewerkte dag: het datumveld neemt de breedte die het nodig
+     heeft en groeit niet mee, anders staat de datum eenzaam in het midden. */
+  .notitie-form .datum-veld { flex: 0 1 auto; min-width: 0; }
+  .notitie-form .tekst-veld { flex: 1 1 240px; min-width: 0; }
+  .notitie-form .foto-veld { flex: 1 1 200px; min-width: 0; font-size: 14px; }
+  .notitie-form input { width: 100%; }
+  .notitie-form input[type=file] { padding: 0; border: none; background: none; }
+
+  .notities { list-style: none; margin: 18px 0 0; padding: 0; }
+  .notities li {
+    padding: 12px 0;
+    border-top: 1px solid var(--divider);
+  }
+  .notities .regelkop {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .notities .wanneer { font-size: 13px; color: var(--text-secondary); }
+  .notities .regelkop .btn-text { padding: 2px 8px; min-height: 0; font-size: 13px; }
+  .notities .tekst { margin: 4px 0 0; white-space: pre-wrap; }
+  .notities .bijlagen { margin-top: 12px; }
+  .notities .erbij-form {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 10px;
+    font-size: 14px;
+  }
+  .notities .erbij-form input[type=file] { flex: 1 1 200px; min-width: 0; }
+
+  @media (max-width: 620px) {
+    /* Op een telefoon staan de velden onder elkaar; naast elkaar bleef er voor de
+       tekst een streepje over. */
+    .notitie-form > div, .notitie-form .btn { flex: 1 1 100%; width: 100%; }
+
+    /* Zelfde rekensom als bij de gewerkte dagen: iOS telt marge en rand van een
+       datumveld bovenop de breedte in plaats van erin. */
+    @supports (-webkit-touch-callout: none) {
+      .notitie-form input[type="date"] { width: calc(100% - 22px); }
+    }
+  }
+
   .kop-acties { display: flex; gap: 8px; flex-wrap: wrap; }
 
   /* ---------- De stappen van een aanvraag ---------- */
@@ -424,9 +471,89 @@
 
   <section class="card">
     <div class="card-head">
-      <h2>Foto's en bonnetjes</h2>
-      <p>Blijft bij de klus horen. Vink een bon aan die de klant moet zien: die gaat mee
-        zodra je de uren op een rekening zet en mailt.</p>
+      <h2>Notities</h2>
+      <p>Wat er is besproken of opgevallen, met de foto's die erbij horen. Dit blijft
+        bij de klus; het gaat nooit mee naar de klant.</p>
+    </div>
+
+    <form method="post" enctype="multipart/form-data" class="notitie-form"
+          action="{{ url_for('notitie_erbij', klus_id=klus.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="datum-veld">
+        <input type="date" name="wanneer" value="{{ vandaag }}" aria-label="Datum">
+      </div>
+      <div class="tekst-veld">
+        <input type="text" name="tekst" placeholder="Bijv. achtergevel hoort er ook bij"
+               aria-label="Wat je wilt opschrijven">
+      </div>
+      <div class="foto-veld">
+        <input type="file" name="foto" multiple accept="image/*,.pdf,.heic"
+               aria-label="Foto's bij deze notitie">
+      </div>
+      <button type="submit" class="btn">Opschrijven</button>
+    </form>
+
+    {% if not notities %}
+    <p class="hint" style="margin-top:14px">Nog niets opgeschreven bij deze klus.</p>
+    {% else %}
+    <ol class="notities">
+      {% for n in notities %}
+      <li>
+        <div class="regelkop">
+          <span class="wanneer">{{ n.wanneer|datum_nl }}</span>
+          <form method="post" action="{{ url_for('notitie_verwijder', notitie_id=n.id) }}"
+                data-bevestig="Deze notitie{% if n.fotos %} en de {{ n.fotos|length }} foto{{ 's' if n.fotos|length != 1 }}{% endif %} verwijderen?">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-text danger">Verwijderen</button>
+          </form>
+        </div>
+        {% if n.tekst %}<p class="tekst">{{ n.tekst }}</p>{% endif %}
+
+        {% if n.fotos %}
+        <div class="bijlagen">
+          {% for b in n.fotos %}
+          <figure class="bijlage">
+            <a href="{{ url_for('bijlage', bijlage_id=b.id) }}" {{ nieuw_tabblad }}
+               title="{{ b.naam }} openen">
+              {% if b.plaatje %}
+              <img src="{{ url_for('bijlage', bijlage_id=b.id) }}" alt="{{ b.naam }}" loading="lazy">
+              {% else %}
+              <span class="bestandsicoon" aria-hidden="true">PDF</span>
+              {% endif %}
+            </a>
+            <figcaption>
+              <span class="bestandsnaam" title="{{ b.naam }}">{{ b.naam }}</span>
+              <span class="bijlage-acties">
+                <form method="post" action="{{ url_for('bijlage_verwijder', bijlage_id=b.id) }}"
+                      data-bevestig="{{ b.naam }} verwijderen?">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit" class="btn btn-text danger">Verwijderen</button>
+                </form>
+              </span>
+            </figcaption>
+          </figure>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        <form method="post" enctype="multipart/form-data" class="erbij-form"
+              action="{{ url_for('notitie_foto', notitie_id=n.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="file" name="foto" multiple accept="image/*,.pdf,.heic"
+                 aria-label="Nog een foto bij deze notitie">
+          <button type="submit" class="btn btn-text">Foto erbij</button>
+        </form>
+      </li>
+      {% endfor %}
+    </ol>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Bonnetjes</h2>
+      <p>Wat je hebt betaald en wilt doorberekenen. Vink een bon aan die de klant moet
+        zien: die gaat mee zodra je de uren op een rekening zet en mailt.</p>
     </div>
 
     <form method="post" enctype="multipart/form-data"
@@ -438,7 +565,7 @@
     </form>
 
     {% if not bijlagen %}
-    <p class="hint" style="margin-top:14px">Er staat nog niets bij deze klus.</p>
+    <p class="hint" style="margin-top:14px">Nog geen bonnetjes bij deze klus.</p>
     {% else %}
     <div class="bijlagen">
       {% for b in bijlagen %}

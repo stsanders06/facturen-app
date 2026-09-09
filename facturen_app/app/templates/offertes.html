@@ -112,8 +112,10 @@
   {% for o in offertes %}
   {% set verlopen = o.geldig_tot and o.geldig_tot < vandaag and o.status in ['concept', 'verzonden'] %}
   <article class="card offerte">
-    <a class="kaartlink" href="{{ url_for('bekijk_offerte', offerte_id=o.id) }}" {{ nieuw_tabblad }}
-       aria-label="Offerte {{ o.nummer }} voor {{ o.klant_naam }} bekijken"></a>
+    {#- Zelfde als bij de rekeningen: klikken opent het bewerkscherm, de PDF zit
+        achter de puntjes. -#}
+    <a class="kaartlink" href="{{ url_for('offerte_bewerk', offerte_id=o.id) }}"
+       aria-label="Offerte {{ o.nummer }} voor {{ o.klant_naam }} bewerken"></a>
     <div class="klant">
       {% if o.klant_id %}<a href="{{ url_for('klant', klant_id=o.klant_id) }}">{{ o.klant_naam }}</a>
       {%- else %}{{ o.klant_naam }}{% endif %}
@@ -159,7 +161,8 @@
         {% endif %}
 
         {% call menu('Meer voor offerte ' ~ o.nummer) %}
-          <a class="menu-item" href="{{ url_for('offerte_bewerk', offerte_id=o.id) }}">Bewerken</a>
+          <a class="menu-item" href="{{ url_for('bekijk_offerte', offerte_id=o.id) }}"
+             {{ nieuw_tabblad }}>PDF bekijken</a>
           <a class="menu-item" href="{{ url_for('download_offerte', offerte_id=o.id) }}">Downloaden</a>
           <a class="menu-item" href="{{ url_for('offerte_aanbetaling', offerte_id=o.id) }}">Aanbetaling in rekening brengen…</a>
 
