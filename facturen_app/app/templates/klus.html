@@ -4,7 +4,8 @@
 <style>
   /* ---------- Foto's en bonnetjes ---------- */
   .uploadregel { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-  .uploadregel input[type=file] { flex: 1 1 240px; min-width: 0; font-size: 14px; }
+  /* De opslaanknop rechts, net als bij de notities erboven. */
+  .uploadregel .btn[type=submit] { margin-left: auto; }
   .bijlagen {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
@@ -195,14 +196,18 @@
   }
 
   /* ---------- Notities ---------- */
-  .notitie-form { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .notitie-form { display: flex; flex-direction: column; gap: 10px; }
+  .notitie-form .opschrijfregel { display: flex; gap: 10px; align-items: center; }
   /* Net als bij een gewerkte dag: het datumveld neemt de breedte die het nodig
      heeft en groeit niet mee, anders staat de datum eenzaam in het midden. */
   .notitie-form .datum-veld { flex: 0 1 auto; min-width: 0; }
   .notitie-form .tekst-veld { flex: 1 1 240px; min-width: 0; }
-  .notitie-form .foto-veld { flex: 1 1 200px; min-width: 0; font-size: 14px; }
   .notitie-form input { width: 100%; }
-  .notitie-form input[type=file] { padding: 0; border: none; background: none; }
+  .notitie-form .fotoregel { display: flex; gap: 10px; align-items: center; }
+  /* De opschrijfknop hoort rechts, aan het eind van wat je invult. */
+  .notitie-form .fotoregel .btn[type=submit] { margin-left: auto; }
+  .gekozen { font-size: 13px; color: var(--text-secondary); min-width: 0;
+             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   .notities { list-style: none; margin: 18px 0 0; padding: 0; }
   .notities li {
@@ -219,20 +224,16 @@
   .notities .regelkop .btn-text { padding: 2px 8px; min-height: 0; font-size: 13px; }
   .notities .tekst { margin: 4px 0 0; white-space: pre-wrap; }
   .notities .bijlagen { margin-top: 12px; }
-  .notities .erbij-form {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    flex-wrap: wrap;
-    margin-top: 10px;
-    font-size: 14px;
-  }
-  .notities .erbij-form input[type=file] { flex: 1 1 200px; min-width: 0; }
+  .notities .erbij-form { margin-top: 8px; }
+  .notities .erbij-form .btn-text { padding: 4px 10px; min-height: 0; font-size: 13px; }
 
   @media (max-width: 620px) {
-    /* Op een telefoon staan de velden onder elkaar; naast elkaar bleef er voor de
-       tekst een streepje over. */
-    .notitie-form > div, .notitie-form .btn { flex: 1 1 100%; width: 100%; }
+    /* Op een telefoon staan ook de datum en de tekst onder elkaar; naast elkaar
+       bleef er voor de tekst een streepje over. */
+    .notitie-form .opschrijfregel { flex-direction: column; align-items: stretch; }
+    .notitie-form .fotoregel { flex-wrap: wrap; }
+    .notitie-form .fotoregel .btn { flex: 1 1 auto; }
+    .gekozen { flex: 1 1 100%; }
 
     /* Zelfde rekensom als bij de gewerkte dagen: iOS telt marge en rand van een
        datumveld bovenop de breedte in plaats van erin. */
@@ -476,21 +477,30 @@
         bij de klus; het gaat nooit mee naar de klant.</p>
     </div>
 
+    {#- Twee regels: eerst wat je opschrijft, dan wat je erbij wilt zetten. Alles op
+        één regel werd een rij van vier dingen waarvan er twee half afgekapt waren.
+        De bestandskiezer zelf is verborgen: die toont "geen bestanden geselecteerd"
+        en dat is precies de tekst die je niet wilt lezen. -#}
     <form method="post" enctype="multipart/form-data" class="notitie-form"
           action="{{ url_for('notitie_erbij', klus_id=klus.id) }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <div class="datum-veld">
-        <input type="date" name="wanneer" value="{{ vandaag }}" aria-label="Datum">
+      <div class="opschrijfregel">
+        <div class="datum-veld">
+          <input type="date" name="wanneer" value="{{ vandaag }}" aria-label="Datum">
+        </div>
+        <div class="tekst-veld">
+          <input type="text" name="tekst" placeholder="Bijv. achtergevel hoort er ook bij"
+                 aria-label="Wat je wilt opschrijven">
+        </div>
       </div>
-      <div class="tekst-veld">
-        <input type="text" name="tekst" placeholder="Bijv. achtergevel hoort er ook bij"
-               aria-label="Wat je wilt opschrijven">
+      <div class="fotoregel">
+        <input type="file" name="foto" multiple accept="image/*,.pdf,.heic" hidden
+               id="notitie-fotos" aria-label="Foto's bij deze notitie">
+        <button type="button" class="btn btn-outline" data-kiest="notitie-fotos">
+          Foto&rsquo;s kiezen</button>
+        <span class="gekozen" data-voor="notitie-fotos"></span>
+        <button type="submit" class="btn">Opschrijven</button>
       </div>
-      <div class="foto-veld">
-        <input type="file" name="foto" multiple accept="image/*,.pdf,.heic"
-               aria-label="Foto's bij deze notitie">
-      </div>
-      <button type="submit" class="btn">Opschrijven</button>
     </form>
 
     {% if not notities %}
@@ -539,9 +549,11 @@
         <form method="post" enctype="multipart/form-data" class="erbij-form"
               action="{{ url_for('notitie_foto', notitie_id=n.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <input type="file" name="foto" multiple accept="image/*,.pdf,.heic"
+          <input type="file" name="foto" multiple accept="image/*,.pdf,.heic" hidden
+                 id="foto-bij-{{ n.id }}" data-verstuurt="1"
                  aria-label="Nog een foto bij deze notitie">
-          <button type="submit" class="btn btn-text">Foto erbij</button>
+          <button type="button" class="btn btn-text" data-kiest="foto-bij-{{ n.id }}">
+            + Foto erbij</button>
         </form>
       </li>
       {% endfor %}
@@ -559,8 +571,11 @@
     <form method="post" enctype="multipart/form-data"
           action="{{ url_for('bijlage_erbij', klus_id=klus.id) }}" class="uploadregel">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <input type="file" name="bijlage" multiple accept="image/*,.pdf,.heic"
-             aria-label="Foto's of bonnetjes kiezen">
+      <input type="file" name="bijlage" multiple accept="image/*,.pdf,.heic" hidden
+             id="bon-bestanden" aria-label="Bonnetjes kiezen">
+      <button type="button" class="btn btn-outline" data-kiest="bon-bestanden">
+        Bestanden kiezen</button>
+      <span class="gekozen" data-voor="bon-bestanden"></span>
       <button type="submit" class="btn">Toevoegen</button>
     </form>
 

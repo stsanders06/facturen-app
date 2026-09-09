@@ -700,6 +700,29 @@
     if (e.key === 'Escape') { sluitMenus(null); }
   });
 
+  // Een knop die een verborgen bestandskiezer opent. Het veld zelf laat "geen
+  // bestanden geselecteerd" zien en dat is precies wat niemand wil lezen; met
+  // data-kiest hangt er een gewone knop voor. Staat er data-verstuurt op het veld,
+  // dan gaat het formulier meteen weg zodra je iets hebt gekozen — anders zou je
+  // ook nog een tweede knop moeten vinden.
+  document.querySelectorAll('[data-kiest]').forEach(function (knop) {
+    var veld = document.getElementById(knop.dataset.kiest);
+    if (!veld) return;
+    knop.addEventListener('click', function () { veld.click(); });
+    veld.addEventListener('change', function () {
+      if (veld.dataset.verstuurt && veld.files.length) {
+        veld.form.submit();
+        return;
+      }
+      var toon = document.querySelector('.gekozen[data-voor="' + veld.id + '"]');
+      if (!toon) return;
+      var namen = [].map.call(veld.files, function (b) { return b.name; });
+      toon.textContent = namen.length > 2
+        ? namen.length + ' bestanden gekozen'
+        : namen.join(', ');
+    });
+  });
+
   // Zodra het balkje leeg is, is de mail de deur uit en valt er niets meer tegen te
   // houden. De knop laten staan zou je een klik kosten om te horen dat het te laat
   // is. De tekst blijft zoals hij is: of het versturen ook écht lukte weten we hier

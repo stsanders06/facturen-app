@@ -76,9 +76,34 @@
     flex-wrap: wrap;
     margin-top: 14px;
   }
-  .regelknoppen .csv-voorbeeld { font-size: 13px; }
-  /* Het menu met klussen staat in een rij knoppen en mag niet meegroeien. */
+  /* De twee menu's schuiven naar rechts: links zet je zelf een regel bij, rechts
+     haal je ze ergens vandaan. */
+  .regelknoppen .haal-op { display: flex; gap: 8px; margin-left: auto; }
   .regelknoppen .menu { flex: none; }
+  /* Dezelfde vorm als de knop ernaast; zonder rand leek het geen knop. */
+  .regelknoppen .menu > summary {
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--primary);
+    padding: 8px 16px;
+    font-size: 14px;
+  }
+  .regelknoppen .menu > summary:hover { border-color: var(--primary); }
+  .menu-uitleg {
+    margin: 4px 12px 8px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    max-width: 24ch;
+  }
+
+  @media (max-width: 620px) {
+    /* Naast elkaar passen drie knoppen niet; dan staat de rij netter onder elkaar
+       dan half afgebroken. */
+    .regelknoppen { flex-direction: column; align-items: stretch; }
+    .regelknoppen .haal-op { margin-left: 0; }
+    .regelknoppen .haal-op > * { flex: 1; }
+    .regelknoppen .menu > summary { text-align: center; }
+  }
 
   /* Bij veel regels wordt de lijst een muur; de rest komt achter deze knop
      vandaan. Tien is wat er op een laptopscherm in één keer op past. */
@@ -252,25 +277,31 @@
     <div class="regelknoppen">
       <button type="button" class="btn btn-outline" id="regel-erbij">+ Regel</button>
 
-      {% if klussen %}
-      {% call menu('Uren van een klus toevoegen', 'Uren van een klus') %}
-        {% for kl in klussen %}
-        <button type="button" class="menu-item klus-keuze"
-                data-klus="{{ kl.id }}"
-                data-naam="{{ kl.naam }}"
-                data-uren="{{ kl.uren_open }}"
-                data-tarief="{{ '%.2f'|format(kl.uurtarief or 0) }}"
-                data-klant="{{ kl.klant_id or '' }}">
-          {{ kl.naam }} · {{ kl.uren_open|uren }} u{% if kl.klant_naam %} · {{ kl.klant_naam }}{% endif %}
-        </button>
-        {% endfor %}
-      {% endcall %}
-      {% endif %}
+      {#- De twee manieren om regels ergens vandaan te halen staan rechts, in
+          dezelfde vorm als de knop links: anders leest de rij als een rommeltje. -#}
+      <span class="haal-op">
+        {% if klussen %}
+        {% call menu('Uren van een klus toevoegen', 'Uren van een klus') %}
+          {% for kl in klussen %}
+          <button type="button" class="menu-item klus-keuze"
+                  data-klus="{{ kl.id }}"
+                  data-naam="{{ kl.naam }}"
+                  data-uren="{{ kl.uren_open }}"
+                  data-tarief="{{ '%.2f'|format(kl.uurtarief or 0) }}"
+                  data-klant="{{ kl.klant_id or '' }}">
+            {{ kl.naam }} · {{ kl.uren_open|uren }} u{% if kl.klant_naam %} · {{ kl.klant_naam }}{% endif %}
+          </button>
+          {% endfor %}
+        {% endcall %}
+        {% endif %}
 
-      <button type="button" class="btn btn-outline" id="csv-knop"
-              title="Kopjes op de eerste regel: omschrijving, aantal, prijs en eventueel soort">
-        CSV inlezen</button>
-      <a class="link csv-voorbeeld" href="{{ url_for('regels_voorbeeld') }}">voorbeeld</a>
+        {% call menu('Regels uit een CSV-bestand halen', 'CSV inlezen') %}
+          <button type="button" class="menu-item" id="csv-knop">Bestand kiezen&hellip;</button>
+          <a class="menu-item" href="{{ url_for('regels_voorbeeld') }}">Voorbeeldbestand</a>
+          <p class="menu-uitleg">Kopjes op de eerste regel: omschrijving, aantal,
+            prijs en eventueel soort.</p>
+        {% endcall %}
+      </span>
       <input type="file" id="regels_csv" accept=".csv,text/csv,text/plain" hidden>
     </div>
     <p class="hint" id="regelmelding" hidden></p>

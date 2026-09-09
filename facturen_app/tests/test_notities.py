@@ -4,6 +4,7 @@ Los van de bonnetjes: een bon kan met de rekening mee naar de klant, een notitie
 en de foto's erbij blijven altijd bij de klus.
 """
 import io
+import re
 
 import pytest
 
@@ -163,3 +164,28 @@ def test_de_kluspagina_heeft_twee_aparte_kopjes(client, klus_id):
 
 def test_een_notitie_bij_een_klus_die_niet_bestaat_geeft_404(post):
     assert post("/klus/9999/notitie", {"tekst": "iets"}).status_code == 404
+
+
+def bestandsvelden(pagina):
+    """De <input type=file> op de pagina, dus niet de stijlregels die erover gaan."""
+    return re.findall(r'<input[^>]*type="file"[^>]*>', pagina)
+
+
+def test_de_bestandskiezer_zit_achter_een_knop(client, klus_id):
+    """Het veld zelf toont "geen bestanden geselecteerd"; dat wil je niet lezen."""
+    pagina = client.get(f"/klus/{klus_id}").data.decode()
+    assert 'data-kiest="notitie-fotos"' in pagina
+    assert all("hidden" in veld for veld in bestandsvelden(pagina))
+
+
+def test_tekst_en_fotos_staan_elk_op_een_eigen_regel(client, klus_id):
+    pagina = client.get(f"/klus/{klus_id}").data.decode()
+    assert 'class="opschrijfregel"' in pagina
+    assert 'class="fotoregel"' in pagina
+
+
+def test_bij_een_bestaande_notitie_staat_geen_tweede_kiezer_open(post, client, klus_id):
+    """Twee bestandsvelden tegelijk in beeld leest als twee losse dingen."""
+    schrijf_op(post, klus_id)
+    pagina = client.get(f"/klus/{klus_id}").data.decode()
+    assert [veld for veld in bestandsvelden(pagina) if "hidden" not in veld] == []
