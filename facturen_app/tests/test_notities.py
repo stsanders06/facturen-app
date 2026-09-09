@@ -243,3 +243,25 @@ def test_het_invulveld_staat_klaar_op_de_pagina(post, client, db, klus_id):
 
 def test_een_notitie_die_niet_bestaat_aanpassen_geeft_404(post):
     assert post("/notitie/9999/bewerk", {"tekst": "iets"}).status_code == 404
+
+
+def test_het_notitieveld_is_een_tekstvak_en_geen_invoerregel(client, klus_id):
+    """In een notitie hoort Enter een nieuwe regel te maken, niet te versturen."""
+    pagina = client.get(f"/klus/{klus_id}").data.decode()
+    assert '<textarea name="tekst" rows="1" class="groeit"' in pagina
+    assert 'type="text" name="tekst"' not in pagina
+
+
+def test_een_notitie_over_meerdere_regels_blijft_zo_staan(post, client, db, klus_id):
+    schrijf_op(post, klus_id, "Achtergevel meenemen\nSteiger blijft tot vrijdag")
+    assert db.execute("SELECT tekst FROM notities").fetchone()[0] == \
+        "Achtergevel meenemen\nSteiger blijft tot vrijdag"
+    # pre-wrap houdt de regelovergangen in beeld; zonder die regel wordt het één zin.
+    css = client.get(f"/klus/{klus_id}").data.decode()
+    assert "white-space: pre-wrap" in css
+
+
+def test_ook_het_bewerkveld_groeit_mee(post, client, db, klus_id):
+    schrijf_op(post, klus_id, "Eerste regel")
+    pagina = client.get(f"/klus/{klus_id}").data.decode()
+    assert 'rows="2" class="groeit"' in pagina

@@ -17,6 +17,9 @@
   rekening mee naar de klant, een notitie blijft altijd bij de klus.
 - Een notitie mag ook alleen een foto zijn, je kunt er later foto's bij zetten, en
   een verwijderde notitie staat dertig dagen in de prullenbak.
+- **Het notitieveld is een tekstvak geworden dat meegroeit** met wat je typt. Enter
+  maakt nu een nieuwe regel in plaats van de notitie meteen te bewaren, dus je kunt
+  er een lijstje in kwijt. Opschrijven doe je met de knop ernaast.
 - **De tekst van een notitie is achteraf aan te passen** met "Bewerken". Wat je ter
   plekke opschrijft scherp je later aan; daarvoor hoorde je hem niet te moeten
   weggooien en de foto's opnieuw te moeten kiezen. De datum en de foto's blijven staan.

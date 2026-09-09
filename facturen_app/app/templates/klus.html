@@ -197,7 +197,14 @@
 
   /* ---------- Notities ---------- */
   .notitie-form { display: flex; flex-direction: column; gap: 10px; }
-  .notitie-form .opschrijfregel { display: flex; gap: 10px; align-items: center; }
+  /* De datum blijft bovenaan staan als het tekstvak uitgroeit. */
+  .notitie-form .opschrijfregel { display: flex; gap: 10px; align-items: flex-start; }
+  .notitie-form textarea {
+    display: block;
+    min-height: 44px;
+    resize: vertical;
+    overflow: hidden;
+  }
   /* Net als bij een gewerkte dag: het datumveld neemt de breedte die het nodig
      heeft en groeit niet mee, anders staat de datum eenzaam in het midden. */
   .notitie-form .datum-veld { flex: 0 1 auto; min-width: 0; }
@@ -495,8 +502,12 @@
           <input type="date" name="wanneer" value="{{ vandaag }}" aria-label="Datum">
         </div>
         <div class="tekst-veld">
-          <input type="text" name="tekst" placeholder="Bijv. achtergevel hoort er ook bij"
-                 aria-label="Wat je wilt opschrijven">
+          {#- Een textarea en geen invoerregel: in een notitie hoort Enter een nieuwe
+              regel te maken, niet het formulier te versturen. Hij begint als één
+              regel en groeit mee met wat je typt. -#}
+          <textarea name="tekst" rows="1" class="groeit"
+                    placeholder="Bijv. achtergevel hoort er ook bij"
+                    aria-label="Wat je wilt opschrijven"></textarea>
         </div>
       </div>
       <div class="fotoregel">
@@ -534,7 +545,8 @@
         <form method="post" class="tekst-form" id="notitie-{{ n.id }}-form" hidden
               action="{{ url_for('notitie_bewerk', notitie_id=n.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <textarea name="tekst" rows="2" aria-label="Notitie aanpassen">{{ n.tekst }}</textarea>
+          <textarea name="tekst" rows="2" class="groeit"
+                    aria-label="Notitie aanpassen">{{ n.tekst }}</textarea>
           <div class="tekst-form-knoppen">
             <button type="button" class="btn btn-text" data-stopt="notitie-{{ n.id }}">Annuleren</button>
             <button type="submit" class="btn">Opslaan</button>

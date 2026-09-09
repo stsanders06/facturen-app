@@ -700,6 +700,22 @@
     if (e.key === 'Escape') { sluitMenus(null); }
   });
 
+  // Een tekstvak dat meegroeit met wat je typt. Het begint als één regel — anders
+  // staat er een half leeg blok te wachten — en klapt open zodra je begint. Enter
+  // maakt hier gewoon een nieuwe regel; versturen doe je met de knop ernaast.
+  function pasHoogteAan(veld) {
+    veld.style.height = 'auto';
+    // Twee pixels erbij: zonder die marge verschijnt er bij de laatste regel een
+    // schuifbalkje, en dan springt het vak een pixel op en neer tijdens het typen.
+    veld.style.height = (veld.scrollHeight + 2) + 'px';
+  }
+
+  document.querySelectorAll('textarea.groeit').forEach(function (veld) {
+    veld.addEventListener('input', function () { pasHoogteAan(veld); });
+    veld.addEventListener('focus', function () { pasHoogteAan(veld); });
+    if (veld.value) { pasHoogteAan(veld); }
+  });
+
   // Tekst die je ter plekke kunt aanpassen: de knop wisselt de gelezen tekst om
   // voor het invulveld eronder. Doet JavaScript het niet, dan staat de tekst er
   // gewoon en is alleen de knop zinloos — je raakt niets kwijt.
