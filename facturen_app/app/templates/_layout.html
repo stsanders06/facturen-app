@@ -700,6 +700,28 @@
     if (e.key === 'Escape') { sluitMenus(null); }
   });
 
+  // Tekst die je ter plekke kunt aanpassen: de knop wisselt de gelezen tekst om
+  // voor het invulveld eronder. Doet JavaScript het niet, dan staat de tekst er
+  // gewoon en is alleen de knop zinloos — je raakt niets kwijt.
+  function wisselBewerken(sleutel, aan) {
+    var tekst = document.getElementById(sleutel + '-tekst');
+    var formulier = document.getElementById(sleutel + '-form');
+    if (!tekst || !formulier) return;
+    tekst.hidden = aan;
+    formulier.hidden = !aan;
+    if (aan) {
+      var veld = formulier.querySelector('textarea, input[type="text"]');
+      if (veld) { veld.focus(); veld.setSelectionRange(veld.value.length, veld.value.length); }
+    }
+  }
+
+  document.querySelectorAll('[data-bewerkt]').forEach(function (knop) {
+    knop.addEventListener('click', function () { wisselBewerken(knop.dataset.bewerkt, true); });
+  });
+  document.querySelectorAll('[data-stopt]').forEach(function (knop) {
+    knop.addEventListener('click', function () { wisselBewerken(knop.dataset.stopt, false); });
+  });
+
   // Een knop die een verborgen bestandskiezer opent. Het veld zelf laat "geen
   // bestanden geselecteerd" zien en dat is precies wat niemand wil lezen; met
   // data-kiest hangt er een gewone knop voor. Staat er data-verstuurt op het veld,

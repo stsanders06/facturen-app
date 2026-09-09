@@ -2052,6 +2052,34 @@ def notitie_foto(notitie_id):
     return redirect(url_for("klus", klus_id=rij["klus_id"]))
 
 
+@app.route("/notitie/<int:notitie_id>/bewerk", methods=["POST"])
+def notitie_bewerk(notitie_id):
+    """De tekst van een notitie aanpassen.
+
+    Je schrijft ter plekke iets op en scherpt het later aan; dat hoort niet te
+    betekenen dat je hem moet weggooien en de foto's opnieuw moet kiezen."""
+    conn = get_db()
+    rij = conn.execute("SELECT * FROM notities WHERE id=?", (notitie_id,)).fetchone()
+    if rij is None:
+        conn.close()
+        abort(404)
+
+    tekst = (request.form.get("tekst") or "").strip()
+    heeft_fotos = conn.execute(
+        "SELECT COUNT(*) FROM bijlagen WHERE notitie_id=?", (notitie_id,)).fetchone()[0]
+    if not tekst and not heeft_fotos:
+        # Anders houd je een notitie over waar niets meer in staat.
+        conn.close()
+        melding("Laat de tekst niet leeg; verwijder de notitie als hij weg mag.", "fout")
+        return redirect(url_for("klus", klus_id=rij["klus_id"]))
+
+    conn.execute("UPDATE notities SET tekst=? WHERE id=?", (tekst, notitie_id))
+    conn.commit()
+    conn.close()
+    melding("Notitie aangepast.")
+    return redirect(url_for("klus", klus_id=rij["klus_id"]))
+
+
 @app.route("/notitie/<int:notitie_id>/verwijder", methods=["POST"])
 def notitie_verwijder(notitie_id):
     """De notitie en de foto's die eraan hangen gaan samen naar de prullenbak."""

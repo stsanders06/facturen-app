@@ -17,6 +17,9 @@
   rekening mee naar de klant, een notitie blijft altijd bij de klus.
 - Een notitie mag ook alleen een foto zijn, je kunt er later foto's bij zetten, en
   een verwijderde notitie staat dertig dagen in de prullenbak.
+- **De tekst van een notitie is achteraf aan te passen** met "Bewerken". Wat je ter
+  plekke opschrijft scherp je later aan; daarvoor hoorde je hem niet te moeten
+  weggooien en de foto's opnieuw te moeten kiezen. De datum en de foto's blijven staan.
 - **Bestanden kiezen gaat overal via een knop.** Het kale veld met "geen bestanden
   geselecteerd" is weg; je ziet nu de namen van wat je hebt gekozen. Bij een notitie
   die er al staat is "+ Foto erbij" één knop: kiezen is versturen.

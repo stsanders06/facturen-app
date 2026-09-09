@@ -223,6 +223,12 @@
   .notities .wanneer { font-size: 13px; color: var(--text-secondary); }
   .notities .regelkop .btn-text { padding: 2px 8px; min-height: 0; font-size: 13px; }
   .notities .tekst { margin: 4px 0 0; white-space: pre-wrap; }
+  .notities .tekst:empty { display: none; }
+  .notities .notitie-acties { display: flex; gap: 2px; flex: none; }
+  .notities .tekst-form { margin-top: 6px; display: flex; flex-direction: column; gap: 8px; }
+  .notities .tekst-form[hidden] { display: none; }
+  .notities .tekst-form textarea { width: 100%; }
+  .notities .tekst-form-knoppen { display: flex; gap: 8px; justify-content: flex-end; }
   .notities .bijlagen { margin-top: 12px; }
   .notities .erbij-form { margin-top: 8px; }
   .notities .erbij-form .btn-text { padding: 4px 10px; min-height: 0; font-size: 13px; }
@@ -511,13 +517,29 @@
       <li>
         <div class="regelkop">
           <span class="wanneer">{{ n.wanneer|datum_nl }}</span>
-          <form method="post" action="{{ url_for('notitie_verwijder', notitie_id=n.id) }}"
-                data-bevestig="Deze notitie{% if n.fotos %} en de {{ n.fotos|length }} foto{{ 's' if n.fotos|length != 1 }}{% endif %} verwijderen?">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="btn btn-text danger">Verwijderen</button>
-          </form>
+          <span class="notitie-acties">
+            <button type="button" class="btn btn-text" data-bewerkt="notitie-{{ n.id }}">
+              Bewerken</button>
+            <form method="post" action="{{ url_for('notitie_verwijder', notitie_id=n.id) }}"
+                  data-bevestig="Deze notitie{% if n.fotos %} en de {{ n.fotos|length }} foto{{ 's' if n.fotos|length != 1 }}{% endif %} verwijderen?">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-text danger">Verwijderen</button>
+            </form>
+          </span>
         </div>
-        {% if n.tekst %}<p class="tekst">{{ n.tekst }}</p>{% endif %}
+
+        {#- De tekst en het invulveld wisselen elkaar af: zonder JavaScript blijft
+            de tekst gewoon leesbaar staan en is alleen de knop zinloos. -#}
+        <p class="tekst" id="notitie-{{ n.id }}-tekst">{{ n.tekst }}</p>
+        <form method="post" class="tekst-form" id="notitie-{{ n.id }}-form" hidden
+              action="{{ url_for('notitie_bewerk', notitie_id=n.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <textarea name="tekst" rows="2" aria-label="Notitie aanpassen">{{ n.tekst }}</textarea>
+          <div class="tekst-form-knoppen">
+            <button type="button" class="btn btn-text" data-stopt="notitie-{{ n.id }}">Annuleren</button>
+            <button type="submit" class="btn">Opslaan</button>
+          </div>
+        </form>
 
         {% if n.fotos %}
         <div class="bijlagen">

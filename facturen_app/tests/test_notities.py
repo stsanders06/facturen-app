@@ -189,3 +189,57 @@ def test_bij_een_bestaande_notitie_staat_geen_tweede_kiezer_open(post, client, k
     schrijf_op(post, klus_id)
     pagina = client.get(f"/klus/{klus_id}").data.decode()
     assert [veld for veld in bestandsvelden(pagina) if "hidden" not in veld] == []
+
+
+def test_de_tekst_van_een_notitie_aanpassen(post, db, klus_id):
+    schrijf_op(post, klus_id, "Achtergevel hoort er ook bij")
+    notitie_id = db.execute("SELECT id FROM notities").fetchone()[0]
+    post(f"/notitie/{notitie_id}/bewerk",
+         {"tekst": "Achtergevel hoort er ook bij, en het tuinpad"}, follow_redirects=True)
+    assert db.execute("SELECT tekst FROM notities").fetchone()[0] == \
+        "Achtergevel hoort er ook bij, en het tuinpad"
+
+
+def test_de_datum_blijft_staan_als_je_de_tekst_aanpast(post, db, klus_id):
+    schrijf_op(post, klus_id, "Eerste versie", wanneer="2026-08-26")
+    notitie_id = db.execute("SELECT id FROM notities").fetchone()[0]
+    post(f"/notitie/{notitie_id}/bewerk", {"tekst": "Tweede versie"}, follow_redirects=True)
+    assert db.execute("SELECT wanneer FROM notities").fetchone()[0] == "2026-08-26"
+
+
+def test_de_fotos_blijven_bij_de_notitie_als_je_de_tekst_aanpast(post, db, klus_id):
+    """Anders zou je hem moeten weggooien en de foto's opnieuw moeten kiezen."""
+    schrijf_op(post, klus_id, "Met foto", fotos=["situatie.png"])
+    notitie_id = db.execute("SELECT id FROM notities").fetchone()[0]
+    post(f"/notitie/{notitie_id}/bewerk", {"tekst": "Aangepast"}, follow_redirects=True)
+    assert db.execute("SELECT COUNT(*) FROM bijlagen WHERE notitie_id=?",
+                      (notitie_id,)).fetchone()[0] == 1
+
+
+def test_de_tekst_leeghalen_mag_niet_als_er_geen_foto_bij_staat(post, db, klus_id):
+    """Anders houd je een notitie over waar niets meer in staat."""
+    schrijf_op(post, klus_id, "Blijft staan")
+    notitie_id = db.execute("SELECT id FROM notities").fetchone()[0]
+    antwoord = post(f"/notitie/{notitie_id}/bewerk", {"tekst": "   "}, follow_redirects=True)
+    assert db.execute("SELECT tekst FROM notities").fetchone()[0] == "Blijft staan"
+    assert "Laat de tekst niet leeg" in antwoord.get_data(as_text=True)
+
+
+def test_bij_een_notitie_met_een_foto_mag_de_tekst_wel_leeg(post, db, klus_id):
+    schrijf_op(post, klus_id, "Met foto", fotos=["situatie.png"])
+    notitie_id = db.execute("SELECT id FROM notities").fetchone()[0]
+    post(f"/notitie/{notitie_id}/bewerk", {"tekst": ""}, follow_redirects=True)
+    assert db.execute("SELECT tekst FROM notities").fetchone()[0] == ""
+
+
+def test_het_invulveld_staat_klaar_op_de_pagina(post, client, db, klus_id):
+    """Zonder JavaScript blijft de tekst leesbaar staan; het veld is dan verborgen."""
+    schrijf_op(post, klus_id, "Achtergevel hoort er ook bij")
+    notitie_id = db.execute("SELECT id FROM notities").fetchone()[0]
+    pagina = client.get(f"/klus/{klus_id}").data.decode()
+    assert f'data-bewerkt="notitie-{notitie_id}"' in pagina
+    assert f'id="notitie-{notitie_id}-form" hidden' in pagina
+
+
+def test_een_notitie_die_niet_bestaat_aanpassen_geeft_404(post):
+    assert post("/notitie/9999/bewerk", {"tekst": "iets"}).status_code == 404
