@@ -111,7 +111,7 @@
       <div class="tegel">
         <small>Nog te factureren uren</small>
         <b>{{ cijfers.uren_open|uren }} u</b>
-        {% if cijfers.uren_bedrag %}<small>&euro; {{ cijfers.uren_bedrag|bedrag }}</small>{% endif %}
+        {% if cijfers.uren_bedrag %}<small class="geldregel">&euro; {{ cijfers.uren_bedrag|bedrag }}</small>{% endif %}
       </div>
       {% endif %}
     </div>
@@ -168,7 +168,7 @@
       <a class="kaartlink" href="{{ url_for('offerte_bewerk', offerte_id=o.id) }}"
          aria-label="Offerte {{ o.nummer }} bewerken"></a>
       <div class="links">
-        <span class="nr">{{ o.nummer }}</span>
+        <span class="nr">{{ o.nummer or 'nog geen nummer' }}</span>
         <span class="datum">{{ o.datum|datum_nl }}</span>
         <span class="chip chip-{{ o.status }}">{{ offerte_status[o.status] }}</span>
         {% if o.geldig_tot and o.geldig_tot < vandaag and o.status in ['concept', 'verzonden'] %}

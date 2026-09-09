@@ -150,3 +150,31 @@ def test_een_lopende_klus_zegt_alleen_lopend(db, client):
     inhoud = client.get("/klussen").data.decode()
     assert "Lopend" in inhoud
     assert "2 dagen" not in inhoud
+
+
+def test_het_notitieveld_krijgt_geen_hoogte_uit_zijn_flexbasis(client, db):
+    """De 240px in "flex: 1 1 240px" is een breedte. Zodra de regel op een telefoon
+    een kolom wordt leest de browser hem als hoogte, en dan stond er een leeg blok
+    van 240px onder het tekstvak."""
+    klus_id = db.execute(
+        """INSERT INTO klussen (naam, uurtarief, gestart)
+           VALUES ('Gevel reinigen', 55.0, '2026-09-01')""").lastrowid
+    db.commit()
+    css = css_van(client.get(f"/klus/{klus_id}").data.decode())
+    # rindex: het smalle blok van de kluspagina zelf, niet dat van de gedeelde opmaak.
+    smal = css[css.rindex("@media (max-width: 620px)"):]
+    assert "flex: 0 0 auto" in regel_met(smal, ".notitie-form .tekst-veld")
+
+
+def test_een_bedrag_onder_een_tegel_breekt_ook_niet_na_het_euroteken(client, db):
+    """Op 320px stond "€" op de ene regel en "1.273,75" op de volgende. De regel
+    hierboven dekt alleen het grote bedrag en het label, niet dit kleine."""
+    db.execute("""INSERT INTO klussen (naam, uurtarief, gestart)
+                  VALUES ('Gevel reinigen', 55.0, '2026-09-01')""")
+    klus_id = db.execute("SELECT id FROM klussen").fetchone()[0]
+    db.execute("""INSERT INTO uren (klus_id, datum, van, tot)
+                  VALUES (?, '2026-09-01', '08:00', '17:00')""", (klus_id,))
+    db.commit()
+    inhoud = client.get("/klussen").data.decode()
+    assert '<small class="geldregel">' in inhoud
+    assert "nowrap" in regel_met(css_van(inhoud), ".overzicht small.geldregel")

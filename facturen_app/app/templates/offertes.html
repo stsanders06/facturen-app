@@ -125,7 +125,9 @@
     <div class="kenmerk">{{ o.kenmerk }}</div>
     {%- endif %}
     <div class="meta">
-      {{ o.nummer }} · {{ o.datum|datum_nl }}
+      {#- Een concept heeft nog geen nummer; zonder deze terugval begint de regel
+          met een losse punt. Bij de rekeningen staat het er net zo. -#}
+      {{ o.nummer or 'nog geen nummer' }} · {{ o.datum|datum_nl }}
       {%- if o.geldig_tot %} · geldig tot {{ o.geldig_tot|datum_nl }}{% endif %}
     </div>
     <div class="onderkant">

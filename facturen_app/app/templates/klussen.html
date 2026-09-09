@@ -89,7 +89,7 @@
   <div class="let-op">
     <small>Nog niet gefactureerd</small>
     <b>{{ overzicht.open_uren|uren }} u</b>
-    {% if overzicht.open_bedrag %}<small>&euro; {{ overzicht.open_bedrag|bedrag }}</small>{% endif %}
+    {% if overzicht.open_bedrag %}<small class="geldregel">&euro; {{ overzicht.open_bedrag|bedrag }}</small>{% endif %}
   </div>
   <div>
     <small>Lopende klussen</small>

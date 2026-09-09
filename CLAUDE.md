@@ -55,7 +55,7 @@ Assistant: daar hoort alleen het standaardnetwerk te gelden.
   commentaar houden.
 - **Meldingen aan de gebruiker zijn gewone taal.** "De mailserver weigert je
   gebruikersnaam of wachtwoord", niet "SMTP authentication failed".
-- **Elke wijziging krijgt tests.** Er staan er nu 367.
+- **Elke wijziging krijgt tests.** Er staan er nu 384.
 
 ### Valkuil bij de tests
 
@@ -73,6 +73,20 @@ voor bestanden op schijf: de opruiming leegt `PDF_DIR` en `BIJLAGE_DIR`.
       verholpen; geen pagina hoeft nog horizontaal te schuiven. De regels die dat
       voorkomen staan onder test in `test_smalle_weergave.py`. De Chrome-extensie deed
       het niet; met Playwright kun je wél op elke breedte meten en screenshots maken.
+- [x] **Hele app doorgelopen** in 1.20.0, op 320, 390, 430, 768 en 1280px. De scripts
+      staan in `facturen_app/tests/handmatig/`: `doorloop.py` meet hoe het eruitziet,
+      `klikpaden.py` of het werkt, en `demodata.py` vult een administratie die op een
+      echte lijkt. Ze horen niet bij pytest — er hoort een draaiende app bij; bovenaan
+      `doorloop.py` staat hoe je ze start. Playwright zit niet in de requirements, dat
+      installeer je erbij:
+
+      ```bash
+      .venv/bin/pip install playwright && .venv/bin/playwright install chromium
+      ```
+
+      **Valkuil:** met `debug=False` cachet Jinja de templates en zie je een wijziging
+      pas na een herstart. Zet in je startscript `TEMPLATES_AUTO_RELOAD` aan, en start
+      de app opnieuw zodra je aan `main.py` komt.
 - [ ] **iOS is niet getest.** Deze app heeft twee keer eerder een iOS-specifieke bug
       gehad met de breedte van datum- en tijdvelden (zie het commentaar onderaan
       `klus.html`). Dat soort fouten vangt geen enkele emulator; alleen kijken op het

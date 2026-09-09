@@ -216,6 +216,16 @@
     box-shadow: 0 0 0 3px var(--primary-soft);
   }
   input[type="file"] { padding: 8px; font-size: 14px; }
+  /* Een bestandsveld achter een eigen knop, met daarnaast wat je hebt gekozen. */
+  .kiesregel { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .gekozen {
+    font-size: 13px;
+    color: var(--text-secondary);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 
   /* Safari op de iPhone zoomt de hele pagina in zodra je een veld aantikt waarvan
      de tekst kleiner is dan 16px. Met 16px blijft de pagina staan waar hij staat. */
@@ -595,6 +605,9 @@
      Alleen het label: de toelichting erachter is een hele zin en die moet juist
      wél kunnen afbreken. */
   .overzicht small:first-child { white-space: nowrap; }
+  /* Een bedrag onder de tegel ("€ 1.273,75") brak op 320px na het euroteken. De
+     toelichtingszin ernaast mag juist wél afbreken, dus alleen deze klasse. */
+  .overzicht small.geldregel { white-space: nowrap; }
   .overzicht .let-op b { color: var(--info); }
   .overzicht .waarschuwing b { color: var(--warn-text); }
 

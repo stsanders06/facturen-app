@@ -1254,10 +1254,11 @@ def factuurlijst(conn, klant_id=None):
     }
 
     if klant_id is None:
-        rijen = conn.execute("SELECT * FROM facturen ORDER BY id DESC")
+        rijen = conn.execute("SELECT * FROM facturen ORDER BY datum DESC, id DESC")
     else:
         rijen = conn.execute(
-            "SELECT * FROM facturen WHERE klant_id=? ORDER BY id DESC", (klant_id,)
+            "SELECT * FROM facturen WHERE klant_id=? ORDER BY datum DESC, id DESC",
+            (klant_id,)
         )
 
     lijst = []
@@ -1314,7 +1315,9 @@ def index():
         keuze, zichtbaar = "alles", facturen
 
     # Wie op zijn geld wacht, wil de langst openstaande bovenaan zien; bij de rest
-    # is de nieuwste bovenaan handiger.
+    # staat de nieuwste bovenaan. "Nieuwste" is de datum van de rekening en niet de
+    # volgorde waarin je ze intypte: voer je er een van vorige maand alsnog in, dan
+    # hoort hij niet bovenaan te springen.
     if keuze in ("openstaand", "verlopen"):
         zichtbaar = sorted(zichtbaar, key=lambda f: f["datum"])
 
@@ -1596,7 +1599,7 @@ def klant(klant_id):
         abort(404)
     facturen = factuurlijst(conn, klant_id)
     offertes_van_klant = conn.execute(
-        "SELECT * FROM offertes WHERE klant_id=? ORDER BY id DESC", (klant_id,)
+        "SELECT * FROM offertes WHERE klant_id=? ORDER BY datum DESC, id DESC", (klant_id,)
     ).fetchall()
     conn.close()
 
@@ -2737,7 +2740,7 @@ def bewaar_offerte_regels(conn, offerte_id, regels):
 @app.route("/offertes")
 def offertes():
     conn = get_db()
-    lijst = conn.execute("SELECT * FROM offertes ORDER BY id DESC").fetchall()
+    lijst = conn.execute("SELECT * FROM offertes ORDER BY datum DESC, id DESC").fetchall()
     conn.close()
 
     vandaag = date.today().isoformat()
@@ -3097,12 +3100,16 @@ def maak_pdf(factuur_id):
     conn = get_db()
     factuur = conn.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
     regels = conn.execute("SELECT * FROM regels WHERE factuur_id=?", (factuur_id,)).fetchall()
+    # Is er al iets binnen, dan hoort de strook te zeggen wat er nog moet komen. Anders
+    # maakt een klant die de helft heeft betaald na een herinnering het hele bedrag over.
+    betaald = betaald_op(conn, factuur_id)
     s = get_settings()
     conn.close()
 
     doc = dict(factuur)
     doc["soort"] = "factuur"
     doc["weergavenummer"] = factuur["nummer"] or "CONCEPT"
+    doc["betaald"] = betaald
     return _teken_document(os.path.join(PDF_DIR, pdf_bestandsnaam(factuur)), doc, regels, s)
 
 
@@ -3365,13 +3372,19 @@ def _teken_betaalstrook(vel, doc, s, vervalt):
         c.drawString(vel.links, strook_y - 22 * mm, "Deze rekening is ter plekke voldaan.")
         return
 
+    betaald = round(doc.get("betaald") or 0, 2)
+    openstaand = round(doc["totaal"] - betaald, 2)
+
     vel.label("Overmaken naar", vel.links, strook_y - 8 * mm)
     regel_y = strook_y - 14 * mm
-    for naam, waarde in [
+    regels = [
         ("IBAN", s.get("iban", "")),
         ("T.n.v.", tenaamstelling(s)),
         ("Vóór", filter_datum_nl(vervalt)),
-    ]:
+    ]
+    if betaald > 0:
+        regels.append(("Al betaald", f"€ {nl_bedrag(betaald)}"))
+    for naam, waarde in regels:
         c.setFont("Helvetica", 9)
         c.setFillColor(GRIJS)
         c.drawString(vel.links, regel_y, naam)
@@ -3384,11 +3397,12 @@ def _teken_betaalstrook(vel, doc, s, vervalt):
     c.setStrokeColor(ORANJE)
     c.setLineWidth(1.4)
     c.roundRect(vak_x, vak_y, vak_b, vak_h, 2 * mm, stroke=1, fill=0)
-    vel.label("Te betalen", vak_x + vak_b - 5 * mm, vak_y + vak_h - 6 * mm, rechts_uit=True)
+    vel.label("Nog te betalen" if betaald > 0 else "Te betalen",
+              vak_x + vak_b - 5 * mm, vak_y + vak_h - 6 * mm, rechts_uit=True)
     c.setFillColor(ORANJE)
     c.setFont("Helvetica-Bold", 16)
     c.drawRightString(vak_x + vak_b - 5 * mm, vak_y + 5 * mm,
-                      f"€ {nl_bedrag(doc['totaal'])}")
+                      f"€ {nl_bedrag(max(openstaand, 0))}")
 
 
 def _teken_voetregel(vel, offerte):
@@ -3862,6 +3876,8 @@ def betalingen(factuur_id):
         herzie_betaalstatus(conn, factuur_id)
         conn.commit()
         conn.close()
+        # De strook op de bewaarde PDF klopt nu niet meer; opnieuw tekenen.
+        maak_pdf(factuur_id)
         melding(f"€ {nl_bedrag(bedrag)} geboekt.")
         return redirect(url_for("betalingen", factuur_id=factuur_id))
 
@@ -3890,6 +3906,8 @@ def betaling_verwijder(betaling_id):
     herzie_betaalstatus(conn, factuur_id)
     conn.commit()
     conn.close()
+    # Zonder deze betaling staat er weer meer open dan de bewaarde PDF zegt.
+    maak_pdf(factuur_id)
     melding(f"Betaling van € {nl_bedrag(betaling['bedrag'])} verwijderd.",
             knop=terugknop(prullenbak_id))
     return redirect(url_for("betalingen", factuur_id=factuur_id))

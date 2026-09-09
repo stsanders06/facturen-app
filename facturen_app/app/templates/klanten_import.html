@@ -38,7 +38,11 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="field">
         <label for="bestand">CSV-bestand</label>
-        <input type="file" id="bestand" name="bestand" accept=".csv,text/csv,text/plain" required>
+        <input type="file" id="bestand" name="bestand" accept=".csv,text/csv,text/plain" hidden>
+        <div class="kiesregel">
+          <button type="button" class="btn btn-outline" data-kiest="bestand">Bestand kiezen</button>
+          <span class="gekozen" data-voor="bestand"></span>
+        </div>
       </div>
       <div class="checkregel">
         <input type="checkbox" id="bijwerken" name="bijwerken" value="ja">

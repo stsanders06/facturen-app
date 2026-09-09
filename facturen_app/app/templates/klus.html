@@ -213,8 +213,6 @@
   .notitie-form .fotoregel { display: flex; gap: 10px; align-items: center; }
   /* De opschrijfknop hoort rechts, aan het eind van wat je invult. */
   .notitie-form .fotoregel .btn[type=submit] { margin-left: auto; }
-  .gekozen { font-size: 13px; color: var(--text-secondary); min-width: 0;
-             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   .notities { list-style: none; margin: 18px 0 0; padding: 0; }
   .notities li {
@@ -241,9 +239,23 @@
   .notities .erbij-form .btn-text { padding: 4px 10px; min-height: 0; font-size: 13px; }
 
   @media (max-width: 620px) {
+    /* Twee foto's naast elkaar in plaats van één: met 160px als ondergrens paste de
+       tweede kolom er net niet in en werd elke foto zo hoog als een half scherm. */
+    .bijlagen { grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 10px; }
+    .bijlage img, .bestandsicoon { height: 96px; }
+
+    /* De twee knoppen bij de bonnetjes onder elkaar over de volle breedte, net als
+       bij de notities erboven; links en rechts uitgelijnd stonden ze scheef. */
+    .uploadregel .btn { flex: 1 1 100%; }
+    .uploadregel .btn[type=submit] { margin-left: 0; }
+
     /* Op een telefoon staan ook de datum en de tekst onder elkaar; naast elkaar
        bleef er voor de tekst een streepje over. */
     .notitie-form .opschrijfregel { flex-direction: column; align-items: stretch; }
+    /* De 240px uit de flex-basis hierboven is een bréédte. Zodra de regel op een
+       telefoon een kolom wordt, leest de browser hem als hoogte en stond er een leeg
+       blok van 240px onder het tekstvak. */
+    .notitie-form .tekst-veld { flex: 0 0 auto; }
     .notitie-form .fotoregel { flex-wrap: wrap; }
     .notitie-form .fotoregel .btn { flex: 1 1 auto; }
     .gekozen { flex: 1 1 100%; }
@@ -253,6 +265,25 @@
     @supports (-webkit-touch-callout: none) {
       .notitie-form input[type="date"] { width: calc(100% - 22px); }
     }
+  }
+
+  /* Op een telefoon zijn deze knoppen met een vinger te raken. Ze staan dicht op
+     elkaar — "Bewerken" naast "Verwijderen", en per foto nog eens twee — dus een
+     knop van 20px hoog levert daar de verkeerde tik op. Op een muisscherm mogen ze
+     klein blijven; daar staat de tekst rustiger. */
+  @media (pointer: coarse), (max-width: 720px) {
+    .notities .regelkop .btn-text,
+    .notities .erbij-form .btn-text,
+    .bijlage-acties .btn-text {
+      min-height: 40px;
+      display: inline-flex;
+      align-items: center;
+      padding-left: 12px;
+      padding-right: 12px;
+    }
+    /* Met die hoogte erbij passen twee knoppen onder een foto niet meer naast
+       elkaar op 320px; ze mogen dan onder elkaar. */
+    .bijlage-acties { gap: 2px; }
   }
 
   .kop-acties { display: flex; gap: 8px; flex-wrap: wrap; }

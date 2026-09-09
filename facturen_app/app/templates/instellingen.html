@@ -56,7 +56,13 @@
       </div>
       <div class="field">
         <label for="logo">Logo</label>
-        <input type="file" id="logo" name="logo" accept="image/*">
+        {#- Achter een eigen knop: het kale veld zegt "No file chosen" in het Engels,
+            en dat is de enige Engelse tekst in de hele app. -#}
+        <input type="file" id="logo" name="logo" accept="image/*" hidden>
+        <div class="kiesregel">
+          <button type="button" class="btn btn-outline" data-kiest="logo">Logo kiezen</button>
+          <span class="gekozen" data-voor="logo"></span>
+        </div>
         {% if s.logo_bestand %}
         <div class="logo-huidig">Huidig logo: {{ s.logo_bestand }}</div>
         {% endif %}

@@ -10,7 +10,7 @@
 <div class="card">
   <div class="card-head">
     <h2 style="margin:0 0 4px;font-size:16px">
-      Offerte {{ offerte.nummer }} &middot; {{ offerte.klant_naam }}</h2>
+      Offerte {{ offerte.nummer or 'zonder nummer' }} &middot; {{ offerte.klant_naam }}</h2>
     <p>Het hele bedrag is &euro; {{ offerte.totaal|bedrag }}. Maak hier een rekening voor
       een deel; de offerte blijft staan voor de rest.</p>
   </div>

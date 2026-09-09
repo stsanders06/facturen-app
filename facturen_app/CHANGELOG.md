@@ -23,9 +23,21 @@
 - **De tekst van een notitie is achteraf aan te passen** met "Bewerken". Wat je ter
   plekke opschrijft scherp je later aan; daarvoor hoorde je hem niet te moeten
   weggooien en de foto's opnieuw te moeten kiezen. De datum en de foto's blijven staan.
-- **Bestanden kiezen gaat overal via een knop.** Het kale veld met "geen bestanden
-  geselecteerd" is weg; je ziet nu de namen van wat je hebt gekozen. Bij een notitie
-  die er al staat is "+ Foto erbij" één knop: kiezen is versturen.
+- **De betaalstrook rekent met wat er al binnen is.** Was er een deel betaald, dan
+  stond er toch het hele bedrag op de strook, terwijl de herinneringsmail ernaast
+  het openstaande bedrag noemde. Er staat nu "Al betaald" bij en in het vak "Nog te
+  betalen". De PDF wordt opnieuw gemaakt zodra je een betaling boekt of terugdraait.
+- **De lijsten staan op datum**, niet op de volgorde waarin je ze intypte. Voer je
+  een rekening van vorige maand nu pas in, dan springt hij niet meer bovenaan.
+- Een offerte zonder nummer zegt **"nog geen nummer"** in plaats van een losse punt.
+- **Bestanden kiezen gaat overal via een knop** — ook het logo en het CSV-bestand bij
+  het inlezen van klanten. Daarmee is de laatste Engelse tekst ("No file chosen") uit
+  de app verdwenen.
+- Kleiner spul uit een doorloop op telefoon- en laptopbreedte: knoppen bij de
+  notities en bonnetjes zijn met een vinger te raken, foto's staan op een telefoon
+  naast elkaar in plaats van elk over de volle breedte, een leeg blok onder het
+  notitieveld is weg, en "€ 1.273,75" breekt niet meer af na het euroteken.
+- Bij een notitie die er al staat is **"+ Foto erbij"** één knop: kiezen is versturen.
 
 ## 1.19.0
 
