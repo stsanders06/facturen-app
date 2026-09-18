@@ -32,7 +32,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.20.0"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.21.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -606,10 +606,32 @@ STIPPEL = colors.HexColor("#B9C3C7")
 WIT = colors.white
 
 
-def vervaldatum(datum):
-    """Factuurdatum plus de betaaltermijn, als ISO-datum."""
+def betaaltermijn_dagen(s=None):
+    """Aantal dagen tot de vervaldatum volgens de instellingen.
+
+    Kortere dan een dag is geen termijn; langer dan een jaar hoort niet bij een
+    rekening. Ontbreekt of deugt de waarde niet, dan valt hij terug op veertien.
+    """
+    if s is None:
+        s = get_settings()
+    ruw = (s or {}).get("betaaltermijn_dagen", BETAALTERMIJN_DAGEN)
     try:
-        return (date.fromisoformat(str(datum)) + timedelta(days=BETAALTERMIJN_DAGEN)).isoformat()
+        # Leeg of None: terug naar de standaard, niet naar 0 (want 0 wordt 1).
+        if ruw is None or ruw == "":
+            dagen = BETAALTERMIJN_DAGEN
+        else:
+            dagen = int(ruw)
+    except (TypeError, ValueError):
+        dagen = BETAALTERMIJN_DAGEN
+    return max(1, min(365, dagen))
+
+
+def vervaldatum(datum, dagen=None):
+    """Factuurdatum plus de betaaltermijn, als ISO-datum."""
+    if dagen is None:
+        dagen = betaaltermijn_dagen()
+    try:
+        return (date.fromisoformat(str(datum)) + timedelta(days=dagen)).isoformat()
     except ValueError:
         return datum
 
@@ -695,7 +717,8 @@ def init_db():
             smtp_port INTEGER DEFAULT 587,
             smtp_user TEXT DEFAULT '',
             smtp_pass TEXT DEFAULT '',
-            smtp_van TEXT DEFAULT ''
+            smtp_van TEXT DEFAULT '',
+            betaaltermijn_dagen INTEGER DEFAULT 14
         );
 
         CREATE TABLE IF NOT EXISTS gebruikers (
@@ -833,7 +856,10 @@ def init_db():
 
     # Kolommen die later zijn toegevoegd, bijzetten in bestaande databases.
     bestaand = {rij["name"] for rij in conn.execute("PRAGMA table_info(settings)")}
-    for kolom, definitie in [("tenaamstelling", "TEXT DEFAULT ''")]:
+    for kolom, definitie in [
+        ("tenaamstelling", "TEXT DEFAULT ''"),
+        ("betaaltermijn_dagen", "INTEGER DEFAULT 14"),
+    ]:
         if kolom not in bestaand:
             conn.execute(f"ALTER TABLE settings ADD COLUMN {kolom} {definitie}")
 
@@ -1261,12 +1287,14 @@ def factuurlijst(conn, klant_id=None):
             (klant_id,)
         )
 
+    # Eén keer lezen: anders zou elke rekening opnieuw de instellingen openen.
+    dagen = betaaltermijn_dagen()
     lijst = []
     for rij in rijen:
         factuur = dict(rij)
         # Hoe hij heet in de lijst: zijn nummer, of "concept 6" zolang hij er geen heeft.
         factuur["naam"] = factuurnaam(rij)
-        factuur["vervalt"] = vervaldatum(rij["datum"])
+        factuur["vervalt"] = vervaldatum(rij["datum"], dagen)
         factuur["verlopen"] = (
             rij["status"] != "betaald" and factuur["vervalt"] < vandaag
         )
@@ -1350,10 +1378,16 @@ def instellingen():
                 os.remove(doel)
                 melding(f"{filename} kan niet op de rekening worden getekend. Gebruik een "
                       "PNG of JPG; een HEIC-foto van een iPhone of een SVG werkt niet.", "fout")
+        try:
+            # Leeg veld: terug naar de standaard. 0 wordt later 1; 999 wordt 365.
+            termijn = int(request.form.get("betaaltermijn_dagen") or BETAALTERMIJN_DAGEN)
+        except (TypeError, ValueError):
+            termijn = BETAALTERMIJN_DAGEN
+        termijn = max(1, min(365, termijn))
         conn.execute(
             """UPDATE settings SET naam=?, adres=?, telefoon=?, email=?, iban=?,
-               tenaamstelling=?, logo_bestand=?, smtp_host=?, smtp_port=?, smtp_user=?,
-               smtp_pass=?, smtp_van=? WHERE id=1""",
+               tenaamstelling=?, betaaltermijn_dagen=?, logo_bestand=?, smtp_host=?,
+               smtp_port=?, smtp_user=?, smtp_pass=?, smtp_van=? WHERE id=1""",
             (
                 request.form.get("naam", ""),
                 net_adres(request.form.get("adres", "")),
@@ -1361,6 +1395,7 @@ def instellingen():
                 request.form.get("email", ""),
                 request.form.get("iban", ""),
                 request.form.get("tenaamstelling", ""),
+                termijn,
                 logo_bestand,
                 request.form.get("smtp_host", ""),
                 int(request.form.get("smtp_port") or 587),
@@ -3588,7 +3623,7 @@ def herinnering_email(factuur_id):
         maak_pdf(factuur_id)
 
     openstaand = round(factuur["totaal"] - betaald, 2)
-    vervalt = vervaldatum(factuur["datum"])
+    vervalt = vervaldatum(factuur["datum"], betaaltermijn_dagen(s))
     try:
         te_laat = (date.today() - date.fromisoformat(vervalt)).days
     except ValueError:
