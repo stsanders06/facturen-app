@@ -1,7 +1,7 @@
 {% extends "_layout.html" %}
 {% from "_onderdelen.html" import menu %}
 {# Dit formulier maakt zowel een rekening als een offerte. Ze vragen bijna hetzelfde;
-   alleen de betaalmethode hoort bij een rekening en de geldigheid bij een offerte. #}
+   betaalmethode en vervaldatum horen bij een rekening, geldigheid bij een offerte. #}
 {% set mode = mode|default('factuur') %}
 {% set is_offerte = mode == 'offerte' %}
 {% set stuk = 'offerte' if is_offerte else 'rekening' %}
@@ -204,6 +204,11 @@
           <option value="cash" {% if factuur and factuur.betaalmethode == 'cash' %}selected{% endif %}>Contant</option>
         </select>
       </div>
+      <div class="field">
+        <label for="vervalt_op">Vervaldatum</label>
+        <input type="date" id="vervalt_op" name="vervalt_op" value="{{ vervalt or standaard_vervalt }}"
+               {% if factuur and not vervalt %}disabled{% endif %}>
+      </div>
       {% endif %}
     </div>
     {% if is_offerte %}
@@ -217,6 +222,12 @@
       <textarea id="toelichting" name="toelichting" rows="3"
                 placeholder="Bijv. wat er wel en niet bij de prijs zit, of hoe lang het werk duurt">{{ factuur.toelichting if factuur else '' }}</textarea>
       <p class="hint">Komt onder de bedragen op de offerte te staan.</p>
+    </div>
+    {% else %}
+    <div class="checkregel" style="margin-top:14px">
+      <input type="checkbox" id="betaaltermijn" name="betaaltermijn" value="ja"
+             {% if vervalt or not factuur %}checked{% endif %}>
+      <label for="betaaltermijn">Op de rekening zetten tot wanneer hij betaald moet zijn</label>
     </div>
     {% endif %}
     <div class="field" style="margin-top:16px">
@@ -417,16 +428,19 @@
       berekenTotaal();
     });
 
-    // Een offerte hoeft geen einddatum te hebben; het vinkje zet het datumveld aan
-    // en uit, zodat duidelijk is dat er dan niets over geldigheid op de PDF komt.
-    var geldigheid = document.getElementById('geldigheid');
-    var geldigTot = document.getElementById('geldig_tot');
-    if (geldigheid && geldigTot) {
-      geldigheid.addEventListener('change', function () {
-        geldigTot.disabled = !geldigheid.checked;
-        if (geldigheid.checked) geldigTot.focus();
+    // Offerte (geldigheid) en rekening (betaaltermijn): het vinkje zet het datumveld
+    // aan en uit, zodat duidelijk is dat er dan niets over de einddatum op de PDF komt.
+    function koppelTermijn(vinkjeId, datumId) {
+      var vinkje = document.getElementById(vinkjeId);
+      var datumveld = document.getElementById(datumId);
+      if (!vinkje || !datumveld) return;
+      vinkje.addEventListener('change', function () {
+        datumveld.disabled = !vinkje.checked;
+        if (vinkje.checked) datumveld.focus();
       });
     }
+    koppelTermijn('geldigheid', 'geldig_tot');
+    koppelTermijn('betaaltermijn', 'vervalt_op');
 
     // ---- Regels uit een CSV-bestand ----
     // Het bestand wordt hier in de browser gelezen; er gaat niets naar de server

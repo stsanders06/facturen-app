@@ -4,6 +4,7 @@ De app leest DATA_DIR bij het importeren en maakt daar meteen de database aan, d
 die moet vóór de import naar een tijdelijke map wijzen. Anders schrijven de tests
 in de echte /data van de add-on.
 """
+from datetime import date, timedelta
 import os
 import pathlib
 import sys
@@ -128,13 +129,20 @@ def db(app):
 
 @pytest.fixture
 def maak_factuur(db):
-    """Zet een rekening met één regel in de database en geeft het id terug."""
+    """Zet een rekening met één regel in de database en geeft het id terug.
+
+    Standaard krijgt hij een vervaldatum van veertien dagen na de factuurdatum, zodat
+    bestaande te-laat-testen blijven werken. Geef vervalt_op="" voor geen termijn.
+    """
     def _maak(nummer="2026-001", datum="2026-08-14", klant="Jan Jansen", totaal=121.0,
-              status="concept", email="jan@example.com"):
+              status="concept", email="jan@example.com", vervalt_op=None):
+        if vervalt_op is None:
+            vervalt_op = (date.fromisoformat(datum) + timedelta(days=14)).isoformat()
         factuur_id = db.execute(
-            """INSERT INTO facturen (nummer, datum, klant_naam, klant_adres, klant_email,
-               status, totaal) VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (nummer, datum, klant, "Kerkstraat 1\n5900 AA Venlo", email, status, totaal),
+            """INSERT INTO facturen (nummer, datum, vervalt_op, klant_naam, klant_adres,
+               klant_email, status, totaal) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (nummer, datum, vervalt_op, klant, "Kerkstraat 1\n5900 AA Venlo", email,
+             status, totaal),
         ).lastrowid
         db.execute(
             """INSERT INTO regels (factuur_id, omschrijving, type, aantal, prijs, subtotaal)

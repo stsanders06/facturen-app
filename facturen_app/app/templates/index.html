@@ -128,7 +128,7 @@
     {%- endif %}
     <div class="meta">
       {{ f.nummer or 'nog geen nummer' }} · {{ f.datum|datum_nl }}
-      {%- if f.status != 'betaald' %} · vóór {{ f.vervalt|datum_nl }}{% endif %}
+      {%- if f.status != 'betaald' and f.vervalt %} · vóór {{ f.vervalt|datum_nl }}{% endif %}
     </div>
     <div class="onderkant">
       <span class="chips">

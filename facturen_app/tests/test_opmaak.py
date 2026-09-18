@@ -56,8 +56,8 @@ def test_periode_herhaalt_maand_en_jaar_alleen_als_het_moet(van, tot, verwacht):
     assert facturen.periode_nl(van, tot) == verwacht
 
 
-def test_vervaldatum_is_veertien_dagen_later():
-    assert facturen.vervaldatum("2026-08-14") == "2026-08-28"
+def test_standaard_vervalt_is_veertien_dagen_later():
+    assert facturen.standaard_vervalt("2026-08-14") == "2026-08-28"
 
 
 def test_offerte_geldt_standaard_dertig_dagen():

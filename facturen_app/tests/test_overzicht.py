@@ -21,7 +21,7 @@ def test_openstaand_bedrag_telt_alleen_onbetaalde_rekeningen(db, client, maak_fa
 
 
 def test_rekening_over_de_vervaldatum_heet_te_laat(db, client, maak_factuur):
-    """De betaaltermijn is veertien dagen, dus twintig dagen oud is te laat."""
+    """Met standaard vervaldatum (+14) is twintig dagen oud te laat."""
     maak_factuur(nummer="2026-001", datum=dagen_geleden(20), status="verzonden")
     inhoud = client.get("/").data.decode()
     assert "Te laat" in inhoud
