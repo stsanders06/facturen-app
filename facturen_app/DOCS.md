@@ -24,9 +24,9 @@ De add-on heeft één optie:
 | --- | --- | --- |
 | `log_level` | `info` | Hoeveel detail er in het add-on log komt. Gebruik `debug` bij problemen. |
 
-De app-instellingen zelf (bedrijfsnaam, IBAN, logo, SMTP) staan niet in de add-on
-configuratie maar in de app onder **Instellingen**. Dat scheelt herstarten bij elke
-wijziging.
+De app-instellingen zelf (bedrijfsnaam, IBAN, logo, SMTP, betaaltermijn) staan niet
+in de add-on configuratie maar in de app onder **Instellingen**. Dat scheelt herstarten
+bij elke wijziging.
 
 ### De app openen
 
@@ -105,7 +105,8 @@ telt **Openstaand** alleen nog wat er echt moet komen.
 
 Rekeningen waarvan de vervaldatum voorbij is, krijgen een chip **Te laat** en staan apart
 in de balk bovenaan, met een eigen filter. Bij **Openstaand** staat de langst wachtende
-rekening bovenaan.
+rekening bovenaan. De termijn is standaard veertien dagen; dat stel je in onder
+**Instellingen → Betalen**.
 
 Met **Herinnering sturen** in het menu mail je de klant een vriendelijk berichtje met de
 rekening er nog een keer bij. De app rekent zelf uit hoeveel dagen de vervaldatum voorbij

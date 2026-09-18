@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.21.0
+
+- **De betaaltermijn is in te stellen.** Onder Instellingen → Betalen kies je hoeveel
+  dagen de klant heeft om te betalen. Dat bepaalt de vervaldatum op de rekening, de
+  chip "Te laat", de herinneringsmail en de betaalstrook. Standaard blijft het veertien
+  dagen, ook voor bestaande installaties.
+
 ## 1.20.0
 
 - **Klikken op een rekening of offerte opent nu het bewerkscherm** in plaats van de
