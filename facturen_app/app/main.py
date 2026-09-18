@@ -32,7 +32,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.21.0"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.22.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -516,7 +516,8 @@ MAANDEN = [
     "jul", "aug", "sep", "okt", "nov", "dec",
 ]
 
-# Aantal dagen dat de klant heeft om te betalen; komt als "Vóór ..." op de strook.
+# Standaardtermijn op een nieuwe rekening als je de vervaldatum aanzet. Net als
+# OFFERTE_GELDIG_DAGEN: alleen de default op het formulier, geen globale setting.
 BETAALTERMIJN_DAGEN = 14
 
 # Hoe lang een offerte standaard geldig blijft. Zonder einddatum kan een klant er
@@ -606,32 +607,15 @@ STIPPEL = colors.HexColor("#B9C3C7")
 WIT = colors.white
 
 
-def betaaltermijn_dagen(s=None):
-    """Aantal dagen tot de vervaldatum volgens de instellingen.
+def standaard_vervalt(datum):
+    """Factuurdatum plus de standaard betaaltermijn, als ISO-datum.
 
-    Kortere dan een dag is geen termijn; langer dan een jaar hoort niet bij een
-    rekening. Ontbreekt of deugt de waarde niet, dan valt hij terug op veertien.
+    Alleen de default op een nieuwe rekening met termijn aan; elke rekening
+    bewaart daarna zijn eigen vervalt_op.
     """
-    if s is None:
-        s = get_settings()
-    ruw = (s or {}).get("betaaltermijn_dagen", BETAALTERMIJN_DAGEN)
     try:
-        # Leeg of None: terug naar de standaard, niet naar 0 (want 0 wordt 1).
-        if ruw is None or ruw == "":
-            dagen = BETAALTERMIJN_DAGEN
-        else:
-            dagen = int(ruw)
-    except (TypeError, ValueError):
-        dagen = BETAALTERMIJN_DAGEN
-    return max(1, min(365, dagen))
-
-
-def vervaldatum(datum, dagen=None):
-    """Factuurdatum plus de betaaltermijn, als ISO-datum."""
-    if dagen is None:
-        dagen = betaaltermijn_dagen()
-    try:
-        return (date.fromisoformat(str(datum)) + timedelta(days=dagen)).isoformat()
+        return (date.fromisoformat(str(datum))
+                + timedelta(days=BETAALTERMIJN_DAGEN)).isoformat()
     except ValueError:
         return datum
 
@@ -732,6 +716,7 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             nummer TEXT NOT NULL,
             datum TEXT NOT NULL,
+            vervalt_op TEXT DEFAULT '',
             klant_id INTEGER,
             klant_naam TEXT NOT NULL,
             klant_adres TEXT DEFAULT '',
@@ -935,6 +920,16 @@ def init_db():
     # elkaar te houden. Staat alleen in de app; de klant ziet hem nergens.
     if "kenmerk" not in factuurkolommen:
         conn.execute("ALTER TABLE facturen ADD COLUMN kenmerk TEXT DEFAULT ''")
+    # Per-rekening vervaldatum (was eerder een globale betaaltermijn in Instellingen).
+    # Lege tekst = geen termijn op de rekening, net als geldig_tot bij offertes.
+    if "vervalt_op" not in factuurkolommen:
+        conn.execute("ALTER TABLE facturen ADD COLUMN vervalt_op TEXT DEFAULT ''")
+        # Bestaande rekeningen hielden hun veertien-dagen-termijn; die niet ineens
+        # laten wegvallen doordat de kolom leeg begint.
+        conn.execute(
+            """UPDATE facturen SET vervalt_op = date(datum, '+14 days')
+               WHERE vervalt_op IS NULL OR vervalt_op = ''"""
+        )
     offertekolommen = {rij["name"] for rij in conn.execute("PRAGMA table_info(offertes)")}
     if "kenmerk" not in offertekolommen:
         conn.execute("ALTER TABLE offertes ADD COLUMN kenmerk TEXT DEFAULT ''")
@@ -1287,16 +1282,17 @@ def factuurlijst(conn, klant_id=None):
             (klant_id,)
         )
 
-    # Eén keer lezen: anders zou elke rekening opnieuw de instellingen openen.
-    dagen = betaaltermijn_dagen()
     lijst = []
     for rij in rijen:
         factuur = dict(rij)
         # Hoe hij heet in de lijst: zijn nummer, of "concept 6" zolang hij er geen heeft.
         factuur["naam"] = factuurnaam(rij)
-        factuur["vervalt"] = vervaldatum(rij["datum"], dagen)
+        # Leeg = geen termijn; dan ook geen "Te laat" en geen "vóór ..." in de lijst.
+        factuur["vervalt"] = rij["vervalt_op"] or ""
         factuur["verlopen"] = (
-            rij["status"] != "betaald" and factuur["vervalt"] < vandaag
+            bool(factuur["vervalt"])
+            and rij["status"] != "betaald"
+            and factuur["vervalt"] < vandaag
         )
         factuur["betaald"] = round(per_factuur.get(rij["id"], 0.0), 2)
         factuur["openstaand"] = round(rij["totaal"] - factuur["betaald"], 2)
@@ -1378,15 +1374,9 @@ def instellingen():
                 os.remove(doel)
                 melding(f"{filename} kan niet op de rekening worden getekend. Gebruik een "
                       "PNG of JPG; een HEIC-foto van een iPhone of een SVG werkt niet.", "fout")
-        try:
-            # Leeg veld: terug naar de standaard. 0 wordt later 1; 999 wordt 365.
-            termijn = int(request.form.get("betaaltermijn_dagen") or BETAALTERMIJN_DAGEN)
-        except (TypeError, ValueError):
-            termijn = BETAALTERMIJN_DAGEN
-        termijn = max(1, min(365, termijn))
         conn.execute(
             """UPDATE settings SET naam=?, adres=?, telefoon=?, email=?, iban=?,
-               tenaamstelling=?, betaaltermijn_dagen=?, logo_bestand=?, smtp_host=?,
+               tenaamstelling=?, logo_bestand=?, smtp_host=?,
                smtp_port=?, smtp_user=?, smtp_pass=?, smtp_van=? WHERE id=1""",
             (
                 request.form.get("naam", ""),
@@ -1395,7 +1385,6 @@ def instellingen():
                 request.form.get("email", ""),
                 request.form.get("iban", ""),
                 request.form.get("tenaamstelling", ""),
-                termijn,
                 logo_bestand,
                 request.form.get("smtp_host", ""),
                 int(request.form.get("smtp_port") or 587),
@@ -2631,15 +2620,17 @@ def nieuw():
 
         conn = get_db()
         klant_id = bepaal_klant(conn, request.form)
+        datum = geldige_datum(request.form.get("datum"))
 
         # Nog geen nummer: dat komt pas als de rekening definitief wordt. Zo laat een
         # concept dat je weggooit geen gat achter in de reeks.
         cur = conn.execute(
-            """INSERT INTO facturen (nummer, datum, klant_id, klant_naam, klant_adres,
-               klant_email, betaalmethode, status, totaal, kenmerk)
-               VALUES ('', ?, ?, ?, ?, ?, ?, 'concept', ?, ?)""",
+            """INSERT INTO facturen (nummer, datum, vervalt_op, klant_id, klant_naam,
+               klant_adres, klant_email, betaalmethode, status, totaal, kenmerk)
+               VALUES ('', ?, ?, ?, ?, ?, ?, ?, 'concept', ?, ?)""",
             (
-                geldige_datum(request.form.get("datum")),
+                datum,
+                lees_vervaldatum(request.form, datum),
                 klant_id,
                 request.form.get("klant_naam", ""),
                 net_adres(request.form.get("klant_adres", "")),
@@ -2673,10 +2664,13 @@ def nieuw():
         gekozen = conn.execute("SELECT * FROM klanten WHERE id=?", (vooraf,)).fetchone()
         conn.close()
 
+    vandaag = date.today().isoformat()
     return render_template(
-        "nieuw.html", vandaag=date.today().isoformat(), actief="nieuw",
+        "nieuw.html", vandaag=vandaag, actief="nieuw",
         factuur=None, regels=[], klanten=klantenlijst(), gekozen_klant=gekozen,
         klussen=geboekte_klussen(), vooraf_klus=request.args.get("klus", ""),
+        vervalt=standaard_vervalt(vandaag),
+        standaard_vervalt=standaard_vervalt(vandaag),
     )
 
 
@@ -2697,11 +2691,14 @@ def bewerk(factuur_id):
             return redirect(url_for("bewerk", factuur_id=factuur_id))
 
         klant_id = bepaal_klant(conn, request.form)
+        datum = geldige_datum(request.form.get("datum"), factuur["datum"])
         conn.execute(
-            """UPDATE facturen SET datum=?, klant_id=?, klant_naam=?, klant_adres=?,
-               klant_email=?, betaalmethode=?, totaal=?, kenmerk=? WHERE id=?""",
+            """UPDATE facturen SET datum=?, vervalt_op=?, klant_id=?, klant_naam=?,
+               klant_adres=?, klant_email=?, betaalmethode=?, totaal=?, kenmerk=?
+               WHERE id=?""",
             (
-                geldige_datum(request.form.get("datum"), factuur["datum"]),
+                datum,
+                lees_vervaldatum(request.form, datum),
                 klant_id,
                 request.form.get("klant_naam", ""),
                 net_adres(request.form.get("klant_adres", "")),
@@ -2729,10 +2726,14 @@ def bewerk(factuur_id):
         "SELECT * FROM regels WHERE factuur_id=? ORDER BY id", (factuur_id,)
     ).fetchall()
     conn.close()
-    return render_template("nieuw.html", vandaag=factuur["datum"], actief="nieuw",
-                           factuur=factuur, regels=regels, klanten=klantenlijst(),
-                           gekozen_klant=None, klussen=geboekte_klussen(factuur_id),
-                           vooraf_klus="")
+    return render_template(
+        "nieuw.html", vandaag=factuur["datum"], actief="nieuw",
+        factuur=factuur, regels=regels, klanten=klantenlijst(),
+        gekozen_klant=None, klussen=geboekte_klussen(factuur_id),
+        vooraf_klus="",
+        vervalt=factuur["vervalt_op"] or "",
+        standaard_vervalt=standaard_vervalt(factuur["datum"]),
+    )
 
 
 OFFERTE_STATUS = {
@@ -2760,6 +2761,15 @@ def lees_geldigheid(form, datum):
     if form.get("geldigheid") != "ja":
         return ""
     return geldige_datum(form.get("geldig_tot"), geldig_tot(datum))
+
+
+def lees_vervaldatum(form, datum):
+    """Tot wanneer de rekening betaald moet zijn, of leeg als je er geen termijn bij
+    wilt. Het vinkje bepaalt dat; staat het aan zonder datum, dan pakken we de
+    standaardtermijn."""
+    if form.get("betaaltermijn") != "ja":
+        return ""
+    return geldige_datum(form.get("vervalt_op"), standaard_vervalt(datum))
 
 
 def bewaar_offerte_regels(conn, offerte_id, regels):
@@ -3002,12 +3012,14 @@ def offerte_naar_rekening(offerte_id):
     regels = conn.execute(
         "SELECT * FROM offerte_regels WHERE offerte_id=? ORDER BY id", (offerte_id,)
     ).fetchall()
+    nieuwe_datum = date.today().isoformat()
     cur = conn.execute(
-        """INSERT INTO facturen (nummer, datum, klant_id, klant_naam, klant_adres,
-           klant_email, betaalmethode, status, totaal, kenmerk)
-           VALUES ('', ?, ?, ?, ?, ?, 'bank', 'concept', ?, ?)""",
+        """INSERT INTO facturen (nummer, datum, vervalt_op, klant_id, klant_naam,
+           klant_adres, klant_email, betaalmethode, status, totaal, kenmerk)
+           VALUES ('', ?, ?, ?, ?, ?, ?, 'bank', 'concept', ?, ?)""",
         (
-            date.today().isoformat(),
+            nieuwe_datum,
+            standaard_vervalt(nieuwe_datum),
             offerte["klant_id"],
             offerte["klant_naam"],
             offerte["klant_adres"],
@@ -3061,12 +3073,14 @@ def offerte_aanbetaling(offerte_id):
     omschrijving = (request.form.get("omschrijving", "").strip()
                     or f"Aanbetaling {deel:g}% van offerte {offerte['nummer']}")
 
+    nieuwe_datum = date.today().isoformat()
     cur = conn.execute(
-        """INSERT INTO facturen (nummer, datum, klant_id, klant_naam, klant_adres,
-           klant_email, betaalmethode, status, totaal, kenmerk)
-           VALUES ('', ?, ?, ?, ?, ?, 'bank', 'concept', ?, ?)""",
+        """INSERT INTO facturen (nummer, datum, vervalt_op, klant_id, klant_naam,
+           klant_adres, klant_email, betaalmethode, status, totaal, kenmerk)
+           VALUES ('', ?, ?, ?, ?, ?, ?, 'bank', 'concept', ?, ?)""",
         (
-            date.today().isoformat(),
+            nieuwe_datum,
+            standaard_vervalt(nieuwe_datum),
             offerte["klant_id"],
             offerte["klant_naam"],
             offerte["klant_adres"],
@@ -3415,8 +3429,10 @@ def _teken_betaalstrook(vel, doc, s, vervalt):
     regels = [
         ("IBAN", s.get("iban", "")),
         ("T.n.v.", tenaamstelling(s)),
-        ("Vóór", filter_datum_nl(vervalt)),
     ]
+    # Geen termijn op de rekening: dan ook geen "Vóór" op de strook.
+    if vervalt:
+        regels.append(("Vóór", filter_datum_nl(vervalt)))
     if betaald > 0:
         regels.append(("Al betaald", f"€ {nl_bedrag(betaald)}"))
     for naam, waarde in regels:
@@ -3454,9 +3470,9 @@ def _teken_document(pad, doc, regels, s):
     naam = doc.get("weergavenummer") or doc["nummer"]
     vel = Vel(pad, "Offerte" if offerte else "Rekening", naam)
 
-    # Een offerte hoeft geen einddatum te hebben; laat je het veld leeg, dan staat er
-    # niets over geldigheid op het vel.
-    vervalt = doc.get("geldig_tot") if offerte else vervaldatum(doc["datum"])
+    # Offerte: geldig_tot; rekening: vervalt_op. Beide mogen leeg — dan geen einddatum
+    # op het vel (en bij een rekening ook geen "Vóór" op de strook).
+    vervalt = doc.get("geldig_tot") if offerte else (doc.get("vervalt_op") or "")
     kopregel = f"{naam}   ·   {filter_datum_nl(doc['datum'])}"
     if offerte and vervalt:
         kopregel += f"   ·   geldig tot {filter_datum_nl(vervalt)}"
@@ -3595,7 +3611,8 @@ def verstuur_email(factuur_id):
 
 def herinnering_email(factuur_id):
     """Stuurt een vriendelijke herinnering met de rekening er nog eens bij. Noemt
-    hoeveel er nog openstaat en hoe lang de vervaldatum al voorbij is."""
+    hoeveel er nog openstaat; heeft de rekening een termijn, dan ook of die voorbij
+    is."""
     conn = get_db()
     factuur = conn.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
     if factuur is None:
@@ -3623,17 +3640,20 @@ def herinnering_email(factuur_id):
         maak_pdf(factuur_id)
 
     openstaand = round(factuur["totaal"] - betaald, 2)
-    vervalt = vervaldatum(factuur["datum"], betaaltermijn_dagen(s))
-    try:
-        te_laat = (date.today() - date.fromisoformat(vervalt)).days
-    except ValueError:
-        te_laat = 0
-
-    if te_laat > 0:
-        opening = (f"De vervaldatum van {filter_datum_nl(vervalt)} is inmiddels "
-                   f"{te_laat} dag{'en' if te_laat != 1 else ''} geleden.")
+    vervalt = factuur["vervalt_op"] or ""
+    if vervalt:
+        try:
+            te_laat = (date.today() - date.fromisoformat(vervalt)).days
+        except ValueError:
+            te_laat = 0
+        if te_laat > 0:
+            opening = (f"De vervaldatum van {filter_datum_nl(vervalt)} is inmiddels "
+                       f"{te_laat} dag{'en' if te_laat != 1 else ''} geleden.")
+        else:
+            opening = f"De rekening staat open tot {filter_datum_nl(vervalt)}."
     else:
-        opening = f"De rekening staat open tot {filter_datum_nl(vervalt)}."
+        # Zonder termijn geen "te laat" of "staat open tot"; wel het openstaande bedrag.
+        opening = ""
 
     # Is er al iets binnen, dan hoort de herinnering niet om het hele bedrag te vragen.
     bedragregel = f"Het openstaande bedrag is € {nl_bedrag(openstaand)}."
@@ -3641,12 +3661,16 @@ def herinnering_email(factuur_id):
         bedragregel += (f" Van het totaal van € {nl_bedrag(factuur['totaal'])} is er al "
                         f"€ {nl_bedrag(betaald)} ontvangen, waarvoor dank.")
 
+    open_zin = (f"Deze rekening ({factuur['nummer']}) staat nog open. {opening}".rstrip()
+                if opening else
+                f"Deze rekening ({factuur['nummer']}) staat nog open.")
+
     gelukt, tekst = _mail_pdf(
         s,
         factuur["klant_email"],
         f"Herinnering: rekening {factuur['nummer']} - {s.get('naam', '')}",
         f"Beste {factuur['klant_naam']},\n\n"
-        f"Deze rekening ({factuur['nummer']}) staat nog open. {opening}\n\n"
+        f"{open_zin}\n\n"
         f"{bedragregel}\n\n"
         "Wellicht is hij aan je aandacht ontsnapt; is hij inmiddels betaald, dan kun je "
         "dit bericht negeren. De rekening zit voor de zekerheid nog een keer bijgevoegd."
@@ -3844,12 +3868,17 @@ def kopieer(factuur_id):
         conn.close()
         abort(404)
 
+    # Had de originele rekening een termijn, dan een nieuwe default vanaf vandaag;
+    # stond er geen einddatum, dan ook geen op de kopie (de oude datum past niet).
+    nieuwe_datum = date.today().isoformat()
+    vervalt = standaard_vervalt(nieuwe_datum) if origineel["vervalt_op"] else ""
     cur = conn.execute(
-        """INSERT INTO facturen (nummer, datum, klant_id, klant_naam, klant_adres,
-           klant_email, betaalmethode, status, totaal, kenmerk)
-           VALUES ('', ?, ?, ?, ?, ?, ?, 'concept', ?, ?)""",
+        """INSERT INTO facturen (nummer, datum, vervalt_op, klant_id, klant_naam,
+           klant_adres, klant_email, betaalmethode, status, totaal, kenmerk)
+           VALUES ('', ?, ?, ?, ?, ?, ?, ?, 'concept', ?, ?)""",
         (
-            date.today().isoformat(),
+            nieuwe_datum,
+            vervalt,
             origineel["klant_id"],
             origineel["klant_naam"],
             origineel["klant_adres"],

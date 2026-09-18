@@ -37,10 +37,13 @@ def rekening(nummer, klant, datum, status, regels, kenmerk="", betaald=0.0):
     k = klant_id[klant]
     rij = conn.execute("SELECT adres, email FROM klanten WHERE id=?", (k,)).fetchone()
     totaal = round(sum(a * p for _, _, a, p in regels), 2)
+    # Demo-rekeningen krijgen een termijn, zodat "Te laat" in de demodata zichtbaar blijft.
+    from datetime import date as _date, timedelta as _td
+    vervalt = (_date.fromisoformat(datum) + _td(days=14)).isoformat()
     fid = conn.execute(
-        """INSERT INTO facturen (nummer, datum, klant_id, klant_naam, klant_adres, klant_email,
-           status, totaal, kenmerk) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (nummer, datum, k, klant, rij[0], rij[1], status, totaal, kenmerk)).lastrowid
+        """INSERT INTO facturen (nummer, datum, vervalt_op, klant_id, klant_naam, klant_adres,
+           klant_email, status, totaal, kenmerk) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (nummer, datum, vervalt, k, klant, rij[0], rij[1], status, totaal, kenmerk)).lastrowid
     for oms, soort, aantal, prijs in regels:
         conn.execute("""INSERT INTO regels (factuur_id, omschrijving, type, aantal, prijs, subtotaal)
                         VALUES (?, ?, ?, ?, ?, ?)""",

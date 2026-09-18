@@ -24,7 +24,7 @@ De add-on heeft één optie:
 | --- | --- | --- |
 | `log_level` | `info` | Hoeveel detail er in het add-on log komt. Gebruik `debug` bij problemen. |
 
-De app-instellingen zelf (bedrijfsnaam, IBAN, logo, SMTP, betaaltermijn) staan niet
+De app-instellingen zelf (bedrijfsnaam, IBAN, logo, SMTP) staan niet
 in de add-on configuratie maar in de app onder **Instellingen**. Dat scheelt herstarten
 bij elke wijziging.
 
@@ -103,15 +103,19 @@ telt **Openstaand** alleen nog wat er echt moet komen.
 
 ### Als er niet betaald wordt
 
+Elke rekening heeft zijn eigen **vervaldatum**, net als de geldigheid bij een offerte:
+een datumveld met een vinkje. Staat het vinkje aan, dan is de standaard veertien dagen na
+de factuurdatum; haal je hem weg, dan komt er geen einddatum op de PDF, in de lijst of in
+de herinneringsmail.
+
 Rekeningen waarvan de vervaldatum voorbij is, krijgen een chip **Te laat** en staan apart
-in de balk bovenaan, met een eigen filter. Bij **Openstaand** staat de langst wachtende
-rekening bovenaan. De termijn is standaard veertien dagen; dat stel je in onder
-**Instellingen → Betalen**.
+in de balk bovenaan, met een eigen filter. Zonder termijn op de rekening komt die chip er
+niet. Bij **Openstaand** staat de langst wachtende rekening bovenaan.
 
 Met **Herinnering sturen** in het menu mail je de klant een vriendelijk berichtje met de
-rekening er nog een keer bij. De app rekent zelf uit hoeveel dagen de vervaldatum voorbij
-is en noemt alleen het bedrag dat nog openstaat; is er al een deel binnen, dan bedankt de
-mail daar netjes voor.
+rekening er nog een keer bij. Heeft de rekening een termijn, dan rekent de app uit
+hoeveel dagen die voorbij is; zonder termijn blijft de mail bij het openstaande bedrag.
+Is er al een deel binnen, dan bedankt de mail daar netjes voor.
 
 ### Terugkerend werk
 

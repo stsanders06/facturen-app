@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.22.0
+
+- **De vervaldatum hoort bij de rekening, niet bij Instellingen.** Bij elke rekening
+  kies je zelf tot wanneer hij betaald moet zijn — met een datumveld en een vinkje,
+  net als de geldigheid bij een offerte. Zet het vinkje uit, dan komt er geen
+  vervaldatum op de PDF, in de lijst of in de herinneringsmail, en ook geen chip
+  "Te laat". Nieuwe rekeningen starten standaard op veertien dagen.
+- Het veld **Betaaltermijn** onder Instellingen → Betalen is weg (dat zat alleen in
+  1.21). De kolom in de database blijft staan; hij wordt niet meer gelezen of
+  geschreven.
+
 ## 1.21.0
 
 - **De betaaltermijn is in te stellen.** Onder Instellingen → Betalen kies je hoeveel

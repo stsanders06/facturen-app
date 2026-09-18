@@ -12,10 +12,16 @@ def klant_met_rekening(db, **velden):
     velden.setdefault("datum", date.today().isoformat())
     velden.setdefault("totaal", 100.0)
     velden.setdefault("status", "verzonden")
+    if "vervalt_op" not in velden:
+        # Standaardtermijn, zodat te-laat-testen blijven werken.
+        velden["vervalt_op"] = (
+            date.fromisoformat(velden["datum"]) + timedelta(days=14)
+        ).isoformat()
     factuur_id = db.execute(
-        """INSERT INTO facturen (nummer, datum, klant_id, klant_naam, status, totaal)
-           VALUES (?, ?, ?, 'Jan Jansen', ?, ?)""",
-        (velden["nummer"], velden["datum"], klant_id, velden["status"], velden["totaal"]),
+        """INSERT INTO facturen (nummer, datum, vervalt_op, klant_id, klant_naam, status,
+           totaal) VALUES (?, ?, ?, ?, 'Jan Jansen', ?, ?)""",
+        (velden["nummer"], velden["datum"], velden["vervalt_op"], klant_id,
+         velden["status"], velden["totaal"]),
     ).lastrowid
     db.commit()
     return klant_id, factuur_id
