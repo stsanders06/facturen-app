@@ -30,19 +30,16 @@
             <option value="{{ k.id }}" {% if klus and klus.klant_id == k.id %}selected{% endif %}>{{ k.naam }}</option>
             {% endfor %}
           </select>
-          <p class="hint">Handig, maar niet verplicht.</p>
         </div>
         <div class="field">
           <label for="uurtarief">Uurtarief</label>
           <input type="number" step="any" id="uurtarief" name="uurtarief" placeholder="0,00"
                  value="{{ '%.2f'|format(klus.uurtarief) if klus and klus.uurtarief else '' }}">
-          <p class="hint">Wordt gebruikt als je de uren op een rekening zet.</p>
         </div>
       </div>
       <div class="field">
         <label for="notitie">Notitie</label>
         <textarea id="notitie" name="notitie" rows="2">{{ klus.notitie if klus else '' }}</textarea>
-        <p class="hint">Voor jezelf. Komt niet op de rekening.</p>
       </div>
       {% if not klus %}
       {# Bij een bestaande klus staat de fase op de klus zelf; hier kies je alleen
