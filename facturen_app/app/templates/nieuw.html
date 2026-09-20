@@ -119,6 +119,27 @@
   }
   .meer-regels:hover { color: var(--primary); border-color: var(--primary); }
   .meer-regels[hidden] { display: none; }
+
+  /* Bestaande klant: gegevens ingeklapt achter een korte samenvatting */
+  #klant-gegevens[hidden],
+  #klant-samenvatting[hidden] { display: none; }
+  .klant-samenvatting {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 12px 14px;
+    background: var(--bg);
+    border-radius: var(--radius-sm);
+  }
+  .klant-samenvatting .naam { font-weight: 500; margin: 0; }
+  .klant-samenvatting .adres {
+    margin: 2px 0 0;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+  .klant-samenvatting .tekst { min-width: 0; flex: 1 1 12rem; }
 </style>
 {% endblock %}
 {% block content %}
@@ -156,8 +177,16 @@
           </option>
           {% endfor %}
         </select>
-        <p class="hint">Kies een klant en de gegevens hieronder worden ingevuld.</p>
+        <p class="hint" id="klant-hint">Kies een klant en de gegevens hieronder worden ingevuld.</p>
       </div>
+      <div id="klant-samenvatting" class="klant-samenvatting" hidden>
+        <div class="tekst">
+          <p class="naam" id="klant-samenvatting-naam"></p>
+          <p class="adres" id="klant-samenvatting-adres" hidden></p>
+        </div>
+        <button type="button" class="btn btn-outline" id="klant-bewerken">Gegevens bewerken</button>
+      </div>
+      <div id="klant-gegevens">
       <div class="field">
         <label for="klant_naam">Klantnaam</label>
         <input type="text" id="klant_naam" name="klant_naam" required
@@ -177,6 +206,7 @@
       <div class="checkregel" id="opslaan-regel">
         <input type="checkbox" id="klant_opslaan" name="klant_opslaan" value="ja" checked>
         <label for="klant_opslaan">Deze klant bewaren voor de volgende keer</label>
+      </div>
       </div>
     </div>
   </section>
@@ -641,22 +671,68 @@
     berekenTotaal();
 
     // Klant kiezen vult de gegevens in. Bij een bestaande klant heeft "bewaren"
-    // geen zin, dus dat vinkje verdwijnt dan.
+    // geen zin, dus dat vinkje verdwijnt dan. De detailvelden klappen in achter
+    // een korte samenvatting; "Gegevens bewerken" zet ze voor deze sessie weer open.
     var klantKeuze = document.getElementById('klant_id');
     var opslaanRegel = document.getElementById('opslaan-regel');
+    var klantGegevens = document.getElementById('klant-gegevens');
+    var klantSamenvatting = document.getElementById('klant-samenvatting');
+    var klantHint = document.getElementById('klant-hint');
+    var samenvattingNaam = document.getElementById('klant-samenvatting-naam');
+    var samenvattingAdres = document.getElementById('klant-samenvatting-adres');
+    var klantBewerken = false;
 
     function pasKlantAan(vulIn) {
       var optie = klantKeuze.options[klantKeuze.selectedIndex];
       var bestaand = !!klantKeuze.value;
+      var naamVeld = document.getElementById('klant_naam');
+      var adresVeld = document.getElementById('klant_adres');
+      var emailVeld = document.getElementById('klant_email');
       if (bestaand && vulIn) {
-        document.getElementById('klant_naam').value = optie.dataset.naam || '';
-        document.getElementById('klant_adres').value = optie.dataset.adres || '';
-        document.getElementById('klant_email').value = optie.dataset.email || '';
+        naamVeld.value = optie.dataset.naam || '';
+        adresVeld.value = optie.dataset.adres || '';
+        emailVeld.value = optie.dataset.email || '';
       }
       opslaanRegel.hidden = bestaand;
+
+      var ingeklapt = bestaand && !klantBewerken;
+      klantGegevens.hidden = ingeklapt;
+      klantSamenvatting.hidden = !ingeklapt;
+
+      if (ingeklapt) {
+        var naam = naamVeld.value || optie.dataset.naam || '';
+        var adres = (adresVeld.value || optie.dataset.adres || '')
+          .replace(/\s+/g, ' ').trim();
+        samenvattingNaam.textContent = naam;
+        if (adres) {
+          samenvattingAdres.textContent = adres;
+          samenvattingAdres.hidden = false;
+        } else {
+          samenvattingAdres.textContent = '';
+          samenvattingAdres.hidden = true;
+        }
+        klantHint.textContent =
+          'De gegevens van deze klant gaan mee. Wil je iets wijzigen, klik op Gegevens bewerken.';
+      } else if (bestaand) {
+        klantHint.textContent =
+          'Pas hieronder aan wat voor deze ' + {{ stuk|tojson }} +
+          ' anders moet. De klant zelf blijft staan.';
+      } else {
+        klantHint.textContent =
+          'Kies een klant en de gegevens hieronder worden ingevuld.';
+      }
     }
 
-    klantKeuze.addEventListener('change', function () { pasKlantAan(true); });
+    document.getElementById('klant-bewerken').addEventListener('click', function () {
+      klantBewerken = true;
+      pasKlantAan(false);
+      document.getElementById('klant_naam').focus();
+    });
+
+    klantKeuze.addEventListener('change', function () {
+      klantBewerken = false;
+      pasKlantAan(true);
+    });
     pasKlantAan(false);
 
     // Kom je vanaf een klus binnen ("Op rekening zetten"), dan staat hij er al op.

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.23.0
+
+- **Bestaande klantgegevens klappen in** op het formulier voor een rekening of offerte.
+  Kies je een klant uit de lijst, dan zie je alleen de naam (en eventueel het adres) met
+  een knop **Gegevens bewerken**. De velden blijven ingevuld meegaan bij opslaan. Bij
+  een nieuwe klant blijven de velden en het vinkje "bewaren" gewoon zichtbaar, net als
+  voorheen. Bij bewerken van een bestaande rekening of offerte start het formulier
+  ook ingeklapt.
+
 ## 1.22.0
 
 - **De vervaldatum hoort bij de rekening, niet bij Instellingen.** Bij elke rekening
