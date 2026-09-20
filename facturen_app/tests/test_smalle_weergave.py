@@ -44,13 +44,43 @@ def test_de_toelichting_achter_een_bedrag_mag_wel_afbreken(client):
 def test_het_menu_hangt_op_een_telefoon_aan_de_knoppenrij(client):
     """Hing het aan de drie puntjes zelf, dan begon de lijst van 210px pas
     halverwege het scherm en liep hij er rechts uit. Nu hangt hij aan de rij en
-    lijnt hij uit op de rechterkant daarvan, waar de puntjes staan."""
+    lijnt hij uit op de rechterkant daarvan, waar de puntjes staan. Alleen
+    menus in .acties; anders hangt een regelknoppen-menu aan de hele kaart."""
     css = css_van(client.get("/").data.decode())
     smal = css[css.index("@media (max-width: 620px)", css.index(".menu-lijst")):]
-    assert "position: static" in regel_met(smal, ".menu")
+    assert "position: static" in regel_met(smal, ".acties .menu")
     assert "position: relative" in regel_met(smal, ".acties")
-    assert "right: 0" in regel_met(smal, ".menu-lijst")
-    assert "left: auto" in regel_met(smal, ".menu-lijst")
+    assert "right: 0" in regel_met(smal, ".acties .menu-lijst")
+    assert "left: auto" in regel_met(smal, ".acties .menu-lijst")
+
+
+def test_telefoon_static_menu_alleen_binnen_acties():
+    """Een kale `.menu { position: static }` liet de lijst van 'Uren van een klus'
+    onderaan de Regels-kaart openen in plaats van onder de knop."""
+    import pathlib
+    layout = (
+        pathlib.Path(__file__).resolve().parent.parent
+        / "app" / "templates" / "_layout.html"
+    ).read_text()
+    smal = layout[layout.index("@media (max-width: 620px)", layout.index(".menu-lijst")):]
+    smal = smal[: smal.index("}", smal.index(".menu-item")) + 1]
+    assert ".acties .menu { position: static; }" in smal
+    # Na weglaten van de gescoapte regel mag er geen kale `.menu { position: static }`
+    # meer overblijven in dit telefoonblok.
+    zonder_acties = smal.replace(".acties .menu { position: static; }", "")
+    assert ".menu { position: static; }" not in zonder_acties
+
+
+def test_haal_op_knoppen_zijn_op_telefoon_even_hoog(client):
+    """Verschillende labelbrekingen maakten 'Uren van een klus' en 'CSV inlezen'
+    ongelijk van hoogte naast elkaar."""
+    css = css_van(client.get("/nieuw").data.decode())
+    assert "align-items: stretch" in regel_met(css, ".regelknoppen .haal-op")
+    assert "position: relative" in regel_met(css, ".regelknoppen .menu")
+    smal = css[css.rindex("@media (max-width: 620px)"):]
+    assert "min-height: 44px" in regel_met(smal, ".regelknoppen .haal-op .menu > summary")
+    assert "align-items: center" in regel_met(smal, ".regelknoppen .haal-op .menu > summary")
+    assert "flex: 1" in regel_met(smal, ".regelknoppen .haal-op .menu")
 
 
 def test_de_knoppenrij_neemt_op_een_telefoon_niet_de_volle_breedte(client):
