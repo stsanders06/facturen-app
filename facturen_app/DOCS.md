@@ -70,8 +70,9 @@ iets kwijtraakt.
    wachtwoord.
 4. Ga naar **Nieuw** om een rekening te maken: klant kiezen of nieuwe gegevens invullen,
    regels voor materiaal en arbeid, betaalmethode kiezen. Kies je een bestaande klant,
-   dan klappen de detailvelden in; met **Gegevens bewerken** zet je ze weer open. Bij
-   opslaan wordt automatisch een PDF gegenereerd.
+   dan klappen de detailvelden in; met **Gegevens bewerken** zet je ze weer open. De
+   regels zelf staan ook compact: één rij per regel, tik om te bewerken. Bij opslaan
+   wordt automatisch een PDF gegenereerd.
 5. Wil je eerst een prijs afgeven, begin dan onder **Offertes**. Zegt de klant ja, dan
    maak je er met één knop een rekening van.
 6. Heb je je klanten al ergens anders staan, dan lees je ze in één keer in onder
@@ -188,8 +189,9 @@ bij een materiaallijst of een bon van de groothandel. Kopjes: **omschrijving**,
 Bedragen mogen met een komma of een punt, met of zonder euroteken.
 
 Het bestand wordt in je browser gelezen en niet naar de app gestuurd: de regels
-verschijnen meteen in het formulier, je kunt ze nog aanpassen en pas als je opslaat komen
-ze op de rekening. Zit er iets niet goed bij, dan haal je die regel met het kruisje weg.
+verschijnen meteen in het formulier (eerst als compacte rijen; tik om te bewerken), je
+kunt ze nog aanpassen en pas als je opslaat komen ze op de rekening. Zit er iets niet
+goed bij, dan haal je die regel met het kruisje weg.
 
 ## Uren bijhouden
 

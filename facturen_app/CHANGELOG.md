@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.24.0
+
+- **Regels op rekening en offerte zijn compact op telefoon (Prototype C).** Elke regel
+  staat standaard ingeklapt als één rij: soort als letter (M / U / D / V), omschrijving,
+  aantal en eenheidsprijs, met het kruisje om te verwijderen. Tik op de rij om soort,
+  omschrijving, aantal en prijs te bewerken; er staat er maar één open tegelijk.
+  **+ Regel** zet meteen een nieuwe open. CSV-inlezing, uren van een klus, totaal en
+  "meer dan tien regels" blijven werken; verborgen regels gaan gewoon mee bij opslaan.
+
 ## 1.23.0
 
 - **Bestaande klantgegevens klappen in** op het formulier voor een rekening of offerte.
