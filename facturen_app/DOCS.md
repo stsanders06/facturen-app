@@ -68,8 +68,10 @@ iets kwijtraakt.
 3. Voor automatisch mailen: vul de SMTP-gegevens in. Voor Gmail gebruik je een
    [app-wachtwoord](https://myaccount.google.com/apppasswords), niet je normale
    wachtwoord.
-4. Ga naar **Nieuw** om een rekening te maken: klantgegevens, regels voor materiaal en
-   arbeid, betaalmethode kiezen. Bij opslaan wordt automatisch een PDF gegenereerd.
+4. Ga naar **Nieuw** om een rekening te maken: klant kiezen of nieuwe gegevens invullen,
+   regels voor materiaal en arbeid, betaalmethode kiezen. Kies je een bestaande klant,
+   dan klappen de detailvelden in; met **Gegevens bewerken** zet je ze weer open. Bij
+   opslaan wordt automatisch een PDF gegenereerd.
 5. Wil je eerst een prijs afgeven, begin dan onder **Offertes**. Zegt de klant ja, dan
    maak je er met één knop een rekening van.
 6. Heb je je klanten al ergens anders staan, dan lees je ze in één keer in onder
