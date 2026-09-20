@@ -8,27 +8,78 @@
 {% block title %}{{ 'Nieuwe offerte' if is_offerte else 'Nieuwe rekening' }}{% endblock %}
 {% block head %}
 <style>
+  /* Prototype C: regels standaard ingeklapt; één compacte samenvattingrij. */
   .regel {
-    display: grid;
-    grid-template-columns: 130px 1fr 90px 110px 40px;
-    gap: 10px;
-    align-items: end;
-    padding-bottom: 14px;
-    margin-bottom: 14px;
+    padding-bottom: 10px;
+    margin-bottom: 10px;
     border-bottom: 1px solid var(--divider);
   }
-  .regel:last-child { border-bottom: none; margin-bottom: 0; }
-  /* .field is een flexbox, dus het hidden-attribuut moet expliciet winnen */
-  .regel .field[hidden] { display: none; }
-  /* Zonder aantalveld neemt het bedrag die ruimte in, zodat het kruisje op zijn plek blijft */
-  .regel.vaste-prijs .prijs-veld { grid-column: 3 / 5; }
+  .regel:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+  .regel-samenvatting {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 6px 4px;
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    user-select: none;
+  }
+  .regel-samenvatting:hover { background: var(--bg); }
+  .regel-samenvatting:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+  .regel[data-open="true"] .regel-samenvatting {
+    background: var(--primary-soft);
+  }
+  .regel-badge {
+    flex: none;
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    background: var(--primary-soft);
+    color: var(--primary);
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: .02em;
+  }
+  .regel[data-open="true"] .regel-badge {
+    background: var(--card);
+  }
+  .regel-tekst {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 15px;
+  }
+  .regel-qty,
+  .regel-eenheidsprijs {
+    flex: none;
+    font-variant-numeric: tabular-nums;
+    font-size: 13px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+  .regel-eenheidsprijs {
+    color: var(--text);
+    font-weight: 500;
+    min-width: 4.5rem;
+    text-align: right;
+  }
   .regel .weg {
+    flex: none;
     background: transparent;
     border: none;
     color: var(--text-secondary);
     font-size: 20px;
     line-height: 1;
-    padding: 9px 0;
+    padding: 10px;
     cursor: pointer;
     border-radius: var(--radius-sm);
   }
@@ -36,19 +87,33 @@
   @media (pointer: coarse), (max-width: 620px) {
     .regel .weg { min-height: 44px; min-width: 44px; }
   }
-  /* Op smalle schermen wordt elke regel een blokje in plaats van een rij */
+  /* Detailvelden: zelfde raster als vroeger, maar zonder het kruisje (dat zit in de samenvatting). */
+  .regel-detail {
+    display: grid;
+    grid-template-columns: 130px 1fr 90px 110px;
+    gap: 10px;
+    align-items: end;
+    padding: 4px 4px 8px;
+  }
+  .regel-detail[hidden] { display: none; }
+  /* .field is een flexbox, dus het hidden-attribuut moet expliciet winnen */
+  .regel .field[hidden] { display: none; }
+  .regel.vaste-prijs .prijs-veld { grid-column: 3 / 5; }
   @media (max-width: 620px) {
     .regel {
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
       background: var(--bg);
       border-radius: var(--radius-sm);
-      padding: 12px;
+      padding: 4px 8px 8px;
       border-bottom: none;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
+    }
+    .regel-samenvatting:hover { background: transparent; }
+    .regel[data-open="true"] .regel-samenvatting { background: var(--card); }
+    .regel-detail {
+      grid-template-columns: 1fr 1fr;
+      padding: 4px 4px 4px;
     }
     .regel .omschrijving-veld { grid-column: 1 / -1; }
-    .regel .weg { justify-self: end; grid-column: 2; }
     .regel.vaste-prijs .prijs-veld { grid-column: auto; }
   }
   .totaalbalk {
@@ -278,33 +343,43 @@
 
     <div id="regels">
       {% for r in regels or [none] %}
-      <div class="regel">
-        <div class="field">
-          <label>Soort</label>
-          <select name="type" class="soort">
-            <option value="materiaal" {% if r and r.type == 'materiaal' %}selected{% endif %}>Materiaal</option>
-            <option value="arbeid_uur" {% if r and r.type == 'arbeid_uur' %}selected{% endif %}>Arbeid per uur</option>
-            <option value="arbeid_dag" {% if r and r.type == 'arbeid_dag' %}selected{% endif %}>Arbeid per dag</option>
-            <option value="arbeid_klus" {% if r and r.type == 'arbeid_klus' %}selected{% endif %}>Arbeid per klus</option>
-          </select>
+      <div class="regel" data-open="false">
+        <div class="regel-samenvatting" role="button" tabindex="0"
+             aria-expanded="false" aria-label="Regel openen of sluiten">
+          <span class="regel-badge" aria-hidden="true">M</span>
+          <span class="regel-tekst">Nieuwe regel</span>
+          <span class="regel-qty">—</span>
+          <span class="regel-eenheidsprijs">€&nbsp;0,00</span>
+          <button type="button" class="weg" title="Regel verwijderen"
+                  aria-label="Regel verwijderen">&times;</button>
         </div>
-        <div class="field omschrijving-veld">
-          <label>Omschrijving</label>
-          <input type="text" name="omschrijving" placeholder="Bijv. buis 32 mm"
-                 value="{{ r.omschrijving if r else '' }}">
+        <div class="regel-detail" hidden>
+          <div class="field">
+            <label>Soort</label>
+            <select name="type" class="soort">
+              <option value="materiaal" {% if r and r.type == 'materiaal' %}selected{% endif %}>Materiaal</option>
+              <option value="arbeid_uur" {% if r and r.type == 'arbeid_uur' %}selected{% endif %}>Arbeid per uur</option>
+              <option value="arbeid_dag" {% if r and r.type == 'arbeid_dag' %}selected{% endif %}>Arbeid per dag</option>
+              <option value="arbeid_klus" {% if r and r.type == 'arbeid_klus' %}selected{% endif %}>Arbeid per klus</option>
+            </select>
+          </div>
+          <div class="field omschrijving-veld">
+            <label>Omschrijving</label>
+            <input type="text" name="omschrijving" placeholder="Bijv. buis 32 mm"
+                   value="{{ r.omschrijving if r else '' }}">
+          </div>
+          <div class="field aantal-veld">
+            <label class="aantal-label">Aantal</label>
+            <input type="number" step="any" name="aantal"
+                   value="{{ '%g'|format(r.aantal) if r else '1' }}">
+          </div>
+          <div class="field prijs-veld">
+            <label class="prijs-label">Prijs</label>
+            <input type="number" step="any" name="prijs" placeholder="0,00"
+                   value="{{ '%.2f'|format(r.prijs) if r else '' }}">
+          </div>
+          <input type="hidden" name="regel_klus" value="{{ r.klus_id if r and r.klus_id else '' }}">
         </div>
-        <div class="field aantal-veld">
-          <label class="aantal-label">Aantal</label>
-          <input type="number" step="any" name="aantal"
-                 value="{{ '%g'|format(r.aantal) if r else '1' }}">
-        </div>
-        <div class="field prijs-veld">
-          <label class="prijs-label">Prijs</label>
-          <input type="number" step="any" name="prijs" placeholder="0,00"
-                 value="{{ '%.2f'|format(r.prijs) if r else '' }}">
-        </div>
-        <input type="hidden" name="regel_klus" value="{{ r.klus_id if r and r.klus_id else '' }}">
-        <button type="button" class="weg" title="Regel verwijderen" aria-label="Regel verwijderen">&times;</button>
       </div>
       {% endfor %}
     </div>
@@ -381,11 +456,66 @@
     // Per soort andere woorden boven de velden. Bij een vaste prijs per klus is er
     // geen aantal: dan telt alleen het bedrag.
     var SOORTEN = {
-      materiaal:   { aantal: 'Aantal', prijs: 'Prijs per stuk', metAantal: true },
-      arbeid_uur:  { aantal: 'Uren',   prijs: 'Uurtarief',      metAantal: true },
-      arbeid_dag:  { aantal: 'Dagen',  prijs: 'Dagtarief',      metAantal: true },
-      arbeid_klus: { aantal: 'Aantal', prijs: 'Bedrag',         metAantal: false }
+      materiaal:   { aantal: 'Aantal', prijs: 'Prijs per stuk', metAantal: true, badge: 'M' },
+      arbeid_uur:  { aantal: 'Uren',   prijs: 'Uurtarief',      metAantal: true, badge: 'U' },
+      arbeid_dag:  { aantal: 'Dagen',  prijs: 'Dagtarief',      metAantal: true, badge: 'D' },
+      // V = vaste prijs (arbeid per klus)
+      arbeid_klus: { aantal: 'Aantal', prijs: 'Bedrag',         metAantal: false, badge: 'V' }
     };
+
+    function euro(bedrag) {
+      return '€\u00a0' + bedrag.toLocaleString('nl-NL', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
+    }
+
+    function fmtAantal(n) {
+      if (!n) return '';
+      return Number.isInteger(n)
+        ? String(n)
+        : n.toLocaleString('nl-NL', { maximumFractionDigits: 2 });
+    }
+
+    function qtyTekst(soort, aantal) {
+      if (soort === 'arbeid_klus') return '—';
+      if (!aantal) return '—';
+      var n = fmtAantal(aantal);
+      if (soort === 'arbeid_uur') return n + ' u';
+      if (soort === 'arbeid_dag') return n + ' dg';
+      return n + '\u00d7';
+    }
+
+    function pasSamenvattingAan(regel) {
+      var soort = regel.querySelector('.soort').value;
+      var keuze = SOORTEN[soort] || SOORTEN.materiaal;
+      var omschrijving = (regel.querySelector('[name="omschrijving"]').value || '').trim();
+      var aantal = parseFloat(regel.querySelector('[name="aantal"]').value) || 0;
+      var prijs = parseFloat(regel.querySelector('[name="prijs"]').value) || 0;
+      var badge = regel.querySelector('.regel-badge');
+      var tekst = regel.querySelector('.regel-tekst');
+      var qty = regel.querySelector('.regel-qty');
+      var eenheid = regel.querySelector('.regel-eenheidsprijs');
+      if (badge) badge.textContent = keuze.badge;
+      if (tekst) tekst.textContent = omschrijving || 'Nieuwe regel';
+      if (qty) qty.textContent = qtyTekst(soort, aantal);
+      if (eenheid) eenheid.textContent = euro(prijs);
+    }
+
+    function zetOpen(regel, open) {
+      if (open) {
+        container.querySelectorAll('.regel').forEach(function (ander) {
+          if (ander !== regel) zetOpen(ander, false);
+        });
+      }
+      regel.setAttribute('data-open', open ? 'true' : 'false');
+      var detail = regel.querySelector('.regel-detail');
+      var samenvatting = regel.querySelector('.regel-samenvatting');
+      if (detail) detail.hidden = !open;
+      if (samenvatting) {
+        samenvatting.setAttribute('aria-expanded', open ? 'true' : 'false');
+      }
+    }
 
     function pasRegelAan(regel) {
       var keuze = SOORTEN[regel.querySelector('.soort').value] || SOORTEN.materiaal;
@@ -397,6 +527,7 @@
       if (!keuze.metAantal) {
         regel.querySelector('[name="aantal"]').value = '1';
       }
+      pasSamenvattingAan(regel);
     }
 
     function berekenTotaal() {
@@ -406,18 +537,18 @@
         var prijs = parseFloat(regel.querySelector('[name="prijs"]').value) || 0;
         som += aantal * prijs;
       });
-      totaalveld.textContent = '€ ' + som.toLocaleString('nl-NL', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2
-      });
+      totaalveld.textContent = euro(som);
     }
 
     function regelErbij() {
       var nieuw = container.children[0].cloneNode(true);
+      nieuw.hidden = false;
       nieuw.querySelectorAll('input').forEach(function (veld) {
         veld.value = veld.name === 'aantal' ? '1' : '';
       });
-      nieuw.hidden = false;
+      var soort = nieuw.querySelector('.soort');
+      if (soort) soort.value = 'materiaal';
+      zetOpen(nieuw, false);
       container.appendChild(nieuw);
       pasRegelAan(nieuw);
       return nieuw;
@@ -450,9 +581,10 @@
     });
 
     document.getElementById('regel-erbij').addEventListener('click', function () {
-      // Een nieuwe regel achteraan moet je wel kunnen zien.
+      // Een nieuwe regel achteraan moet je wel kunnen zien — en meteen open om te typen.
       allesTonen = true;
       var regel = regelErbij();
+      zetOpen(regel, true);
       pasInklappenAan();
       regel.querySelector('[name="omschrijving"]').focus();
       berekenTotaal();
@@ -576,6 +708,8 @@
         eerste.remove();
       }
       // Een ingelezen prijslijst is juist de reden dat er ingeklapt moet worden.
+      // Samenvattingen bijwerken; regels blijven dicht — typen doe je na een tik.
+      container.querySelectorAll('.regel').forEach(pasSamenvattingAan);
       pasInklappenAan();
       berekenTotaal();
       return toegevoegd;
@@ -637,6 +771,8 @@
           pasKlantAan(true);
         }
 
+        zetOpen(regel, false);
+        pasSamenvattingAan(regel);
         pasInklappenAan();
         berekenTotaal();
     };
@@ -652,21 +788,53 @@
     });
 
     // Eén regel moet altijd blijven staan, anders kun je niets meer invullen.
+    // Het kruisje mag de rij niet openen: stopPropagation voorkomt dat.
     container.addEventListener('click', function (e) {
-      if (!e.target.classList.contains('weg')) return;
-      if (container.children.length === 1) {
-        container.querySelectorAll('input').forEach(function (veld) {
-          veld.value = veld.name === 'aantal' ? '1' : '';
-        });
-      } else {
-        e.target.closest('.regel').remove();
+      var weg = e.target.closest('.weg');
+      if (weg) {
+        e.stopPropagation();
+        e.preventDefault();
+        var regel = weg.closest('.regel');
+        if (container.children.length === 1) {
+          regel.querySelectorAll('input').forEach(function (veld) {
+            veld.value = veld.name === 'aantal' ? '1' : '';
+          });
+          var soort = regel.querySelector('.soort');
+          if (soort) soort.value = 'materiaal';
+          pasRegelAan(regel);
+          zetOpen(regel, false);
+        } else {
+          regel.remove();
+        }
+        pasInklappenAan();
+        berekenTotaal();
+        return;
       }
-      pasInklappenAan();
-      berekenTotaal();
+      var samenvatting = e.target.closest('.regel-samenvatting');
+      if (!samenvatting) return;
+      var regel = samenvatting.closest('.regel');
+      zetOpen(regel, regel.getAttribute('data-open') !== 'true');
     });
 
-    container.addEventListener('input', berekenTotaal);
-    container.querySelectorAll('.regel').forEach(pasRegelAan);
+    container.addEventListener('keydown', function (e) {
+      if (e.target.closest('.weg')) return;
+      var samenvatting = e.target.closest('.regel-samenvatting');
+      if (!samenvatting || e.target !== samenvatting) return;
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      var regel = samenvatting.closest('.regel');
+      zetOpen(regel, regel.getAttribute('data-open') !== 'true');
+    });
+
+    container.addEventListener('input', function (e) {
+      var regel = e.target.closest('.regel');
+      if (regel) pasSamenvattingAan(regel);
+      berekenTotaal();
+    });
+    container.querySelectorAll('.regel').forEach(function (regel) {
+      pasRegelAan(regel);
+      zetOpen(regel, false);
+    });
     pasInklappenAan();
     berekenTotaal();
 
@@ -751,7 +919,11 @@
       if (!ingevuld) {
         e.preventDefault();
         alert('Vul minstens één regel in met een omschrijving; anders staat er niets in.');
-        container.querySelector('[name="omschrijving"]').focus();
+        var eerste = container.querySelector('.regel');
+        if (eerste) {
+          zetOpen(eerste, true);
+          eerste.querySelector('[name="omschrijving"]').focus();
+        }
       }
     });
   })();
