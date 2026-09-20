@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.25.0
+
+- **Menu's onder de regelknoppen openen weer onder de knop.** Op telefoon hing
+  "Uren van een klus" en "CSV inlezen" onderaan de hele Regels-kaart (over Totaal /
+  Annuleren), omdat elke `.menu` `position: static` kreeg. Die regel geldt nu alleen
+  voor menus in de knoppenrij van een lijstkaart (`.acties`); elders blijft het menu
+  aan de knop zelf hangen.
+- **De twee regelknoppen naast elkaar zijn even hoog.** Labels die verschillend
+  afbreken ("Uren van een klus" vs "CSV inlezen") trokken de knoppen scheef; ze
+  strekken nu mee en centreren de tekst.
+
 ## 1.24.0
 
 - **Regels op rekening en offerte zijn compact op telefoon (Prototype C).** Elke regel

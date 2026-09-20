@@ -143,8 +143,15 @@
   }
   /* De twee menu's schuiven naar rechts: links zet je zelf een regel bij, rechts
      haal je ze ergens vandaan. */
-  .regelknoppen .haal-op { display: flex; gap: 8px; margin-left: auto; }
-  .regelknoppen .menu { flex: none; }
+  .regelknoppen .haal-op {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    margin-left: auto;
+  }
+  /* Expliciet relative zodat het popover onder de summary blijft, ook als de
+     gedeelde telefoonregel voor .acties .menu ooit breder zou worden. */
+  .regelknoppen .menu { flex: none; position: relative; display: flex; }
   /* Dezelfde vorm als de knop ernaast; zonder rand leek het geen knop. */
   .regelknoppen .menu > summary {
     border: 1px solid var(--border);
@@ -152,6 +159,7 @@
     color: var(--primary);
     padding: 8px 16px;
     font-size: 14px;
+    box-sizing: border-box;
   }
   .regelknoppen .menu > summary:hover { border-color: var(--primary); }
   .menu-uitleg {
@@ -163,11 +171,25 @@
 
   @media (max-width: 620px) {
     /* Naast elkaar passen drie knoppen niet; dan staat de rij netter onder elkaar
-       dan half afgebroken. */
+       dan half afgebroken. De twee haal-op-menu's naast elkaar moeten even hoog
+       blijven, ook als de labels verschillend afbreken. */
     .regelknoppen { flex-direction: column; align-items: stretch; }
     .regelknoppen .haal-op { margin-left: 0; }
-    .regelknoppen .haal-op > * { flex: 1; }
-    .regelknoppen .menu > summary { text-align: center; }
+    .regelknoppen .haal-op .menu {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+    }
+    .regelknoppen .haal-op .menu > summary {
+      flex: 1;
+      width: 100%;
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      box-sizing: border-box;
+    }
   }
 
   /* Bij veel regels wordt de lijst een muur; de rest komt achter deze knop

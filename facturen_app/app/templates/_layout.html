@@ -542,19 +542,20 @@
   .menu-item.danger:hover { background: var(--danger-soft); color: var(--danger); }
   /* Een streep boven verwijderen, zodat je er niet blind langs schuift. */
   .menu-item.gevaar { margin-top: 4px; border-top: 1px solid var(--divider); border-radius: 0 0 6px 6px; }
-  /* Op een telefoon hangt het menu niet aan de drie puntjes zelf maar aan de
-     knoppenrij eromheen, uitgelijnd op de rechterkant daarvan. Aan de puntjes zelf
-     liep de lijst van 210px op een smal toestel het scherm uit zodra er nog een knop
-     vóór de puntjes stond. Ankeren aan de rij en niet aan de hele kaart, anders valt
-     het menu pas onder de kaart open in plaats van vlak onder de knop waar je op
-     tikte. De items mogen over twee regels: "Kopiëren naar nieuwe rekening" past
-     anders niet. */
+  /* Op een telefoon hangt het menu achter de drie puntjes niet aan die knop zelf
+     maar aan de knoppenrij (.acties), uitgelijnd op de rechterkant daarvan. Aan de
+     puntjes zelf liep de lijst van 210px op een smal toestel het scherm uit zodra
+     er nog een knop vóór de puntjes stond. Alleen menus in .acties krijgen
+     position: static — elders (zoals de regelknoppen op nieuw) blijft .menu
+     position: relative, anders hangt de lijst aan de hele kaart in plaats van
+     onder de knop. De items mogen over twee regels: "Kopiëren naar nieuwe
+     rekening" past anders niet. */
   @media (max-width: 620px) {
     .acties { position: relative; }
-    .menu { position: static; }
+    .acties .menu { position: static; }
     /* Nooit breder dan het scherm, ook niet bij een lang menu-item: de rij waar hij
        aan hangt staat rechts, dus wat er te veel is zou er links uit steken. */
-    .menu-lijst { right: 0; left: auto; max-width: calc(100vw - 48px); }
+    .acties .menu-lijst { right: 0; left: auto; max-width: calc(100vw - 48px); }
     .menu-item { white-space: normal; }
   }
 
