@@ -378,7 +378,6 @@
   <section class="card">
     <div class="card-head">
       <h2>Hoe ver staat het</h2>
-      <p>Niet elke klus heeft een offerte nodig; die stap mag je overslaan.</p>
     </div>
     <ol class="stappen">
       <li class="af">
@@ -423,7 +422,6 @@
   <section class="card">
     <div class="card-head">
       <h2>Dag erbij</h2>
-      <p>Werk je door tot na middernacht, dan telt dat gewoon door.</p>
     </div>
     <form method="post" action="{{ url_for('dag_erbij', klus_id=klus.id) }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -517,8 +515,6 @@
   <section class="card">
     <div class="card-head">
       <h2>Notities</h2>
-      <p>Wat er is besproken of opgevallen, met de foto's die erbij horen. Dit blijft
-        bij de klus; het gaat nooit mee naar de klant.</p>
     </div>
 
     {#- Twee regels: eerst wat je opschrijft, dan wat je erbij wilt zetten. Alles op
@@ -629,8 +625,6 @@
   <section class="card">
     <div class="card-head">
       <h2>Bonnetjes</h2>
-      <p>Wat je hebt betaald en wilt doorberekenen. Vink een bon aan die de klant moet
-        zien: die gaat mee zodra je de uren op een rekening zet en mailt.</p>
     </div>
 
     <form method="post" enctype="multipart/form-data"

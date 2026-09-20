@@ -264,7 +264,7 @@
           </option>
           {% endfor %}
         </select>
-        <p class="hint" id="klant-hint">Kies een klant en de gegevens hieronder worden ingevuld.</p>
+        <p class="hint" id="klant-hint"></p>
       </div>
       <div id="klant-samenvatting" class="klant-samenvatting" hidden>
         <div class="tekst">
@@ -288,7 +288,6 @@
         <label for="klant_email">E-mailadres</label>
         <input type="email" id="klant_email" name="klant_email"
                value="{{ factuur.klant_email if factuur else (gekozen_klant.email if gekozen_klant else '') }}">
-        <p class="hint">Nodig als je de rekening wilt mailen.</p>
       </div>
       <div class="checkregel" id="opslaan-regel">
         <input type="checkbox" id="klant_opslaan" name="klant_opslaan" value="ja" checked>
@@ -338,7 +337,6 @@
       <label for="toelichting">Toelichting</label>
       <textarea id="toelichting" name="toelichting" rows="3"
                 placeholder="Bijv. wat er wel en niet bij de prijs zit, of hoe lang het werk duurt">{{ factuur.toelichting if factuur else '' }}</textarea>
-      <p class="hint">Komt onder de bedragen op de offerte te staan.</p>
     </div>
     {% else %}
     <div class="checkregel" style="margin-top:14px">
@@ -352,15 +350,12 @@
       <input type="text" id="kenmerk" name="kenmerk"
              value="{{ factuur.kenmerk if factuur else '' }}"
              placeholder="Bijv. tweede voorstel, of achterstallig onderhoud">
-      <p class="hint">Alleen om ze in je eigen lijst uit elkaar te houden. Komt niet
-        op de {{ stuk }} en de klant ziet hem niet.</p>
     </div>
   </section>
 
   <section class="card">
     <div class="card-head">
       <h2>Regels</h2>
-      <p>Materiaal per stuk, arbeid per uur, per dag of als vaste prijs.</p>
     </div>
 
     <div id="regels">
@@ -908,8 +903,7 @@
           'Pas hieronder aan wat voor deze ' + {{ stuk|tojson }} +
           ' anders moet. De klant zelf blijft staan.';
       } else {
-        klantHint.textContent =
-          'Kies een klant en de gegevens hieronder worden ingevuld.';
+        klantHint.textContent = '';
       }
     }
 

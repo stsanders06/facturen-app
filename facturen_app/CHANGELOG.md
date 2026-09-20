@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.26.0
+
+- Minder uitleg onder kopjes en velden; wat al duidelijk is uit label of placeholder
+  is weg.
+
 ## 1.25.0
 
 - **Menu's onder de regelknoppen openen weer onder de knop.** Op telefoon hing
