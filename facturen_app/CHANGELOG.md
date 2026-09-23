@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.28.0
+
+- **Inkopen op de kluspagina: duidelijkere kaarten.** Het toevoegformulier en
+  elke bestaande bon staan in een eigen kader. Bestanden, materialen en
+  acties (Bewerken / + Bestand / Verwijderen) horen per bon bij elkaar; bestand
+  weggooien is kort "Weg", net als bij materiaal. Geen nieuwe functies.
+
+
 ## 1.27.0
 
 - **Inkopen (bonnen) bij een klus.** Een aankoop heeft een omschrijving en een
