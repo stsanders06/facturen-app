@@ -89,11 +89,11 @@ def test_notitiefotos_staan_niet_tussen_de_bonnetjes(post, klus_id):
          content_type="multipart/form-data", follow_redirects=True)
 
     conn = facturen.get_db()
-    bonnen = facturen.bijlagen_van(conn, klus_id)
+    inkopen = facturen.inkopen_van(conn, klus_id)
     notities = facturen.notities_van(conn, klus_id)
     conn.close()
 
-    assert [b["naam"] for b in bonnen] == ["bon.png"]
+    assert [b["naam"] for i in inkopen for b in i["bestanden"]] == ["bon.png"]
     assert [f["naam"] for f in notities[0]["fotos"]] == ["situatie.png"]
 
 
@@ -159,7 +159,7 @@ def test_een_verwijderde_klus_komt_met_notities_terug(post, db, klus_id):
 def test_de_kluspagina_heeft_twee_aparte_kopjes(client, klus_id):
     pagina = client.get(f"/klus/{klus_id}").data.decode()
     assert ">Notities<" in pagina
-    assert ">Bonnetjes<" in pagina
+    assert ">Inkopen<" in pagina
 
 
 def test_een_notitie_bij_een_klus_die_niet_bestaat_geeft_404(post):

@@ -378,6 +378,7 @@
               <option value="arbeid_uur" {% if r and r.type == 'arbeid_uur' %}selected{% endif %}>Arbeid per uur</option>
               <option value="arbeid_dag" {% if r and r.type == 'arbeid_dag' %}selected{% endif %}>Arbeid per dag</option>
               <option value="arbeid_klus" {% if r and r.type == 'arbeid_klus' %}selected{% endif %}>Arbeid per klus</option>
+              <option value="bon" {% if r and r.type == 'bon' %}selected{% endif %}>Bon</option>
             </select>
           </div>
           <div class="field omschrijving-veld">
@@ -396,6 +397,7 @@
                    value="{{ '%.2f'|format(r.prijs) if r else '' }}">
           </div>
           <input type="hidden" name="regel_klus" value="{{ r.klus_id if r and r.klus_id else '' }}">
+          <input type="hidden" name="regel_inkoop" value="{{ r.inkoop_id if r and r.inkoop_id else '' }}">
         </div>
       </div>
       {% endfor %}
@@ -423,6 +425,20 @@
                   data-tarief="{{ '%.2f'|format(kl.uurtarief or 0) }}"
                   data-klant="{{ kl.klant_id or '' }}">
             {{ kl.naam }} · {{ kl.uren_open|uren }} u{% if kl.klant_naam %} · {{ kl.klant_naam }}{% endif %}
+          </button>
+          {% endfor %}
+        {% endcall %}
+        {% endif %}
+
+        {% if open_inkopen %}
+        {% call menu('Bon van een klus toevoegen', 'Bon van een klus') %}
+          {% for b in open_inkopen %}
+          <button type="button" class="menu-item bon-keuze"
+                  data-inkoop="{{ b.id }}"
+                  data-naam="{{ b.omschrijving }}"
+                  data-bedrag="{{ '%.2f'|format(b.bedrag or 0) }}"
+                  data-klant="{{ b.klant_id or '' }}">
+            {{ b.omschrijving }} · €&nbsp;{{ '%.2f'|format(b.bedrag or 0) }}{% if b.klus_naam %} · {{ b.klus_naam }}{% endif %}
           </button>
           {% endfor %}
         {% endcall %}
@@ -477,7 +493,9 @@
       arbeid_uur:  { aantal: 'Uren',   prijs: 'Uurtarief',      metAantal: true, badge: 'U' },
       arbeid_dag:  { aantal: 'Dagen',  prijs: 'Dagtarief',      metAantal: true, badge: 'D' },
       // V = vaste prijs (arbeid per klus)
-      arbeid_klus: { aantal: 'Aantal', prijs: 'Bedrag',         metAantal: false, badge: 'V' }
+      arbeid_klus: { aantal: 'Aantal', prijs: 'Bedrag',         metAantal: false, badge: 'V' },
+      // B = bon / inkoop
+      bon:         { aantal: 'Aantal', prijs: 'Bedrag',         metAantal: false, badge: 'B' }
     };
 
     function euro(bedrag) {
@@ -495,7 +513,7 @@
     }
 
     function qtyTekst(soort, aantal) {
-      if (soort === 'arbeid_klus') return '—';
+      if (soort === 'arbeid_klus' || soort === 'bon') return '—';
       if (!aantal) return '—';
       var n = fmtAantal(aantal);
       if (soort === 'arbeid_uur') return n + ' u';
@@ -679,7 +697,8 @@
       dag: 'arbeid_dag', dagen: 'arbeid_dag', arbeid_dag: 'arbeid_dag',
       'arbeid per dag': 'arbeid_dag',
       klus: 'arbeid_klus', vast: 'arbeid_klus', 'vaste prijs': 'arbeid_klus',
-      arbeid_klus: 'arbeid_klus', 'arbeid per klus': 'arbeid_klus'
+      arbeid_klus: 'arbeid_klus', 'arbeid per klus': 'arbeid_klus',
+      bon: 'bon', bonnetje: 'bon', inkoop: 'bon', aankoop: 'bon'
     };
 
     function verwerkCsv(tekst) {
@@ -796,6 +815,39 @@
 
     document.querySelectorAll('.klus-keuze').forEach(function (knop) {
       knop.addEventListener('click', function () { zetKlusOpRekening(knop); });
+    });
+
+    var zetBonOpRekening = function (optie) {
+        if (!optie || !optie.dataset.inkoop) return;
+        allesTonen = true;
+        var regel = regelErbij();
+        regel.querySelector('.soort').value = 'bon';
+        pasRegelAan(regel);
+        regel.querySelector('[name="omschrijving"]').value = optie.dataset.naam || '';
+        regel.querySelector('[name="aantal"]').value = '1';
+        regel.querySelector('[name="prijs"]').value = optie.dataset.bedrag || '';
+        regel.querySelector('[name="regel_inkoop"]').value = optie.dataset.inkoop;
+
+        var eerste = container.children[0];
+        if (container.children.length > 1 && !eerste.querySelector('[name="omschrijving"]').value
+            && !eerste.querySelector('[name="prijs"]').value) {
+          eerste.remove();
+        }
+
+        var klant = optie.dataset.klant;
+        if (klant && !klantKeuze.value) {
+          klantKeuze.value = klant;
+          pasKlantAan(true);
+        }
+
+        zetOpen(regel, false);
+        pasSamenvattingAan(regel);
+        pasInklappenAan();
+        berekenTotaal();
+    };
+
+    document.querySelectorAll('.bon-keuze').forEach(function (knop) {
+      knop.addEventListener('click', function () { zetBonOpRekening(knop); });
     });
 
     container.addEventListener('change', function (e) {
