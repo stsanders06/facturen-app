@@ -44,4 +44,5 @@ def test_script_heeft_prototype_c_gedrag(client):
     assert "badge: 'U'" in inhoud
     assert "badge: 'D'" in inhoud
     assert "badge: 'V'" in inhoud
+    assert "badge: 'B'" in inhoud
     assert "Nieuwe regel" in inhoud

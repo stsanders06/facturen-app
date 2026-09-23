@@ -2,7 +2,7 @@
 {% block title %}{{ klus.naam }}{% endblock %}
 {% block head %}
 <style>
-  /* ---------- Foto's en bonnetjes ---------- */
+  /* ---------- Foto's, notities en inkopen ---------- */
   .uploadregel { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   /* De opslaanknop rechts, net als bij de notities erboven. */
   .uploadregel .btn[type=submit] { margin-left: auto; }
@@ -49,6 +49,50 @@
   .bijlage-acties form { display: contents; }
   .bijlage-acties .btn-text { padding: 6px 12px; min-height: 0; font-size: 13px; }
   .bijlage-acties .aan { color: var(--ok); font-weight: 500; }
+
+  /* ---------- Inkopen (bonnen) ---------- */
+  .inkopen { list-style: none; margin: 16px 0 0; padding: 0; }
+  .inkoop {
+    border-top: 1px solid var(--divider);
+    padding: 14px 0;
+  }
+  .inkoop:first-child { border-top: none; padding-top: 0; }
+  .inkoop-kop {
+    display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: baseline;
+  }
+  .inkoop-kop .oms { font-weight: 500; flex: 1 1 12rem; }
+  .inkoop-kop .bedrag {
+    font-variant-numeric: tabular-nums; font-weight: 500; white-space: nowrap;
+  }
+  .inkoop-kop .wanneer { font-size: 13px; color: var(--text-secondary); }
+  .inkoop-kop .gefactureerd {
+    font-size: 12px; color: var(--ok); font-weight: 500;
+  }
+  .inkoop .materialen {
+    list-style: none; margin: 8px 0 0; padding: 0; font-size: 13px;
+    color: var(--text-secondary);
+  }
+  .inkoop .materialen li {
+    display: flex; gap: 8px; flex-wrap: wrap; padding: 2px 0;
+  }
+  .inkoop .materialen .mat-weg { margin-left: auto; }
+  .inkoop-form .fields-rij {
+    display: grid; grid-template-columns: 1fr 7rem; gap: 10px;
+  }
+  .inkoop-form .materiaal-rijen { margin-top: 8px; }
+  .inkoop-form .materiaal-rij {
+    display: grid; grid-template-columns: 1fr 4.5rem 5.5rem auto; gap: 8px;
+    align-items: end; margin-top: 6px;
+  }
+  .inkoop-acties {
+    display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px;
+  }
+  @media (max-width: 620px) {
+    .inkoop-form .fields-rij { grid-template-columns: 1fr; }
+    .inkoop-form .materiaal-rij { grid-template-columns: 1fr 1fr; }
+    .inkoop-form .materiaal-rij .mat-oms { grid-column: 1 / -1; }
+  }
+
   .tegels {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -624,55 +668,157 @@
 
   <section class="card">
     <div class="card-head">
-      <h2>Bonnetjes</h2>
+      <h2>Inkopen</h2>
     </div>
 
-    <form method="post" enctype="multipart/form-data"
-          action="{{ url_for('bijlage_erbij', klus_id=klus.id) }}" class="uploadregel">
+    <form method="post" enctype="multipart/form-data" class="inkoop-form"
+          action="{{ url_for('inkoop_erbij', klus_id=klus.id) }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <input type="file" name="bijlage" multiple accept="image/*,.pdf,.heic" hidden
-             id="bon-bestanden" aria-label="Bonnetjes kiezen">
-      <button type="button" class="btn btn-outline" data-kiest="bon-bestanden">
-        Bestanden kiezen</button>
-      <span class="gekozen" data-voor="bon-bestanden"></span>
-      <button type="submit" class="btn">Toevoegen</button>
+      <div class="fields-rij">
+        <div class="field">
+          <label for="inkoop-oms">Omschrijving</label>
+          <input type="text" id="inkoop-oms" name="omschrijving"
+                 placeholder="Bijv. Gamma — tegellijm">
+        </div>
+        <div class="field">
+          <label for="inkoop-bedrag">Totaalbedrag</label>
+          <input type="number" step="any" id="inkoop-bedrag" name="bedrag"
+                 placeholder="0,00">
+        </div>
+      </div>
+      <div class="materiaal-rijen" id="inkoop-materialen">
+        {#- Lege start; rijen komen via + Materiaal. -#}
+      </div>
+      <div class="uploadregel" style="margin-top:10px">
+        <input type="file" name="bijlage" multiple accept="image/*,.pdf,.heic" hidden
+               id="bon-bestanden" aria-label="Bestand bij de bon">
+        <button type="button" class="btn btn-outline" data-kiest="bon-bestanden">
+          Bestand kiezen</button>
+        <span class="gekozen" data-voor="bon-bestanden"></span>
+        <button type="button" class="btn btn-text" id="materiaal-erbij">+ Materiaal</button>
+        <button type="submit" class="btn">Bon toevoegen</button>
+      </div>
     </form>
 
-    {% if not bijlagen %}
-    <p class="hint" style="margin-top:14px">Nog geen bonnetjes bij deze klus.</p>
+    {% if not inkopen %}
+    <p class="hint" style="margin-top:14px">Nog geen inkopen bij deze klus.</p>
     {% else %}
-    <div class="bijlagen">
-      {% for b in bijlagen %}
-      <figure class="bijlage">
-        <a href="{{ url_for('bijlage', bijlage_id=b.id) }}" {{ nieuw_tabblad }}
-           title="{{ b.naam }} openen">
-          {% if b.plaatje %}
-          <img src="{{ url_for('bijlage', bijlage_id=b.id) }}" alt="{{ b.naam }}" loading="lazy">
-          {% else %}
-          <span class="bestandsicoon" aria-hidden="true">PDF</span>
+    <ul class="inkopen">
+      {% for i in inkopen %}
+      <li class="inkoop">
+        <div class="inkoop-kop" id="inkoop-{{ i.id }}-tekst">
+          <span class="oms">{{ i.omschrijving }}</span>
+          <span class="bedrag">&euro;&nbsp;{{ '%.2f'|format(i.bedrag or 0) }}</span>
+          <span class="wanneer">{{ i.toegevoegd|datum_nl }}</span>
+          {% if i.factuur_id %}
+          <span class="gefactureerd">Op rekening</span>
           {% endif %}
-        </a>
-        <figcaption>
-          <span class="bestandsnaam" title="{{ b.naam }}">{{ b.naam }}</span>
-          <span class="wanneer">{{ b.toegevoegd|datum_nl }}</span>
-          <span class="bijlage-acties">
-            <form method="post" action="{{ url_for('bijlage_meesturen', bijlage_id=b.id) }}">
+        </div>
+
+        {% if i.materialen %}
+        <ul class="materialen">
+          {% for m in i.materialen %}
+          <li>
+            <span>{{ m.omschrijving }}{% if m.aantal and m.aantal != 1 %} × {{ '%g'|format(m.aantal) }}{% endif %}{% if m.prijs %} · €&nbsp;{{ '%.2f'|format(m.prijs) }}{% endif %}</span>
+            <form method="post" class="mat-weg"
+                  action="{{ url_for('inkoop_materiaal_verwijder', materiaal_id=m.id) }}"
+                  data-bevestig="{{ m.omschrijving }} verwijderen?">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button type="submit" class="btn btn-text {{ 'aan' if b.meesturen }}"
-                      title="{% if b.meesturen %}Gaat mee met de rekening{% else %}Meesturen met de rekening{% endif %}">
-                {% if b.meesturen %}✓ Gaat mee{% else %}Meesturen{% endif %}
-              </button>
+              <button type="submit" class="btn btn-text danger">Weg</button>
             </form>
-            <form method="post" action="{{ url_for('bijlage_verwijder', bijlage_id=b.id) }}"
-                  data-bevestig="{{ b.naam }} verwijderen?">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button type="submit" class="btn btn-text danger">Verwijderen</button>
-            </form>
-          </span>
-        </figcaption>
-      </figure>
+          </li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+
+        {% if i.bestanden %}
+        <div class="bijlagen">
+          {% for b in i.bestanden %}
+          <figure class="bijlage">
+            <a href="{{ url_for('bijlage', bijlage_id=b.id) }}" {{ nieuw_tabblad }}
+               title="{{ b.naam }} openen">
+              {% if b.plaatje %}
+              <img src="{{ url_for('bijlage', bijlage_id=b.id) }}" alt="{{ b.naam }}" loading="lazy">
+              {% else %}
+              <span class="bestandsicoon" aria-hidden="true">PDF</span>
+              {% endif %}
+            </a>
+            <figcaption>
+              <span class="bestandsnaam" title="{{ b.naam }}">{{ b.naam }}</span>
+              <span class="bijlage-acties">
+                <form method="post" action="{{ url_for('bijlage_meesturen', bijlage_id=b.id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit" class="btn btn-text {{ 'aan' if b.meesturen }}"
+                          title="{% if b.meesturen %}Gaat mee met de rekening{% else %}Meesturen met de rekening{% endif %}">
+                    {% if b.meesturen %}✓ Gaat mee{% else %}Meesturen{% endif %}
+                  </button>
+                </form>
+                <form method="post" action="{{ url_for('bijlage_verwijder', bijlage_id=b.id) }}"
+                      data-bevestig="{{ b.naam }} verwijderen?">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit" class="btn btn-text danger">Verwijderen</button>
+                </form>
+              </span>
+            </figcaption>
+          </figure>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        <div class="inkoop-acties">
+          <button type="button" class="btn btn-text" data-bewerkt="inkoop-{{ i.id }}">
+            Bewerken</button>
+          <form method="post" enctype="multipart/form-data" class="erbij-form"
+                action="{{ url_for('bijlage_erbij', klus_id=klus.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="inkoop_id" value="{{ i.id }}">
+            <input type="file" name="bijlage" multiple accept="image/*,.pdf,.heic" hidden
+                   id="bestand-bij-{{ i.id }}" data-verstuurt="1"
+                   aria-label="Bestand bij deze bon">
+            <button type="button" class="btn btn-text" data-kiest="bestand-bij-{{ i.id }}">
+              + Bestand</button>
+          </form>
+          <form method="post" action="{{ url_for('inkoop_materiaal_erbij', inkoop_id=i.id) }}"
+                class="erbij-form" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="text" name="omschrijving" placeholder="Materiaal"
+                   aria-label="Materiaal bij deze bon" style="width:9rem">
+            <input type="number" step="any" name="aantal" placeholder="1" aria-label="Aantal"
+                   style="width:4rem">
+            <input type="number" step="any" name="prijs" placeholder="€" aria-label="Prijs"
+                   style="width:5rem">
+            <button type="submit" class="btn btn-text">+ Materiaal</button>
+          </form>
+          <form method="post" action="{{ url_for('inkoop_verwijder', inkoop_id=i.id) }}"
+                data-bevestig="Bon {{ i.omschrijving }} verwijderen?">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-text danger">Verwijderen</button>
+          </form>
+        </div>
+
+        <form method="post" enctype="multipart/form-data" class="tekst-form"
+              id="inkoop-{{ i.id }}-form" hidden
+              action="{{ url_for('inkoop_bewerk', inkoop_id=i.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="fields-rij">
+            <div class="field">
+              <label>Omschrijving</label>
+              <input type="text" name="omschrijving" value="{{ i.omschrijving }}">
+            </div>
+            <div class="field">
+              <label>Totaalbedrag</label>
+              <input type="number" step="any" name="bedrag"
+                     value="{{ '%.2f'|format(i.bedrag or 0) }}">
+            </div>
+          </div>
+          <div class="tekst-form-knoppen" style="margin-top:8px">
+            <button type="button" class="btn btn-text" data-stopt="inkoop-{{ i.id }}">Annuleren</button>
+            <button type="submit" class="btn">Opslaan</button>
+          </div>
+        </form>
+      </li>
       {% endfor %}
-    </div>
+    </ul>
     {% endif %}
   </section>
 
@@ -776,6 +922,27 @@
     // De rij "Dag erbij" telt live mee terwijl je tijden intikt.
     var nieuwe = document.getElementById('nieuwe-dag');
     nieuwe.addEventListener('input', function () { verversRij(nieuwe); });
+  })();
+
+  (function () {
+    var lijst = document.getElementById('inkoop-materialen');
+    var knop = document.getElementById('materiaal-erbij');
+    if (!lijst || !knop) return;
+    knop.addEventListener('click', function () {
+      var rij = document.createElement('div');
+      rij.className = 'materiaal-rij';
+      rij.innerHTML =
+        '<div class="field mat-oms"><label>Materiaal</label>'
+        + '<input type="text" name="materiaal_omschrijving" placeholder="Bijv. tegellijm"></div>'
+        + '<div class="field"><label>Aantal</label>'
+        + '<input type="number" step="any" name="materiaal_aantal" value="1"></div>'
+        + '<div class="field"><label>Prijs</label>'
+        + '<input type="number" step="any" name="materiaal_prijs" placeholder="0,00"></div>'
+        + '<button type="button" class="btn btn-text danger mat-weg" title="Weg">&times;</button>';
+      rij.querySelector('.mat-weg').addEventListener('click', function () { rij.remove(); });
+      lijst.appendChild(rij);
+      rij.querySelector('[name="materiaal_omschrijving"]').focus();
+    });
   })();
 </script>
 

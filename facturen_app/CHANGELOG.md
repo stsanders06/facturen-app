@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.27.0
+
+- **Inkopen (bonnen) bij een klus.** Een aankoop heeft een omschrijving en een
+  totaalbedrag; een foto of PDF is optioneel. Wat er in de tas zat kun je eronder
+  zetten als materiaal — dat is alleen een notitie, geen aparte regel op de rekening.
+- **Op de rekening kun je een regel van het type Bon zetten** (badge B), met het
+  bedrag van de aankoop. Open bonnen van een klus kun je overnemen; die bon wordt
+  dan als gefactureerd gemarkeerd, net als uren.
+- Losse bonnetjes van vóór deze versie worden automatisch één inkoop per bestand.
+
+
 ## 1.26.0
 
 - Minder uitleg onder kopjes en velden; wat al duidelijk is uit label of placeholder

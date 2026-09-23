@@ -32,7 +32,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.26.0"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.27.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -590,6 +590,12 @@ SOORTEN = {
         "aantal_label": "Aantal",
         "prijs_label": "Bedrag",
     },
+    "bon": {
+        "naam": "Bon",
+        "eenheid": None,
+        "aantal_label": "Aantal",
+        "prijs_label": "Bedrag",
+    },
 }
 
 
@@ -800,6 +806,25 @@ def init_db():
             FOREIGN KEY (klus_id) REFERENCES klussen (id)
         );
 
+        CREATE TABLE IF NOT EXISTS inkopen (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            klus_id INTEGER NOT NULL,
+            omschrijving TEXT NOT NULL,
+            bedrag REAL NOT NULL DEFAULT 0,
+            toegevoegd TEXT NOT NULL,
+            factuur_id INTEGER,
+            FOREIGN KEY (klus_id) REFERENCES klussen (id)
+        );
+
+        CREATE TABLE IF NOT EXISTS inkoop_materialen (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            inkoop_id INTEGER NOT NULL,
+            omschrijving TEXT NOT NULL,
+            aantal REAL DEFAULT 1,
+            prijs REAL DEFAULT 0,
+            FOREIGN KEY (inkoop_id) REFERENCES inkopen (id)
+        );
+
         CREATE TABLE IF NOT EXISTS offertes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             nummer TEXT NOT NULL,
@@ -934,6 +959,34 @@ def init_db():
     if "kenmerk" not in offertekolommen:
         conn.execute("ALTER TABLE offertes ADD COLUMN kenmerk TEXT DEFAULT ''")
 
+    # Inkopen (bonnen): aankoop met bedrag, optioneel materiaal eronder, bestanden erbij.
+    # Oude losse bijlagen zonder notitie worden één inkoop per bestand, zodat niets
+    # verdwijnt bij de overstap.
+    bijlagekolommen = {rij["name"] for rij in conn.execute("PRAGMA table_info(bijlagen)")}
+    if "inkoop_id" not in bijlagekolommen:
+        conn.execute("ALTER TABLE bijlagen ADD COLUMN inkoop_id INTEGER")
+        for bijlage in conn.execute(
+            "SELECT * FROM bijlagen WHERE notitie_id IS NULL"
+        ).fetchall():
+            inkoop_id = conn.execute(
+                """INSERT INTO inkopen (klus_id, omschrijving, bedrag, toegevoegd)
+                   VALUES (?, ?, 0, ?)""",
+                (bijlage["klus_id"], bijlage["naam"] or "Bon", bijlage["toegevoegd"]),
+            ).lastrowid
+            conn.execute(
+                "UPDATE bijlagen SET inkoop_id=? WHERE id=?",
+                (inkoop_id, bijlage["id"]),
+            )
+
+    regelkolommen = {rij["name"] for rij in conn.execute("PRAGMA table_info(regels)")}
+    if "inkoop_id" not in regelkolommen:
+        conn.execute("ALTER TABLE regels ADD COLUMN inkoop_id INTEGER")
+    offerte_regelkolommen = {
+        rij["name"] for rij in conn.execute("PRAGMA table_info(offerte_regels)")
+    }
+    if "inkoop_id" not in offerte_regelkolommen:
+        conn.execute("ALTER TABLE offerte_regels ADD COLUMN inkoop_id INTEGER")
+
     conn.commit()
     conn.close()
 
@@ -976,6 +1029,7 @@ PRULLENBAK_DAGEN = 30
 TERUG_TE_ZETTEN = {
     "facturen", "regels", "betalingen", "offertes", "offerte_regels",
     "klanten", "klussen", "uren", "bijlagen", "notities",
+    "inkopen", "inkoop_materialen",
 }
 
 
@@ -1842,7 +1896,7 @@ def klus(klus_id):
     if gegevens is None:
         conn.close()
         abort(404)
-    bestanden = bijlagen_van(conn, klus_id)
+    aankopen = inkopen_van(conn, klus_id)
     aantekeningen = notities_van(conn, klus_id)
     offerte = None
     if gegevens["offerte_id"]:
@@ -1853,7 +1907,7 @@ def klus(klus_id):
     open_uren = round(sum(d["uren"] for d in dagen if d["factuur_id"] is None), 2)
     return render_template(
         "klus.html", klus=gegevens, dagen=dagen, totaal=totaal, open_uren=open_uren,
-        bijlagen=bestanden, notities=aantekeningen, offerte=offerte, fases=KLUS_FASES,
+        inkopen=aankopen, notities=aantekeningen, offerte=offerte, fases=KLUS_FASES,
         offerte_status=OFFERTE_STATUS,
         bedrag=round(totaal * (gegevens["uurtarief"] or 0), 2),
         vandaag=date.today().isoformat(), actief="klussen",
@@ -1943,17 +1997,28 @@ def klus_verwijder(klus_id):
         conn.close()
         abort(404)
     bijlagen = conn.execute("SELECT * FROM bijlagen WHERE klus_id=?", (klus_id,)).fetchall()
+    inkopen = conn.execute("SELECT * FROM inkopen WHERE klus_id=?", (klus_id,)).fetchall()
+    materialen = []
+    for inkoop in inkopen:
+        materialen.extend(conn.execute(
+            "SELECT * FROM inkoop_materialen WHERE inkoop_id=?", (inkoop["id"],)
+        ).fetchall())
     prullenbak_id = naar_prullenbak(
         conn, f"Klus {gegevens['naam']}",
         {"klussen": [gegevens],
          "uren": conn.execute("SELECT * FROM uren WHERE klus_id=?", (klus_id,)).fetchall(),
          "notities": conn.execute("SELECT * FROM notities WHERE klus_id=?",
                                   (klus_id,)).fetchall(),
+         "inkopen": inkopen,
+         "inkoop_materialen": materialen,
          "bijlagen": bijlagen},
         bestanden=[b["bestand"] for b in bijlagen],
     )
+    for inkoop in inkopen:
+        conn.execute("DELETE FROM inkoop_materialen WHERE inkoop_id=?", (inkoop["id"],))
     conn.execute("DELETE FROM notities WHERE klus_id=?", (klus_id,))
     conn.execute("DELETE FROM bijlagen WHERE klus_id=?", (klus_id,))
+    conn.execute("DELETE FROM inkopen WHERE klus_id=?", (klus_id,))
     conn.execute("DELETE FROM uren WHERE klus_id=?", (klus_id,))
     conn.execute("DELETE FROM klussen WHERE id=?", (klus_id,))
     conn.commit()
@@ -1964,19 +2029,46 @@ def klus_verwijder(klus_id):
     return redirect(url_for("klussen"))
 
 
-def bijlagen_van(conn, klus_id, notitie_id=None):
-    """De foto's en bonnetjes bij een klus, met of ze als plaatje te tonen zijn.
+def bijlagen_van(conn, klus_id, notitie_id=None, inkoop_id=None):
+    """Bestanden bij een klus, gefilterd op notitie of inkoop.
 
-    Zonder `notitie_id` krijg je de bonnen: alles wat niet bij een notitie hoort."""
+    Zonder filter krijg je niets terug: bonnen hangen aan een inkoop, notitiefoto's
+    aan een notitie. Zo blijven die twee werelden uit elkaar."""
     lijst = []
     for rij in conn.execute(
         "SELECT * FROM bijlagen WHERE klus_id=? ORDER BY id", (klus_id,)
     ):
         bijlage = dict(rij)
-        if (bijlage.get("notitie_id") or None) != notitie_id:
+        if notitie_id is not None:
+            if (bijlage.get("notitie_id") or None) != notitie_id:
+                continue
+        elif inkoop_id is not None:
+            if (bijlage.get("inkoop_id") or None) != inkoop_id:
+                continue
+        else:
             continue
         bijlage["plaatje"] = os.path.splitext(rij["bestand"])[1].lower() in BIJLAGE_PLAATJES
         lijst.append(bijlage)
+    return lijst
+
+
+def inkopen_van(conn, klus_id):
+    """De inkopen (bonnen) bij een klus, met bestanden en optionele materialen."""
+    lijst = []
+    for rij in conn.execute(
+        "SELECT * FROM inkopen WHERE klus_id=? ORDER BY toegevoegd DESC, id DESC",
+        (klus_id,),
+    ):
+        inkoop = dict(rij)
+        inkoop["bestanden"] = bijlagen_van(conn, klus_id, inkoop_id=rij["id"])
+        inkoop["materialen"] = [
+            dict(m) for m in conn.execute(
+                """SELECT * FROM inkoop_materialen WHERE inkoop_id=?
+                   ORDER BY id""",
+                (rij["id"],),
+            )
+        ]
+        lijst.append(inkoop)
     return lijst
 
 
@@ -1992,7 +2084,7 @@ def notities_van(conn, klus_id):
     return lijst
 
 
-def bewaar_bestanden(conn, klus_id, bestanden, notitie_id=None):
+def bewaar_bestanden(conn, klus_id, bestanden, notitie_id=None, inkoop_id=None):
     """Zet gekozen foto's en PDF's op schijf en in de database.
 
     Geeft terug hoeveel er bij kwamen en welke er niet door de keuring kwamen."""
@@ -2011,9 +2103,10 @@ def bewaar_bestanden(conn, klus_id, bestanden, notitie_id=None):
         opslagnaam = f"{secrets.token_hex(8)}{extensie}"
         bestand.save(os.path.join(BIJLAGE_DIR, opslagnaam))
         conn.execute(
-            """INSERT INTO bijlagen (klus_id, bestand, naam, toegevoegd, meesturen, notitie_id)
-               VALUES (?, ?, ?, ?, 0, ?)""",
-            (klus_id, opslagnaam, veilig, date.today().isoformat(), notitie_id),
+            """INSERT INTO bijlagen (klus_id, bestand, naam, toegevoegd, meesturen,
+               notitie_id, inkoop_id) VALUES (?, ?, ?, ?, 0, ?, ?)""",
+            (klus_id, opslagnaam, veilig, date.today().isoformat(),
+             notitie_id, inkoop_id),
         )
         erbij += 1
     return erbij, geweigerd
@@ -2128,26 +2221,220 @@ def notitie_verwijder(notitie_id):
     return redirect(url_for("klus", klus_id=rij["klus_id"]))
 
 
-@app.route("/klus/<int:klus_id>/bijlage", methods=["POST"])
-def bijlage_erbij(klus_id):
-    """Bonnetjes en werkfoto's bij een klus zetten. Ze blijven bij de klus horen; de
-    rekening blijft een nette lijst met regels."""
+def _lees_bedrag(waarde):
+    """Bedrag uit een formulier; lege of ongeldige waarde wordt 0."""
+    try:
+        return round(_getal(waarde), 2)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+@app.route("/klus/<int:klus_id>/inkoop", methods=["POST"])
+def inkoop_erbij(klus_id):
+    """Een aankoop (bon) bij de klus: omschrijving, totaalbedrag, optioneel bestanden
+    en materiaalregels van wat erin zat."""
     conn = get_db()
     if conn.execute("SELECT id FROM klussen WHERE id=?", (klus_id,)).fetchone() is None:
         conn.close()
         abort(404)
 
-    erbij, geweigerd = bewaar_bestanden(conn, klus_id, request.files.getlist("bijlage"))
+    omschrijving = (request.form.get("omschrijving") or "").strip()
+    bestanden = [b for b in request.files.getlist("bijlage") if b and b.filename]
+    if not omschrijving and not bestanden:
+        conn.close()
+        melding("Geef de bon een omschrijving of kies een bestand.", "fout")
+        return redirect(url_for("klus", klus_id=klus_id))
+    if not omschrijving:
+        # Zonder tekst is de bestandsnaam het enige houvast.
+        omschrijving = secure_filename(bestanden[0].filename) or "Bon"
+
+    bedrag = _lees_bedrag(request.form.get("bedrag"))
+    inkoop_id = conn.execute(
+        """INSERT INTO inkopen (klus_id, omschrijving, bedrag, toegevoegd)
+           VALUES (?, ?, ?, ?)""",
+        (klus_id, omschrijving, bedrag, date.today().isoformat()),
+    ).lastrowid
+
+    # Optionele materialen: parallelle lijsten, net als regels op een rekening.
+    for mat_oms, mat_aantal, mat_prijs in zip_longest(
+        request.form.getlist("materiaal_omschrijving"),
+        request.form.getlist("materiaal_aantal"),
+        request.form.getlist("materiaal_prijs"),
+        fillvalue="",
+    ):
+        mat_oms = (mat_oms or "").strip()
+        if not mat_oms:
+            continue
+        conn.execute(
+            """INSERT INTO inkoop_materialen (inkoop_id, omschrijving, aantal, prijs)
+               VALUES (?, ?, ?, ?)""",
+            (inkoop_id, mat_oms, _lees_bedrag(mat_aantal) or 1.0,
+             _lees_bedrag(mat_prijs)),
+        )
+
+    erbij, geweigerd = bewaar_bestanden(
+        conn, klus_id, bestanden, inkoop_id=inkoop_id)
+    conn.commit()
+    conn.close()
+
+    melding(f"Bon '{omschrijving}' erbij.")
+    if geweigerd:
+        melding(f"Niet toegevoegd: {', '.join(geweigerd)}. Kies een foto (JPG, PNG, HEIC) "
+                "of een PDF.", "fout")
+    return redirect(url_for("klus", klus_id=klus_id))
+
+
+@app.route("/inkoop/<int:inkoop_id>", methods=["POST"])
+def inkoop_bewerk(inkoop_id):
+    """Omschrijving of bedrag van een bestaande bon aanpassen; eventueel bestanden
+    erbij zetten."""
+    conn = get_db()
+    rij = conn.execute("SELECT * FROM inkopen WHERE id=?", (inkoop_id,)).fetchone()
+    if rij is None:
+        conn.close()
+        abort(404)
+
+    omschrijving = (request.form.get("omschrijving") or "").strip()
+    if not omschrijving:
+        conn.close()
+        melding("Geef de bon een omschrijving.", "fout")
+        return redirect(url_for("klus", klus_id=rij["klus_id"]))
+
+    conn.execute(
+        "UPDATE inkopen SET omschrijving=?, bedrag=? WHERE id=?",
+        (omschrijving, _lees_bedrag(request.form.get("bedrag")), inkoop_id),
+    )
+    erbij, geweigerd = bewaar_bestanden(
+        conn, rij["klus_id"], request.files.getlist("bijlage"), inkoop_id=inkoop_id)
+    conn.commit()
+    conn.close()
+
+    melding("Bon bijgewerkt.")
+    if geweigerd:
+        melding(f"Niet toegevoegd: {', '.join(geweigerd)}. Kies een foto (JPG, PNG, HEIC) "
+                "of een PDF.", "fout")
+    return redirect(url_for("klus", klus_id=rij["klus_id"]))
+
+
+@app.route("/inkoop/<int:inkoop_id>/verwijder", methods=["POST"])
+def inkoop_verwijder(inkoop_id):
+    """Bon, materialen en bestanden samen naar de prullenbak."""
+    conn = get_db()
+    rij = conn.execute("SELECT * FROM inkopen WHERE id=?", (inkoop_id,)).fetchone()
+    if rij is None:
+        conn.close()
+        abort(404)
+    materialen = conn.execute(
+        "SELECT * FROM inkoop_materialen WHERE inkoop_id=?", (inkoop_id,)).fetchall()
+    bestanden = conn.execute(
+        "SELECT * FROM bijlagen WHERE inkoop_id=?", (inkoop_id,)).fetchall()
+    prullenbak_id = naar_prullenbak(
+        conn, f"Bon {rij['omschrijving']}",
+        {"inkopen": [rij], "inkoop_materialen": materialen, "bijlagen": bestanden},
+        bestanden=[b["bestand"] for b in bestanden],
+    )
+    conn.execute("DELETE FROM inkoop_materialen WHERE inkoop_id=?", (inkoop_id,))
+    conn.execute("DELETE FROM bijlagen WHERE inkoop_id=?", (inkoop_id,))
+    conn.execute("DELETE FROM inkopen WHERE id=?", (inkoop_id,))
+    conn.commit()
+    conn.close()
+    melding(f"Bon '{rij['omschrijving']}' verwijderd.", knop=terugknop(prullenbak_id))
+    return redirect(url_for("klus", klus_id=rij["klus_id"]))
+
+
+@app.route("/inkoop/<int:inkoop_id>/materiaal", methods=["POST"])
+def inkoop_materiaal_erbij(inkoop_id):
+    """Optioneel: wat er in de tas zat, als notitie onder de bon — geen aparte
+    factuurregel."""
+    conn = get_db()
+    rij = conn.execute("SELECT * FROM inkopen WHERE id=?", (inkoop_id,)).fetchone()
+    if rij is None:
+        conn.close()
+        abort(404)
+    omschrijving = (request.form.get("omschrijving") or "").strip()
+    if not omschrijving:
+        conn.close()
+        melding("Geef het materiaal een omschrijving.", "fout")
+        return redirect(url_for("klus", klus_id=rij["klus_id"]))
+    conn.execute(
+        """INSERT INTO inkoop_materialen (inkoop_id, omschrijving, aantal, prijs)
+           VALUES (?, ?, ?, ?)""",
+        (inkoop_id, omschrijving,
+         _lees_bedrag(request.form.get("aantal")) or 1.0,
+         _lees_bedrag(request.form.get("prijs"))),
+    )
+    conn.commit()
+    conn.close()
+    melding("Materiaal bij de bon gezet.")
+    return redirect(url_for("klus", klus_id=rij["klus_id"]))
+
+
+@app.route("/inkoop_materiaal/<int:materiaal_id>/verwijder", methods=["POST"])
+def inkoop_materiaal_verwijder(materiaal_id):
+    conn = get_db()
+    rij = conn.execute(
+        "SELECT * FROM inkoop_materialen WHERE id=?", (materiaal_id,)).fetchone()
+    if rij is None:
+        conn.close()
+        abort(404)
+    inkoop = conn.execute(
+        "SELECT klus_id FROM inkopen WHERE id=?", (rij["inkoop_id"],)).fetchone()
+    prullenbak_id = naar_prullenbak(
+        conn, f"Materiaal {rij['omschrijving']}", {"inkoop_materialen": [rij]})
+    conn.execute("DELETE FROM inkoop_materialen WHERE id=?", (materiaal_id,))
+    conn.commit()
+    conn.close()
+    melding(f"{rij['omschrijving']} verwijderd.", knop=terugknop(prullenbak_id))
+    if inkoop is None:
+        return redirect(url_for("klussen"))
+    return redirect(url_for("klus", klus_id=inkoop["klus_id"]))
+
+
+@app.route("/klus/<int:klus_id>/bijlage", methods=["POST"])
+def bijlage_erbij(klus_id):
+    """Bestanden bij een bestaande bon, of — zonder inkoop_id — een nieuwe bon
+    aanmaken met alleen het bestand (compatibel met oudere flows)."""
+    conn = get_db()
+    if conn.execute("SELECT id FROM klussen WHERE id=?", (klus_id,)).fetchone() is None:
+        conn.close()
+        abort(404)
+
+    bestanden = [b for b in request.files.getlist("bijlage") if b and b.filename]
+    if not bestanden:
+        conn.close()
+        melding("Er was geen bestand gekozen.", "fout")
+        return redirect(url_for("klus", klus_id=klus_id))
+
+    inkoop_raw = (request.form.get("inkoop_id") or "").strip()
+    if inkoop_raw.isdigit():
+        inkoop = conn.execute(
+            "SELECT * FROM inkopen WHERE id=? AND klus_id=?",
+            (int(inkoop_raw), klus_id),
+        ).fetchone()
+        if inkoop is None:
+            conn.close()
+            abort(404)
+        inkoop_id = inkoop["id"]
+    else:
+        # Eén bon voor deze upload: bestandsnaam als omschrijving, bedrag later
+        # invullen via bewerken.
+        naam = secure_filename(bestanden[0].filename) or "Bon"
+        inkoop_id = conn.execute(
+            """INSERT INTO inkopen (klus_id, omschrijving, bedrag, toegevoegd)
+               VALUES (?, ?, 0, ?)""",
+            (klus_id, naam, date.today().isoformat()),
+        ).lastrowid
+
+    erbij, geweigerd = bewaar_bestanden(
+        conn, klus_id, bestanden, inkoop_id=inkoop_id)
     conn.commit()
     conn.close()
 
     if erbij:
-        melding(f"{erbij} bestand{'en' if erbij != 1 else ''} bij de klus gezet.")
+        melding(f"{erbij} bestand{'en' if erbij != 1 else ''} bij de bon gezet.")
     if geweigerd:
         melding(f"Niet toegevoegd: {', '.join(geweigerd)}. Kies een foto (JPG, PNG, HEIC) "
               "of een PDF.", "fout")
-    if not erbij and not geweigerd:
-        melding("Er was geen bestand gekozen.", "fout")
     return redirect(url_for("klus", klus_id=klus_id))
 
 
@@ -2292,12 +2579,13 @@ def lees_regels(form):
     Regels zonder omschrijving worden overgeslagen."""
     totaal = 0.0
     regels = []
-    for o, t, a, p, klus in zip_longest(
+    for o, t, a, p, klus, inkoop in zip_longest(
         form.getlist("omschrijving"),
         form.getlist("type"),
         form.getlist("aantal"),
         form.getlist("prijs"),
         form.getlist("regel_klus"),
+        form.getlist("regel_inkoop"),
         fillvalue="",
     ):
         if not o:
@@ -2307,12 +2595,16 @@ def lees_regels(form):
             p = _getal(p)
         except ValueError:
             continue
-        if t == "arbeid_klus":
-            # Vaste prijs voor de hele klus: het bedrag is de prijs, geen aantal keer tarief.
+        if t in ("arbeid_klus", "bon"):
+            # Vaste prijs: het bedrag is de prijs, geen aantal keer tarief.
             a = 1.0
         subtotaal = a * p
         totaal += subtotaal
-        regels.append((o, t, a, p, subtotaal, int(klus) if str(klus).isdigit() else None))
+        regels.append((
+            o, t, a, p, subtotaal,
+            int(klus) if str(klus).isdigit() else None,
+            int(inkoop) if str(inkoop).isdigit() else None,
+        ))
     return regels, round(totaal, 2)
 
 
@@ -2564,6 +2856,28 @@ def geboekte_klussen(factuur_id=None):
     return lijst
 
 
+def geboekte_inkopen(factuur_id=None):
+    """Open bonnen (nog niet op een rekening, of al op déze rekening bij bewerken)."""
+    conn = get_db()
+    if factuur_id is None:
+        rijen = conn.execute(
+            """SELECT i.*, k.naam AS klus_naam, k.klant_id
+               FROM inkopen i JOIN klussen k ON k.id = i.klus_id
+               WHERE i.factuur_id IS NULL
+               ORDER BY i.toegevoegd DESC, i.id DESC"""
+        ).fetchall()
+    else:
+        rijen = conn.execute(
+            """SELECT i.*, k.naam AS klus_naam, k.klant_id
+               FROM inkopen i JOIN klussen k ON k.id = i.klus_id
+               WHERE i.factuur_id IS NULL OR i.factuur_id=?
+               ORDER BY i.toegevoegd DESC, i.id DESC""",
+            (factuur_id,),
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rijen]
+
+
 def bepaal_klant(conn, form):
     """Geeft het klant-id terug dat bij deze rekening hoort. Is er geen klant gekozen
     maar wel gevraagd om op te slaan, dan wordt de klant hier aangemaakt."""
@@ -2589,13 +2903,14 @@ def bepaal_klant(conn, form):
 
 def bewaar_regels(conn, factuur_id, regels):
     conn.execute("DELETE FROM regels WHERE factuur_id=?", (factuur_id,))
-    for o, t, a, p, subtotaal, klus_id in regels:
+    for o, t, a, p, subtotaal, klus_id, inkoop_id in regels:
         conn.execute(
             """INSERT INTO regels (factuur_id, omschrijving, type, aantal, prijs, subtotaal,
-               klus_id) VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (factuur_id, o, t, a, p, subtotaal, klus_id),
+               klus_id, inkoop_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (factuur_id, o, t, a, p, subtotaal, klus_id, inkoop_id),
         )
     boek_uren(conn, factuur_id, [r[5] for r in regels if r[5]])
+    boek_inkopen(conn, factuur_id, [r[6] for r in regels if r[6]])
 
 
 def boek_uren(conn, factuur_id, klus_ids):
@@ -2606,6 +2921,18 @@ def boek_uren(conn, factuur_id, klus_ids):
         conn.execute(
             """UPDATE uren SET factuur_id=? WHERE klus_id=? AND factuur_id IS NULL""",
             (factuur_id, klus_id),
+        )
+
+
+def boek_inkopen(conn, factuur_id, inkoop_ids):
+    """Legt vast welke bonnen op deze rekening staan, zodat dezelfde inkoop niet
+    twee keer wordt gefactureerd."""
+    conn.execute("UPDATE inkopen SET factuur_id=NULL WHERE factuur_id=?", (factuur_id,))
+    for inkoop_id in inkoop_ids:
+        conn.execute(
+            """UPDATE inkopen SET factuur_id=?
+               WHERE id=? AND (factuur_id IS NULL OR factuur_id=?)""",
+            (factuur_id, inkoop_id, factuur_id),
         )
 
 
@@ -2668,7 +2995,8 @@ def nieuw():
     return render_template(
         "nieuw.html", vandaag=vandaag, actief="nieuw",
         factuur=None, regels=[], klanten=klantenlijst(), gekozen_klant=gekozen,
-        klussen=geboekte_klussen(), vooraf_klus=request.args.get("klus", ""),
+        klussen=geboekte_klussen(), open_inkopen=geboekte_inkopen(),
+        vooraf_klus=request.args.get("klus", ""),
         vervalt=standaard_vervalt(vandaag),
         standaard_vervalt=standaard_vervalt(vandaag),
     )
@@ -2730,6 +3058,7 @@ def bewerk(factuur_id):
         "nieuw.html", vandaag=factuur["datum"], actief="nieuw",
         factuur=factuur, regels=regels, klanten=klantenlijst(),
         gekozen_klant=None, klussen=geboekte_klussen(factuur_id),
+        open_inkopen=geboekte_inkopen(factuur_id),
         vooraf_klus="",
         vervalt=factuur["vervalt_op"] or "",
         standaard_vervalt=standaard_vervalt(factuur["datum"]),
@@ -2774,11 +3103,11 @@ def lees_vervaldatum(form, datum):
 
 def bewaar_offerte_regels(conn, offerte_id, regels):
     conn.execute("DELETE FROM offerte_regels WHERE offerte_id=?", (offerte_id,))
-    for o, t, a, p, subtotaal, _klus_id in regels:
+    for o, t, a, p, subtotaal, _klus_id, inkoop_id in regels:
         conn.execute(
             """INSERT INTO offerte_regels (offerte_id, omschrijving, type, aantal, prijs,
-               subtotaal) VALUES (?, ?, ?, ?, ?, ?)""",
-            (offerte_id, o, t, a, p, subtotaal),
+               subtotaal, inkoop_id) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (offerte_id, o, t, a, p, subtotaal, inkoop_id),
         )
 
 
@@ -2878,7 +3207,7 @@ def offerte_nieuw():
     return render_template(
         "nieuw.html", mode="offerte", vandaag=vandaag, actief="offertes",
         factuur=None, regels=[], klanten=klantenlijst(), gekozen_klant=gekozen,
-        klussen=[], vooraf_klus="", geldig=geldig_tot(vandaag),
+        klussen=[], open_inkopen=[], vooraf_klus="", geldig=geldig_tot(vandaag),
         standaard_geldig=geldig_tot(vandaag),
         # Kwam je hier vanaf een aanvraag, dan gaat de offerte daar straks aan vast.
         voor_klus=request.args.get("voor_klus", ""),
@@ -2936,7 +3265,8 @@ def offerte_bewerk(offerte_id):
     return render_template("nieuw.html", mode="offerte", vandaag=offerte["datum"],
                            actief="offertes", factuur=offerte, regels=regels,
                            klanten=klantenlijst(), gekozen_klant=None, klussen=[],
-                           vooraf_klus="", geldig=offerte["geldig_tot"],
+                           open_inkopen=[], vooraf_klus="",
+                           geldig=offerte["geldig_tot"],
                            standaard_geldig=geldig_tot(offerte["datum"]))
 
 
@@ -3544,14 +3874,22 @@ def _mail_pdf(s, ontvanger, onderwerp, tekst, pad, bestandsnaam, extra=None):
 
 
 def bonnen_bij_factuur(conn, factuur_id):
-    """De bestanden die mee moeten met deze rekening: de bijlagen die op 'meesturen'
-    staan bij de klussen waarvan de uren op deze rekening staan."""
+    """De bestanden die mee moeten met deze rekening: bijlagen op 'meesturen' bij
+    klussen waarvan de uren hier staan, of bij inkopen die als bon-regel erop staan."""
     rijen = conn.execute(
-        """SELECT DISTINCT b.bestand, b.naam FROM bijlagen b
-           JOIN regels r ON r.klus_id = b.klus_id
-           WHERE r.factuur_id = ? AND b.meesturen = 1
-           ORDER BY b.id""",
-        (factuur_id,),
+        """SELECT bestand, naam FROM (
+             SELECT DISTINCT b.bestand AS bestand, b.naam AS naam, b.id AS id
+             FROM bijlagen b
+             JOIN regels r ON r.klus_id = b.klus_id
+             WHERE r.factuur_id = ? AND b.meesturen = 1
+             UNION
+             SELECT DISTINCT b.bestand AS bestand, b.naam AS naam, b.id AS id
+             FROM bijlagen b
+             JOIN regels r ON r.inkoop_id = b.inkoop_id
+             WHERE r.factuur_id = ? AND b.meesturen = 1 AND b.inkoop_id IS NOT NULL
+           )
+           ORDER BY id""",
+        (factuur_id, factuur_id),
     ).fetchall()
     return [(os.path.join(BIJLAGE_DIR, r["bestand"]), r["naam"]) for r in rijen]
 
@@ -3997,8 +4335,9 @@ def verwijder(factuur_id):
         "regels": conn.execute("SELECT * FROM regels WHERE factuur_id=?", (factuur_id,)).fetchall(),
         "betalingen": conn.execute("SELECT * FROM betalingen WHERE factuur_id=?", (factuur_id,)).fetchall(),
     })
-    # Uren die op deze rekening stonden komen weer vrij om te factureren.
+    # Uren en bonnen die op deze rekening stonden komen weer vrij om te factureren.
     conn.execute("UPDATE uren SET factuur_id=NULL WHERE factuur_id=?", (factuur_id,))
+    conn.execute("UPDATE inkopen SET factuur_id=NULL WHERE factuur_id=?", (factuur_id,))
     conn.execute("DELETE FROM regels WHERE factuur_id=?", (factuur_id,))
     conn.execute("DELETE FROM betalingen WHERE factuur_id=?", (factuur_id,))
     conn.execute("DELETE FROM facturen WHERE id=?", (factuur_id,))

@@ -44,10 +44,14 @@ def test_een_foto_bij_een_klus_volgt_dezelfde_regel(client, db):
     klus_id = db.execute(
         """INSERT INTO klussen (naam, uurtarief, gestart)
            VALUES ('Vloer reinigen', 47.5, '2026-08-10')""").lastrowid
+    inkoop_id = db.execute(
+        """INSERT INTO inkopen (klus_id, omschrijving, bedrag, toegevoegd)
+           VALUES (?, 'Vloer voor het reinigen', 0, '2026-08-10')""",
+        (klus_id,)).lastrowid
     db.execute(
-        """INSERT INTO bijlagen (klus_id, bestand, naam, toegevoegd)
-           VALUES (?, 'foto.png', 'Vloer voor het reinigen.png', '2026-08-10')""",
-        (klus_id,))
+        """INSERT INTO bijlagen (klus_id, bestand, naam, toegevoegd, inkoop_id)
+           VALUES (?, 'foto.png', 'Vloer voor het reinigen.png', '2026-08-10', ?)""",
+        (klus_id, inkoop_id))
     db.commit()
 
     assert 'target="_blank"' in client.get(f"/klus/{klus_id}").data.decode()

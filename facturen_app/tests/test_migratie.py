@@ -38,4 +38,4 @@ def test_de_instellingenrij_bestaat_altijd(db):
 def test_alle_tabellen_staan_er(db):
     namen = {r["name"] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"settings", "facturen", "regels", "klanten", "klussen", "uren",
-            "offertes", "offerte_regels"} <= namen
+            "offertes", "offerte_regels", "inkopen", "inkoop_materialen"} <= namen
