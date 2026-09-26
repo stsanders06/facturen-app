@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.29.0
+
+- **Bonnen bij een rekening zijn alleen van dezelfde klant.** Onder "Bon van een
+  klus" staan alleen aankopen van klussen van die klant. Heeft de rekening nog
+  geen klant, dan zie je alleen bonnen van klussen zonder klant.
+- **Voor het mailen zie je wat er de deur uitgaat.** Onderwerp, tekst, de PDF van
+  de rekening en de bonnetjes die meegaan. Pas als je op Mail versturen drukt,
+  gaat de mail weg.
+- **Opslaan stuurt geen mail meer.** Het vinkje om meteen te mailen na het
+  aanmaken of bewerken van een rekening is weg. Mailen doe je met Mailen, na
+  die controle.
+
 ## 1.28.2
 
 - **Geen type-badge/label op offerte-regels** — zelfde als op de rekening: alleen

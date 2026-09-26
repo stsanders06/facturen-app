@@ -1,0 +1,118 @@
+{% extends "_layout.html" %}
+{% block title %}Mail controleren{% endblock %}
+{% block head %}
+<style>
+  .mailregel { margin: 0 0 10px; }
+  .mailregel .label {
+    display: block;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+  .mailtekst {
+    margin: 0;
+    white-space: pre-wrap;
+    font-family: var(--font);
+    font-size: 15px;
+    line-height: 1.5;
+  }
+  .bijlagen { margin: 0; padding-left: 1.2em; }
+  .bijlagen li { margin: 4px 0; }
+  .reden {
+    margin: 0;
+    padding: 12px 14px;
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-border);
+    color: var(--warn-text);
+    border-radius: var(--radius-sm);
+  }
+</style>
+{% endblock %}
+{% block content %}
+
+<div class="page-head">
+  <h1>Mail controleren</h1>
+  <a class="btn btn-outline" href="{{ url_for('index') }}">Terug naar rekeningen</a>
+</div>
+
+<p class="hint" style="margin-bottom:14px">
+  {% if reden %}
+  Dit zou {{ factuur.klant_naam or 'de klant' }} krijgen. Er gaat nu niets weg;
+  onderaan staat waarom mailen nog niet kan.
+  {% else %}
+  Dit krijgt {{ factuur.klant_naam or 'de klant' }} zodra je op Mail versturen drukt.
+  Tot die tijd gaat er niets weg.
+  {% endif %}
+</p>
+
+{% if concept %}
+<p class="hint" style="margin-bottom:14px">
+  Dit is nog een concept. Bij het versturen krijgt de rekening nummer
+  <strong>{{ inhoud.pdf|replace('.pdf', '') }}</strong>. Dat nummer staat in de mail
+  en op de PDF.
+</p>
+{% elif al_verzonden %}
+<p class="hint" style="margin-bottom:14px">
+  Deze rekening is al eens gemaild. Dit stuurt hem nog een keer.
+</p>
+{% endif %}
+
+<section class="card">
+  <div class="card-head">
+    <h2>Rekening</h2>
+  </div>
+  <p class="mailregel">
+    <span class="label">PDF</span>
+    {{ inhoud.pdf }}
+    {% if factuur.klant_naam %} voor {{ factuur.klant_naam }}{% endif %}
+  </p>
+  <a class="btn btn-outline" href="{{ url_for('bekijk_pdf', factuur_id=factuur.id) }}"
+     {{ nieuw_tabblad }}>PDF bekijken</a>
+</section>
+
+<section class="card">
+  <div class="card-head">
+    <h2>Bericht</h2>
+  </div>
+  <p class="mailregel">
+    <span class="label">Aan</span>
+    {{ inhoud.ontvanger or 'geen e-mailadres' }}
+  </p>
+  <p class="mailregel">
+    <span class="label">Onderwerp</span>
+    {{ inhoud.onderwerp }}
+  </p>
+  <pre class="mailtekst">{{ inhoud.tekst }}</pre>
+</section>
+
+<section class="card">
+  <div class="card-head">
+    <h2>Bijlagen</h2>
+  </div>
+  <ul class="bijlagen">
+    <li>PDF van de rekening ({{ inhoud.pdf }})</li>
+    {% for naam in inhoud.bonnen %}
+    <li>{{ naam }}</li>
+    {% endfor %}
+  </ul>
+  {% if not inhoud.bonnen %}
+  <p class="hint">Alleen de PDF. Er gaan geen bonnetjes mee.</p>
+  {% endif %}
+</section>
+
+{% if reden %}
+<section class="card">
+  <p class="reden">{{ reden }}</p>
+</section>
+{% else %}
+<section class="card">
+  <form method="post" action="{{ url_for('verstuur', factuur_id=factuur.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="indienen">
+      <a class="btn btn-outline" href="{{ url_for('index') }}">Annuleren</a>
+      <button type="submit" class="btn">Mail versturen</button>
+    </div>
+  </form>
+</section>
+{% endif %}
+
+{% endblock %}

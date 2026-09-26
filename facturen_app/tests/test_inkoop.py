@@ -212,3 +212,97 @@ def test_nieuw_formulier_heeft_bon_als_soort(client):
     inhoud = client.get("/nieuw").data.decode()
     assert 'value="bon"' in inhoud
     assert "badge: 'B'" in inhoud
+
+
+def test_inkoop_past_alleen_bij_dezelfde_klant():
+    assert facturen.inkoop_past_bij_klant(3, 3)
+    assert facturen.inkoop_past_bij_klant("3", 3)
+    assert not facturen.inkoop_past_bij_klant(4, 3)
+    assert not facturen.inkoop_past_bij_klant(3, None)
+    assert not facturen.inkoop_past_bij_klant(None, 3)
+    # Zonder klant op de rekening alleen bonnen van klussen zonder klant.
+    assert facturen.inkoop_past_bij_klant(None, None)
+    assert facturen.inkoop_past_bij_klant("", "")
+
+
+def _klant(db, naam):
+    return db.execute(
+        "INSERT INTO klanten (naam, email) VALUES (?, ?)",
+        (naam, f"{naam.lower()}@example.com"),
+    ).lastrowid
+
+
+def _klus_met_bon(post, db, naam, bon, klant_id=None):
+    gegevens = {"naam": naam, "uurtarief": "40"}
+    if klant_id:
+        gegevens["klant_id"] = str(klant_id)
+    post("/klussen/nieuw", gegevens)
+    klus_id = db.execute("SELECT id FROM klussen WHERE naam=?", (naam,)).fetchone()[0]
+    post(f"/klus/{klus_id}/inkoop", {"omschrijving": bon, "bedrag": "12"})
+    return klus_id
+
+
+def _knop(html, omschrijving):
+    plek = html.find(f'data-naam="{omschrijving}"')
+    assert plek != -1, omschrijving
+    begin = html.rfind("<button", 0, plek)
+    einde = html.find(">", plek)
+    return html[begin:einde]
+
+
+def test_rekening_voor_klant_toont_alleen_diens_bonnen(post, db, client):
+    anna = _klant(db, "Anna")
+    piet = _klant(db, "Piet")
+    db.commit()
+    _klus_met_bon(post, db, "Keuken Anna", "Bon van Anna", anna)
+    _klus_met_bon(post, db, "Dak Piet", "Bon van Piet", piet)
+    _klus_met_bon(post, db, "Losse klus", "Bon zonder klant")
+
+    post("/nieuw", {
+        "klant_id": str(anna), "klant_naam": "Anna", "datum": "2026-08-14",
+        "omschrijving": "Werk", "type": "arbeid_klus", "aantal": "1", "prijs": "10",
+    })
+    factuur_id = db.execute("SELECT id FROM facturen").fetchone()[0]
+    pagina = client.get(f"/factuur/{factuur_id}/bewerk").data.decode()
+
+    assert "hidden" not in _knop(pagina, "Bon van Anna")
+    assert "hidden" in _knop(pagina, "Bon van Piet")
+    assert "hidden" in _knop(pagina, "Bon zonder klant")
+    # De andere bonnen blijven in de pagina, zodat wisselen van klant ze kan tonen.
+    assert 'id="bon-menu"' in pagina
+    assert "hidden" not in pagina.split('id="bon-menu"', 1)[1].split(">", 1)[0]
+
+
+def test_nieuwe_rekening_voor_een_klant_filtert_meteen(post, db, client):
+    anna = _klant(db, "Anna")
+    piet = _klant(db, "Piet")
+    db.commit()
+    _klus_met_bon(post, db, "Keuken Anna", "Bon van Anna", anna)
+    _klus_met_bon(post, db, "Dak Piet", "Bon van Piet", piet)
+
+    pagina = client.get(f"/nieuw?klant={anna}").data.decode()
+    assert "hidden" not in _knop(pagina, "Bon van Anna")
+    assert "hidden" in _knop(pagina, "Bon van Piet")
+
+
+def test_zonder_klant_alleen_bonnen_van_klussen_zonder_klant(post, db, client):
+    anna = _klant(db, "Anna")
+    db.commit()
+    _klus_met_bon(post, db, "Keuken Anna", "Bon van Anna", anna)
+    _klus_met_bon(post, db, "Losse klus", "Bon zonder klant")
+
+    pagina = client.get("/nieuw").data.decode()
+    assert "hidden" in _knop(pagina, "Bon van Anna")
+    assert "hidden" not in _knop(pagina, "Bon zonder klant")
+    # Geen passende bon van een klant, wel één zonder: het menu blijft staan.
+    assert "hidden" not in pagina.split('id="bon-menu"', 1)[1].split(">", 1)[0]
+
+
+def test_menu_verdwijnt_als_geen_enkele_bon_past(post, db, client):
+    anna = _klant(db, "Anna")
+    db.commit()
+    _klus_met_bon(post, db, "Keuken Anna", "Bon van Anna", anna)
+
+    pagina = client.get("/nieuw").data.decode()
+    kop = pagina.split('id="bon-menu"', 1)[1].split(">", 1)[0]
+    assert "hidden" in kop

@@ -95,9 +95,9 @@ def test_de_pdf_zit_achter_de_drie_puntjes(db, client, maak_factuur):
 
 
 def test_concept_met_mailadres_zet_mailen_vooraan(db, client, maak_factuur):
-    maak_factuur(status="concept", email="jan@example.com")
+    factuur_id = maak_factuur(status="concept", email="jan@example.com")
     inhoud = client.get("/").data.decode()
-    assert '<button type="submit" class="btn btn-text">Mailen</button>' in inhoud
+    assert f'href="/factuur/{factuur_id}/mail">Mailen</a>' in inhoud
 
 
 def test_concept_zonder_mailadres_zet_bewerken_vooraan(db, client, maak_factuur):

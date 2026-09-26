@@ -90,6 +90,10 @@ of met **Definitief maken** in het menu als je hem zelf uitprint of appt. Lukt h
 niet, dan blijft hij concept: je raakt geen nummer kwijt aan een mail die nooit is
 aangekomen.
 
+Opslaan van de rekening stuurt zelf geen mail. Met **Mailen** op de kaart zie je eerst
+wat er weggaat: het onderwerp, de tekst, de PDF en de bonnetjes die op meesturen staan.
+Pas als je daar op **Mail versturen** drukt, gaat de mail de deur uit.
+
 Op elke rekening staan de knoppen die je op dat moment waarschijnlijk nodig hebt. De rest
 zit achter de **drie puntjes** rechts op de kaart: bekijken, bewerken, downloaden,
 kopiëren, betalingen, herinnering, PDF vernieuwen en verwijderen.

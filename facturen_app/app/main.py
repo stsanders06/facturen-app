@@ -32,7 +32,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.28.2"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.29.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -2856,8 +2856,38 @@ def geboekte_klussen(factuur_id=None):
     return lijst
 
 
-def geboekte_inkopen(factuur_id=None):
-    """Open bonnen (nog niet op een rekening, of al op déze rekening bij bewerken)."""
+def klant_sleutel(klant_id):
+    """Een klant-id als getal, of None als er geen klant is.
+
+    Uit het formulier komt een tekst, uit de database een getal of NULL. Voor de
+    vergelijking 'zelfde klant' moet dat hetzelfde betekenen."""
+    if klant_id is None or klant_id == "":
+        return None
+    try:
+        return int(klant_id)
+    except (TypeError, ValueError):
+        return None
+
+
+def inkoop_past_bij_klant(klus_klant_id, rekening_klant_id):
+    """Of een bon in de lijst bij deze rekening hoort.
+
+    Alleen aankopen van klussen van dezelfde klant. Heeft de rekening nog geen
+    klant, dan alleen bonnen van klussen die ook geen klant hebben — anders staan
+    andermans aankopen tussen de regels die je zo aanmaakt."""
+    rekening = klant_sleutel(rekening_klant_id)
+    klus = klant_sleutel(klus_klant_id)
+    if rekening is None:
+        return klus is None
+    return klus == rekening
+
+
+def geboekte_inkopen(factuur_id=None, klant_id=None):
+    """Open bonnen (nog niet op een rekening, of al op déze rekening bij bewerken).
+
+    Elke bon krijgt `past`: of hij bij de klant van deze rekening hoort. De rest
+    blijft in de lijst staan, zodat wisselen van klant op het formulier de lijst
+    kan bijwerken zonder de pagina opnieuw te laden."""
     conn = get_db()
     if factuur_id is None:
         rijen = conn.execute(
@@ -2875,7 +2905,12 @@ def geboekte_inkopen(factuur_id=None):
             (factuur_id,),
         ).fetchall()
     conn.close()
-    return [dict(r) for r in rijen]
+    lijst = []
+    for rij in rijen:
+        bon = dict(rij)
+        bon["past"] = inkoop_past_bij_klant(bon["klant_id"], klant_id)
+        lijst.append(bon)
+    return lijst
 
 
 def bepaal_klant(conn, form):
@@ -2974,12 +3009,10 @@ def nieuw():
 
         maak_pdf(factuur_id)
 
-        if request.form.get("verstuur") == "ja":
-            # Versturen maakt de rekening vanzelf definitief; dan pas een nummer.
-            mail_rekening(factuur_id)
-        else:
-            melding("Rekening opgeslagen als concept. Hij krijgt zijn nummer zodra je "
-                  "hem verstuurt of definitief maakt.")
+        # Ook als het formulier nog `verstuur=ja` meestuurt: opslaan mailt niet.
+        # De mail gaat pas weg vanaf het controlescherm, met Mail versturen.
+        melding("Rekening opgeslagen als concept. Hij krijgt zijn nummer zodra je "
+              "hem verstuurt of definitief maakt.")
 
         return redirect(url_for("index"))
 
@@ -2995,7 +3028,8 @@ def nieuw():
     return render_template(
         "nieuw.html", vandaag=vandaag, actief="nieuw",
         factuur=None, regels=[], klanten=klantenlijst(), gekozen_klant=gekozen,
-        klussen=geboekte_klussen(), open_inkopen=geboekte_inkopen(),
+        klussen=geboekte_klussen(),
+        open_inkopen=geboekte_inkopen(klant_id=gekozen["id"] if gekozen else None),
         vooraf_klus=request.args.get("klus", ""),
         vervalt=standaard_vervalt(vandaag),
         standaard_vervalt=standaard_vervalt(vandaag),
@@ -3043,10 +3077,9 @@ def bewerk(factuur_id):
 
         # De PDF hoort bij de oude gegevens, dus opnieuw tekenen.
         maak_pdf(factuur_id)
+        # Bewerken mailt niet mee, ook niet als `verstuur=ja` in het formulier staat.
+        # Mailen is een aparte stap, na de controle van wat er de deur uitgaat.
         melding(f"Rekening {factuurnaam(factuur)} bijgewerkt.")
-
-        if request.form.get("verstuur") == "ja":
-            mail_rekening(factuur_id)
 
         return redirect(url_for("index"))
 
@@ -3058,7 +3091,7 @@ def bewerk(factuur_id):
         "nieuw.html", vandaag=factuur["datum"], actief="nieuw",
         factuur=factuur, regels=regels, klanten=klantenlijst(),
         gekozen_klant=None, klussen=geboekte_klussen(factuur_id),
-        open_inkopen=geboekte_inkopen(factuur_id),
+        open_inkopen=geboekte_inkopen(factuur_id, factuur["klant_id"]),
         vooraf_klus="",
         vervalt=factuur["vervalt_op"] or "",
         standaard_vervalt=standaard_vervalt(factuur["datum"]),
@@ -3895,6 +3928,48 @@ def bonnen_bij_factuur(conn, factuur_id):
     return [(os.path.join(BIJLAGE_DIR, r["bestand"]), r["naam"]) for r in rijen]
 
 
+def meegestuurde_bonnen(conn, factuur_id):
+    """Bonnetjes die echt mee de mail in gaan.
+
+    Een vinkje 'meesturen' op een bestand dat intussen weg is, levert geen bijlage
+    op. Die hoort dus ook niet in het voorbeeld te staan."""
+    return [(pad, naam) for pad, naam in bonnen_bij_factuur(conn, factuur_id)
+            if os.path.exists(pad)]
+
+
+def factuur_zoals_in_de_mail(conn, factuur):
+    """De rekening zoals de mail hem noemt.
+
+    Een concept heeft nog geen nummer, maar krijgt dat zodra de mail de deur uitgaat.
+    Het voorbeeld moet dat nummer al laten zien, anders controleer je een andere
+    tekst dan de klant ontvangt. Er wordt hier nog niets opgeslagen."""
+    if factuur["nummer"]:
+        return dict(factuur)
+    return dict(factuur, nummer=volgend_nummer(conn))
+
+
+def mailinhoud_rekening(factuur, bonnen):
+    """Onderwerp, tekst en bijlagen van de mail bij deze rekening.
+
+    Het controlescherm en het echte versturen gebruiken dezelfde tekst, zodat wat
+    je ziet ook is wat er weggaat."""
+    s = get_settings()
+    naam = factuurnaam(factuur)
+    tekst = (
+        f"Beste {factuur['klant_naam']},\n\n"
+        f"Hierbij de rekening ({naam}) voor het uitgevoerde werk."
+        + (f" De bonnetjes zitten erbij." if bonnen else "")
+        + f"\n\nMet vriendelijke groet,\n{s.get('naam') or ''}"
+    )
+    return {
+        "ontvanger": factuur["klant_email"] or "",
+        "onderwerp": f"Rekening {naam} - {s.get('naam') or ''}",
+        "tekst": tekst,
+        "pdf": pdf_bestandsnaam(factuur),
+        "bonnen": [bon_naam for _pad, bon_naam in bonnen],
+    }
+
+
 def verstuur_email(factuur_id):
     """Mailt de rekening naar de klant en zet hem op verzonden. Een concept krijgt
     hierbij zijn nummer: de rekening gaat de deur uit, dus vanaf nu ligt hij vast."""
@@ -3909,7 +3984,7 @@ def verstuur_email(factuur_id):
     # voor een mail die nooit is verstuurd.
     if factuur["klant_email"] and s.get("smtp_host"):
         factuur = maak_definitief(conn, factuur_id)
-    bonnen = bonnen_bij_factuur(conn, factuur_id)
+    bonnen = meegestuurde_bonnen(conn, factuur_id)
     conn.close()
 
     if not factuur["klant_email"]:
@@ -3919,23 +3994,18 @@ def verstuur_email(factuur_id):
         return False, ("Er is nog geen mailserver ingesteld. Vul die in onder "
                        "Instellingen → Mailen.")
 
-    bestandsnaam = pdf_bestandsnaam(factuur)
-    pad = os.path.join(PDF_DIR, bestandsnaam)
+    inhoud = mailinhoud_rekening(factuur, bonnen)
+    pad = os.path.join(PDF_DIR, inhoud["pdf"])
     if not os.path.exists(pad):
         maak_pdf(factuur_id)
 
-    naam = factuurnaam(factuur)
     gelukt, tekst = _mail_pdf(
         s,
-        factuur["klant_email"],
-        f"Rekening {naam} - {s.get('naam', '')}",
-        f"Beste {factuur['klant_naam']},\n\n"
-        f"Hierbij de rekening ({naam}) voor het uitgevoerde werk."
-        + (f" De bonnetjes zitten erbij."
-           if bonnen else "")
-        + f"\n\nMet vriendelijke groet,\n{s.get('naam', '')}",
+        inhoud["ontvanger"],
+        inhoud["onderwerp"],
+        inhoud["tekst"],
         pad,
-        bestandsnaam,
+        inhoud["pdf"],
         bonnen,
     )
     if not gelukt:
@@ -3945,7 +4015,7 @@ def verstuur_email(factuur_id):
     conn.execute("UPDATE facturen SET status='verzonden' WHERE id=?", (factuur_id,))
     conn.commit()
     conn.close()
-    return True, f"Rekening {naam} gemaild naar {factuur['klant_email']}."
+    return True, f"Rekening {factuurnaam(factuur)} gemaild naar {factuur['klant_email']}."
 
 
 def herinnering_email(factuur_id):
@@ -4119,6 +4189,30 @@ def vernieuw_alles():
 def download_pdf(factuur_id):
     pad, bestandsnaam = _pdf_pad(factuur_id)
     return send_file(pad, as_attachment=True, download_name=bestandsnaam)
+
+
+@app.route("/factuur/<int:factuur_id>/mail")
+def mail_voorbeeld(factuur_id):
+    """Wat er de deur uitgaat, voordat er iets verstuurd wordt.
+
+    Opslaan en definitief maken mailen niet. Alleen de knop op dit scherm doet dat."""
+    conn = get_db()
+    factuur = conn.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
+    if factuur is None:
+        conn.close()
+        abort(404)
+    zoals_gemaild = factuur_zoals_in_de_mail(conn, factuur)
+    bonnen = meegestuurde_bonnen(conn, factuur_id)
+    conn.close()
+    return render_template(
+        "mailen.html",
+        factuur=factuur,
+        inhoud=mailinhoud_rekening(zoals_gemaild, bonnen),
+        concept=not factuur["nummer"],
+        al_verzonden=factuur["status"] != "concept",
+        reden=waarom_mailen_niet_kan("facturen", factuur_id),
+        actief="index",
+    )
 
 
 @app.route("/factuur/<int:factuur_id>/verstuur", methods=["POST"])
