@@ -162,6 +162,13 @@
     box-sizing: border-box;
   }
   .regelknoppen .menu > summary:hover { border-color: var(--primary); }
+  /* .menu-item zet display:block, en dat wint van het hidden-attribuut.
+     Zonder deze regel blijft een bon van een andere klant zichtbaar.
+     display:contents zodat de knop zelf in de rij blijft staan: een extra
+     div eromheen brak de volle breedte op telefoon. */
+  .bon-keuze[hidden] { display: none; }
+  #bon-menu { display: contents; }
+  #bon-menu[hidden] { display: none; }
   .menu-uitleg {
     margin: 4px 12px 8px;
     font-size: 12px;
@@ -435,17 +442,23 @@
         {% endif %}
 
         {% if open_inkopen %}
+        {#- Alle open bonnen staan in de pagina, ook die van een andere klant: die
+            zijn verborgen. Wissel je van klant, dan kan het script ze tonen zonder
+            opnieuw te laden. Zonder klant alleen bonnen van klussen zonder klant. -#}
+        <div id="bon-menu" {% if not open_inkopen|selectattr('past')|list %}hidden{% endif %}>
         {% call menu('Bon van een klus toevoegen', 'Bon van een klus') %}
           {% for b in open_inkopen %}
           <button type="button" class="menu-item bon-keuze"
                   data-inkoop="{{ b.id }}"
                   data-naam="{{ b.omschrijving }}"
                   data-bedrag="{{ '%.2f'|format(b.bedrag or 0) }}"
-                  data-klant="{{ b.klant_id or '' }}">
+                  data-klant="{{ b.klant_id or '' }}"
+                  {% if not b.past %}hidden{% endif %}>
             {{ b.omschrijving }} · €&nbsp;{{ '%.2f'|format(b.bedrag or 0) }}{% if b.klus_naam %} · {{ b.klus_naam }}{% endif %}
           </button>
           {% endfor %}
         {% endcall %}
+        </div>
         {% endif %}
 
         {% call menu('Regels uit een CSV-bestand halen', 'CSV inlezen') %}
@@ -467,12 +480,16 @@
 
   <section class="card">
     <div class="fields">
+      {#- Alleen bij een offerte. Een rekening mailt niet mee met opslaan: dat gaat
+          via Mailen, na een controle van wat er de deur uitgaat. -#}
+      {% if is_offerte %}
       <div class="checkregel">
         <input type="checkbox" id="verstuur" name="verstuur" value="ja">
         <label for="verstuur">
           {% if factuur %}Opnieuw naar de klant mailen na opslaan{% else %}Direct naar de klant mailen na opslaan{% endif %}
         </label>
       </div>
+      {% endif %}
       <div class="indienen">
         <a class="btn btn-outline" href="{{ url_for('offertes') if is_offerte else url_for('index') }}">Annuleren</a>
         <button type="submit" class="btn">
@@ -961,6 +978,26 @@
       } else {
         klantHint.textContent = '';
       }
+      pasBonnenAan();
+    }
+
+    // Zelfde regel als inkoop_past_bij_klant: alleen bonnen van deze klant, of van
+    // klussen zonder klant als de rekening er ook geen heeft.
+    function bonPastBijKlant(klantVanBon, klantVanRekening) {
+      if (klantVanRekening) return String(klantVanBon) === String(klantVanRekening);
+      return !klantVanBon;
+    }
+
+    function pasBonnenAan() {
+      var gekozen = klantKeuze ? klantKeuze.value : '';
+      var zichtbaar = 0;
+      document.querySelectorAll('.bon-keuze').forEach(function (knop) {
+        var past = bonPastBijKlant(knop.dataset.klant || '', gekozen);
+        knop.hidden = !past;
+        if (past) zichtbaar += 1;
+      });
+      var menu = document.getElementById('bon-menu');
+      if (menu) menu.hidden = zichtbaar === 0;
     }
 
     document.getElementById('klant-bewerken').addEventListener('click', function () {

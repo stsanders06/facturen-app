@@ -160,8 +160,11 @@ def test_de_bonnen_gaan_echt_als_bijlage_mee(monkeypatch, post, db, klus_id):
     post(f"/klus/{klus_id}/dag", {"datum": "2026-08-14", "van": "09:00", "tot": "17:00"})
     post("/nieuw", {"klant_naam": "Jan", "klant_email": "jan@example.com",
                     "datum": "2026-08-14", "omschrijving": "Uren", "type": "arbeid_uur",
-                    "aantal": "8", "prijs": "45", "regel_klus": str(klus_id),
-                    "verstuur": "ja"})
+                    "aantal": "8", "prijs": "45", "regel_klus": str(klus_id)})
+    # Opslaan mailt niet. De bon gaat mee zodra je de rekening zelf mailt.
+    assert "extra" not in opgevangen
+    factuur_id = db.execute("SELECT id FROM facturen").fetchone()[0]
+    post(f"/factuur/{factuur_id}/verstuur")
 
     assert [naam for _, naam in opgevangen["extra"]] == ["bon.png"]
     assert "bonnetjes zitten erbij" in opgevangen["tekst"]
