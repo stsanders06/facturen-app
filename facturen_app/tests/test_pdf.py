@@ -158,3 +158,21 @@ def test_tekst_afbreken_houdt_zich_aan_de_breedte(db):
 def test_leeg_afbreken_geeft_een_lege_regel(db):
     from reportlab.pdfgen import canvas as rl_canvas
     assert facturen._regels_afbreken(rl_canvas.Canvas("/dev/null"), "", "Helvetica", 9, 40) == [""]
+
+def test_rekening_pdf_toont_geen_type_naam_onder_regels(db, maak_factuur):
+    """Op de rekening-PDF geen grijze typenaam: omschrijving + eenheid volstaan."""
+    zet_bedrijf(db)
+    tekst = tekst_uit_pdf(facturen.maak_pdf(maak_factuur()))
+    assert "Kraan vervangen" in tekst
+    assert "Arbeid per uur" not in tekst
+    # Eenheid blijft wel staan (arbeid_uur → u).
+    assert " u" in tekst or "2 u" in tekst
+
+
+def test_offerte_pdf_houdt_type_naam_onder_regels(db, maak_offerte):
+    """Op de offerte-PDF blijft het typelabel onder de regel staan."""
+    zet_bedrijf(db)
+    tekst = tekst_uit_pdf(facturen.maak_offerte_pdf(maak_offerte()))
+    assert "Badkamer betegelen" in tekst
+    assert "Arbeid, vaste prijs" in tekst
+

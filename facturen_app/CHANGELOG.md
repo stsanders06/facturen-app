@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.28.1
+
+- **Geen type-badge/label op rekeningregels.** Ingeklapte regels op een rekening
+  tonen geen M/U/D/V/B meer — de omschrijving zegt al genoeg. Op offertes blijven
+  de badges. In de PDF van een rekening verdwijnt het grijze type onder elke regel;
+  op een offerte-PDF blijft het staan. Eenheden (st/u/dg) blijven gewoon zichtbaar.
+- **Knoppenrij Regels netjes op smalle schermen.** De drie haal-op-menu's (Uren,
+  Bon, CSV) stapelen op telefoon onder elkaar op volle breedte, zodat "CSV inlezen"
+  niet meer wordt afgekapt.
+
 ## 1.28.0
 
 - **Inkopen op de kluspagina: duidelijkere kaarten.** Het toevoegformulier en
