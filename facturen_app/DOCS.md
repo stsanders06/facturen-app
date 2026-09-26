@@ -208,7 +208,9 @@ Wat je invult wordt vanzelf bewaard zodra je uit een veld klikt; je hoeft er nie
 op Opslaan te drukken.
 
 Ga je de klus factureren, kies hem dan bij een nieuwe rekening onder **Regels** bij "Uren
-van een klus toevoegen". Er komt één arbeidsregel op de rekening met het aantal uren maal
+van een klus toevoegen". In die lijst staan alleen klussen van de klant op de rekening;
+heeft de rekening nog geen klant, dan alleen klussen zonder klant. Er komt één arbeidsregel
+op de rekening met het aantal uren maal
 het uurtarief. De losse dagen en je notities blijven op het Uren-tabblad en komen dus niet
 op de rekening te staan. Vanaf de kluspagina kan het ook andersom, met de knop **Op
 rekening zetten**.

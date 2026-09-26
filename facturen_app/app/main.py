@@ -32,7 +32,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.29.0"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.29.1"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -2836,10 +2836,14 @@ def geldige_datum(waarde, terugval=None):
         return terugval or date.today().isoformat()
 
 
-def geboekte_klussen(factuur_id=None):
+def geboekte_klussen(factuur_id=None, klant_id=None):
     """De klussen met uren die nog niet op een rekening staan, om als één regel toe
     te voegen. Bij het bewerken van een rekening tellen de uren die er al op staan
-    gewoon mee, anders zou de klus daar verdwijnen."""
+    gewoon mee, anders zou de klus daar verdwijnen.
+
+    Elke klus krijgt `past`: of hij bij de klant van deze rekening hoort, dezelfde
+    regel als bij de bonnen. De rest blijft in de lijst, zodat wisselen van klant
+    de lijst kan bijwerken zonder de pagina opnieuw te laden."""
     lijst = []
     for klus in klussenlijst():
         if factuur_id is not None:
@@ -2852,6 +2856,8 @@ def geboekte_klussen(factuur_id=None):
             if eigen:
                 klus = dict(klus, uren_open=klus["uren"], bedrag_open=klus["bedrag"])
         if klus["uren_open"] > 0:
+            # Zelfde vergelijking als de bonnen: zelfde klant, of allebei geen.
+            klus["past"] = inkoop_past_bij_klant(klus["klant_id"], klant_id)
             lijst.append(klus)
     return lijst
 
@@ -2870,11 +2876,11 @@ def klant_sleutel(klant_id):
 
 
 def inkoop_past_bij_klant(klus_klant_id, rekening_klant_id):
-    """Of een bon in de lijst bij deze rekening hoort.
+    """Of een bon of een klus in de lijst bij deze rekening hoort.
 
-    Alleen aankopen van klussen van dezelfde klant. Heeft de rekening nog geen
-    klant, dan alleen bonnen van klussen die ook geen klant hebben — anders staan
-    andermans aankopen tussen de regels die je zo aanmaakt."""
+    Alleen van dezelfde klant. Heeft de rekening nog geen klant, dan alleen van
+    klussen die ook geen klant hebben — anders staan andermans uren en aankopen
+    tussen de regels die je zo aanmaakt."""
     rekening = klant_sleutel(rekening_klant_id)
     klus = klant_sleutel(klus_klant_id)
     if rekening is None:
@@ -3028,7 +3034,7 @@ def nieuw():
     return render_template(
         "nieuw.html", vandaag=vandaag, actief="nieuw",
         factuur=None, regels=[], klanten=klantenlijst(), gekozen_klant=gekozen,
-        klussen=geboekte_klussen(),
+        klussen=geboekte_klussen(klant_id=gekozen["id"] if gekozen else None),
         open_inkopen=geboekte_inkopen(klant_id=gekozen["id"] if gekozen else None),
         vooraf_klus=request.args.get("klus", ""),
         vervalt=standaard_vervalt(vandaag),
@@ -3090,7 +3096,7 @@ def bewerk(factuur_id):
     return render_template(
         "nieuw.html", vandaag=factuur["datum"], actief="nieuw",
         factuur=factuur, regels=regels, klanten=klantenlijst(),
-        gekozen_klant=None, klussen=geboekte_klussen(factuur_id),
+        gekozen_klant=None, klussen=geboekte_klussen(factuur_id, factuur["klant_id"]),
         open_inkopen=geboekte_inkopen(factuur_id, factuur["klant_id"]),
         vooraf_klus="",
         vervalt=factuur["vervalt_op"] or "",

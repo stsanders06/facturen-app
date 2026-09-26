@@ -56,6 +56,10 @@
 </p>
 {% endif %}
 
+{# .card heeft zelf geen marge. Zonder deze wrapper staan Rekening, Bericht en
+   Bijlagen koud op elkaar; de ruimte komt van de gap op .cards. #}
+<div class="cards">
+
 <section class="card">
   <div class="card-head">
     <h2>Rekening</h2>
@@ -114,5 +118,7 @@
   </form>
 </section>
 {% endif %}
+
+</div>
 
 {% endblock %}
