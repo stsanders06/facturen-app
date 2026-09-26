@@ -169,10 +169,11 @@ def test_rekening_pdf_toont_geen_type_naam_onder_regels(db, maak_factuur):
     assert " u" in tekst or "2 u" in tekst
 
 
-def test_offerte_pdf_houdt_type_naam_onder_regels(db, maak_offerte):
-    """Op de offerte-PDF blijft het typelabel onder de regel staan."""
+def test_offerte_pdf_toont_geen_type_naam_onder_regels(db, maak_offerte):
+    """Op de offerte-PDF ook geen typenaam: zelfde als rekening."""
     zet_bedrijf(db)
     tekst = tekst_uit_pdf(facturen.maak_offerte_pdf(maak_offerte()))
     assert "Badkamer betegelen" in tekst
-    assert "Arbeid, vaste prijs" in tekst
+    assert "Arbeid, vaste prijs" not in tekst
+    assert "Materiaal" not in tekst
 

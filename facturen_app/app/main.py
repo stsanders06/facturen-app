@@ -32,7 +32,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.28.1"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.28.2"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -3660,12 +3660,12 @@ def _teken_kolomkoppen(vel):
     vel.y -= 8 * mm
 
 
-def _teken_regels(vel, regels, toon_type_naam=True):
+def _teken_regels(vel, regels):
     """De regels zelf. Past er niets meer op, dan gaat het door op een vervolgvel.
 
-    toon_type_naam: op offertes het grijze type (Materiaal / Arbeid…) onder de
-    omschrijving; op rekeningen weglaten — de omschrijving zegt al genoeg en
-    dubbele labeling verwart (zelfde reden als geen badge in de UI).
+    Geen typenaam onder de omschrijving (rekening én offerte): die staat al in
+    de tekst van de regel, en dubbele labeling verwart — zelfde reden als geen
+    badge in de UI. Eenheid (st/u/dg) blijft wel staan.
     """
     c = vel.c
     _teken_kolomkoppen(vel)
@@ -3687,11 +3687,6 @@ def _teken_regels(vel, regels, toon_type_naam=True):
             c.drawRightString(vel.kolom_aantal, vel.y, f"{aantal} {soort_info['eenheid']}")
             c.drawRightString(vel.kolom_prijs, vel.y, nl_bedrag(r["prijs"]))
         c.drawRightString(vel.rechts, vel.y, nl_bedrag(r["subtotaal"]))
-
-        if toon_type_naam:
-            c.setFont("Helvetica", 7.5)
-            c.setFillColor(GRIJS)
-            c.drawString(vel.links, vel.y - 4 * mm, soort_info["naam"])
 
         vel.y -= 9 * mm
         c.setStrokeColor(LIJN)
@@ -3816,7 +3811,7 @@ def _teken_document(pad, doc, regels, s):
     _teken_merkregel(vel, s)
     _teken_titel(vel, kopregel)
     _teken_partijen(vel, s, doc)
-    _teken_regels(vel, regels, toon_type_naam=offerte)
+    _teken_regels(vel, regels)
     _teken_totaal(vel, doc["totaal"])
 
     toelichting = (doc.get("toelichting") or "").strip()

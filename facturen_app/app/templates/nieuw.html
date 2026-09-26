@@ -367,9 +367,7 @@
       <div class="regel" data-open="false">
         <div class="regel-samenvatting" role="button" tabindex="0"
              aria-expanded="false" aria-label="Regel openen of sluiten">
-          {#- Type-badge alleen op offerte: op de rekening staat het type al
-              in de omschrijving (bijv. "werkuren…") en is M/U/D/V/B verwarrend. -#}
-          {% if is_offerte %}<span class="regel-badge" aria-hidden="true">M</span>{% endif %}
+          {#- Geen type-badge: omschrijving + eenheid volstaan (rekening én offerte). -#}
           <span class="regel-tekst">Nieuwe regel</span>
           <span class="regel-qty">—</span>
           <span class="regel-eenheidsprijs">€&nbsp;0,00</span>
