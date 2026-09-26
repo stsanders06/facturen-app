@@ -108,6 +108,17 @@ def test_rekeningformulier_heeft_geen_vinkje_om_meteen_te_mailen(client, maak_fa
     assert 'name="verstuur"' in client.get("/offertes/nieuw").data.decode()
 
 
+def test_de_kaarten_op_mail_controleren_staan_uit_elkaar(client, maak_factuur):
+    """Losse .card-secties hebben geen eigen marge. Zonder de wrapper raken
+    Rekening, Bericht en Bijlagen elkaar."""
+    factuur_id = maak_factuur()
+    pagina = client.get(f"/factuur/{factuur_id}/mail").data.decode()
+    begin = pagina.index('<div class="cards">')
+    assert '<section class="card">' not in pagina[:begin]
+    assert pagina[begin:].count('<section class="card">') == 4
+    assert ".cards { display: flex; flex-direction: column; gap: 12px; }" in pagina
+
+
 def test_mail_versturen_vanaf_het_voorbeeld_stuurt_wel(monkeypatch, post, db, maak_factuur):
     verstuurd = {}
 

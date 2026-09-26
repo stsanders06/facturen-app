@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.29.1
+
+- **Uren van een klus zijn alleen van dezelfde klant.** Onder "Uren van een klus"
+  staan alleen klussen van de klant op de rekening. Heeft de rekening nog geen
+  klant, dan zie je alleen klussen zonder klant. Wissel je van klant, dan past
+  de lijst mee.
+- **Op Mail controleren staan de kaarten niet meer tegen elkaar.** Rekening,
+  bericht en bijlagen hebben weer ruimte ertussen.
+
 ## 1.29.0
 
 - **Bonnen bij een rekening zijn alleen van dezelfde klant.** Onder "Bon van een
