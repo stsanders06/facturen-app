@@ -71,16 +71,17 @@ def test_telefoon_static_menu_alleen_binnen_acties():
     assert ".menu { position: static; }" not in zonder_acties
 
 
-def test_haal_op_knoppen_zijn_op_telefoon_even_hoog(client):
-    """Verschillende labelbrekingen maakten 'Uren van een klus' en 'CSV inlezen'
-    ongelijk van hoogte naast elkaar."""
+def test_haal_op_knoppen_stapelen_op_telefoon(client):
+    """Drie haal-op-pills naast elkaar knippen op iPhone; onder elkaar volle breedte."""
     css = css_van(client.get("/nieuw").data.decode())
     assert "align-items: stretch" in regel_met(css, ".regelknoppen .haal-op")
     assert "position: relative" in regel_met(css, ".regelknoppen .menu")
     smal = css[css.rindex("@media (max-width: 620px)"):]
+    assert "flex-direction: column" in regel_met(smal, ".regelknoppen .haal-op")
+    assert "width: 100%" in regel_met(smal, ".regelknoppen .haal-op")
+    assert "width: 100%" in regel_met(smal, ".regelknoppen .haal-op .menu")
     assert "min-height: 44px" in regel_met(smal, ".regelknoppen .haal-op .menu > summary")
     assert "align-items: center" in regel_met(smal, ".regelknoppen .haal-op .menu > summary")
-    assert "flex: 1" in regel_met(smal, ".regelknoppen .haal-op .menu")
 
 
 def test_de_knoppenrij_neemt_op_een_telefoon_niet_de_volle_breedte(client):

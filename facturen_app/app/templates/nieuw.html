@@ -170,13 +170,17 @@
   }
 
   @media (max-width: 620px) {
-    /* Naast elkaar passen drie knoppen niet; dan staat de rij netter onder elkaar
-       dan half afgebroken. De twee haal-op-menu's naast elkaar moeten even hoog
-       blijven, ook als de labels verschillend afbreken. */
+    /* Drie haal-op-pills naast + Regel passen niet op iPhone; onder elkaar
+       (volle breedte) blijft "CSV inlezen" zichtbaar i.p.v. afgekapt. */
     .regelknoppen { flex-direction: column; align-items: stretch; }
-    .regelknoppen .haal-op { margin-left: 0; }
+    .regelknoppen .haal-op {
+      margin-left: 0;
+      flex-direction: column;
+      width: 100%;
+    }
     .regelknoppen .haal-op .menu {
-      flex: 1;
+      flex: 1 1 auto;
+      width: 100%;
       min-width: 0;
       display: flex;
     }
@@ -363,7 +367,7 @@
       <div class="regel" data-open="false">
         <div class="regel-samenvatting" role="button" tabindex="0"
              aria-expanded="false" aria-label="Regel openen of sluiten">
-          <span class="regel-badge" aria-hidden="true">M</span>
+          {#- Geen type-badge: omschrijving + eenheid volstaan (rekening én offerte). -#}
           <span class="regel-tekst">Nieuwe regel</span>
           <span class="regel-qty">—</span>
           <span class="regel-eenheidsprijs">€&nbsp;0,00</span>
