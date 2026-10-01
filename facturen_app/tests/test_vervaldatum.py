@@ -98,7 +98,7 @@ def test_instellingen_heeft_geen_betaaltermijn_meer(client, post, db):
 def test_herinnering_met_termijn_noemt_dagen_te_laat(monkeypatch, db, maak_factuur):
     opgevangen = {}
 
-    def nep_mail(s, ontvanger, onderwerp, tekst, pad, bestandsnaam):
+    def nep_mail(s, ontvanger, onderwerp, tekst, pad, bestandsnaam, extra=None):
         opgevangen.update(tekst=tekst)
         return True, ""
 
@@ -118,7 +118,7 @@ def test_herinnering_met_termijn_noemt_dagen_te_laat(monkeypatch, db, maak_factu
 def test_herinnering_zonder_termijn_zonder_te_laat_taal(monkeypatch, db, maak_factuur):
     opgevangen = {}
 
-    def nep_mail(s, ontvanger, onderwerp, tekst, pad, bestandsnaam):
+    def nep_mail(s, ontvanger, onderwerp, tekst, pad, bestandsnaam, extra=None):
         opgevangen.update(tekst=tekst)
         return True, ""
 

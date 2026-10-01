@@ -140,6 +140,8 @@ def test_een_klantwissel_filtert_de_uren_opnieuw(client):
     pagina = client.get("/nieuw").data.decode()
     wijzig = pagina.split("klantKeuze.addEventListener('change'", 1)[1].split("});", 1)[0]
     assert "pasKlantAan(true)" in wijzig
+    assert "gekoppeldeRegels" in wijzig
+    assert "vorige klant" in wijzig
 
     klant_fn = pagina.split("function pasKlantAan", 1)[1].split("function bonPastBijKlant", 1)[0]
     assert "pasKlussenAan();" in klant_fn

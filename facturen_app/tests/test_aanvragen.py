@@ -153,14 +153,9 @@ def test_bestaande_klussen_blijven_gewoon_lopen(db):
 
 
 def test_hoe_lang_iets_al_wacht(monkeypatch):
-    vandaag = date(2026, 8, 24)
-
-    class NepDatum(date):
-        @classmethod
-        def today(cls):
-            return vandaag
-
-    monkeypatch.setattr(facturen, "date", NepDatum)
+    """wachtduur leest vandaag(), niet date.today(): die volgt de tijdzone van
+    Home Assistant. De test zet die klok dus vast, niet de systeemklok."""
+    monkeypatch.setattr(facturen, "vandaag", lambda: date(2026, 8, 24))
     assert facturen.wachtduur("2026-08-24") == "vandaag"
     assert facturen.wachtduur("2026-08-23") == "gisteren"
     assert facturen.wachtduur("2026-08-20") == "4 dagen"

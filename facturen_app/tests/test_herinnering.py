@@ -11,9 +11,9 @@ def verstuurd(monkeypatch, db):
     """Vangt de mail op in plaats van hem echt te versturen."""
     opgevangen = {}
 
-    def nep_mail(s, ontvanger, onderwerp, tekst, pad, bestandsnaam):
+    def nep_mail(s, ontvanger, onderwerp, tekst, pad, bestandsnaam, extra=None):
         opgevangen.update(ontvanger=ontvanger, onderwerp=onderwerp, tekst=tekst,
-                          pad=pad, bestandsnaam=bestandsnaam)
+                          pad=pad, bestandsnaam=bestandsnaam, extra=extra)
         return True, ""
 
     monkeypatch.setattr(facturen, "_mail_pdf", nep_mail)

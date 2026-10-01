@@ -23,10 +23,16 @@ def test_voorbeeld_noemt_onderwerp_tekst_pdf_en_bon(post, db, client):
          content_type="multipart/form-data")
     post(f"/bijlage/{db.execute('SELECT id FROM bijlagen').fetchone()[0]}/meesturen")
     post(f"/klus/{klus_id}/dag", {"datum": "2026-08-14", "van": "09:00", "tot": "17:00"})
+    inkoop_id = db.execute("SELECT inkoop_id FROM bijlagen").fetchone()[0]
     post("/nieuw", {
         "klant_naam": "Jan Jansen", "klant_email": "jan@example.com",
-        "datum": "2026-08-14", "omschrijving": "Uren", "type": "arbeid_uur",
-        "aantal": "8", "prijs": "45", "regel_klus": str(klus_id),
+        "datum": "2026-08-14",
+        "omschrijving": ["Uren", "Bon gamma"],
+        "type": ["arbeid_uur", "bon"],
+        "aantal": ["8", "1"],
+        "prijs": ["45", "12"],
+        "regel_klus": [str(klus_id), ""],
+        "regel_inkoop": ["", str(inkoop_id)],
     })
     factuur_id = db.execute("SELECT id FROM facturen").fetchone()[0]
 
@@ -104,8 +110,8 @@ def test_rekeningformulier_heeft_geen_vinkje_om_meteen_te_mailen(client, maak_fa
     factuur_id = maak_factuur()
     assert 'name="verstuur"' not in client.get("/nieuw").data.decode()
     assert 'name="verstuur"' not in client.get(f"/factuur/{factuur_id}/bewerk").data.decode()
-    # Bij een offerte blijft dat vinkje: dit gaat over rekeningen.
-    assert 'name="verstuur"' in client.get("/offertes/nieuw").data.decode()
+    # Ook een offerte mailt niet meer vanzelf bij opslaan.
+    assert 'name="verstuur"' not in client.get("/offertes/nieuw").data.decode()
 
 
 def test_de_kaarten_op_mail_controleren_staan_uit_elkaar(client, maak_factuur):

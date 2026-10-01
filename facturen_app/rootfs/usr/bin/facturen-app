@@ -22,6 +22,14 @@ export ADDON_VERSION="${addon_version}"
 export DATA_DIR="/data"
 export PORT="8099"
 
+# De containerklok is vaak UTC. Dan is het tussen middernacht en 02:00 in
+# Nederland nog "gisteren": verkeerde factuurdatum, "te laat" en op 1 januari
+# het verkeerde jaar in het nummer. Home Assistant zet TZ als die bekend is;
+# anders Nederland.
+if [ -z "${TZ:-}" ]; then
+    export TZ="Europe/Amsterdam"
+fi
+
 bashio::log.info "Facturen App wordt gestart op poort ${PORT}..."
 
 exec python3 /opt/app/main.py

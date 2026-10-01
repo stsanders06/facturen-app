@@ -684,12 +684,17 @@
                title="{{ b.naam }} openen">
               {% if b.plaatje %}
               <img src="{{ url_for('bijlage', bijlage_id=b.id) }}" alt="{{ b.naam }}" loading="lazy">
+              {% elif b.naam.lower().endswith('.heic') or b.naam.lower().endswith('.heif') %}
+              <span class="bestandsicoon" aria-hidden="true">HEIC</span>
               {% else %}
               <span class="bestandsicoon" aria-hidden="true">PDF</span>
               {% endif %}
             </a>
             <figcaption>
               <span class="bestandsnaam" title="{{ b.naam }}">{{ b.naam }}</span>
+              {% if b.naam.lower().endswith('.heic') or b.naam.lower().endswith('.heif') %}
+              <span class="hint">Geen voorbeeld. Een JPG of PNG wel.</span>
+              {% endif %}
               <span class="bijlage-acties">
                 <form method="post" action="{{ url_for('bijlage_verwijder', bijlage_id=b.id) }}"
                       data-bevestig="{{ b.naam }} verwijderen?">
@@ -799,12 +804,17 @@
                title="{{ b.naam }} openen">
               {% if b.plaatje %}
               <img src="{{ url_for('bijlage', bijlage_id=b.id) }}" alt="{{ b.naam }}" loading="lazy">
+              {% elif b.naam.lower().endswith('.heic') or b.naam.lower().endswith('.heif') %}
+              <span class="bestandsicoon" aria-hidden="true">HEIC</span>
               {% else %}
               <span class="bestandsicoon" aria-hidden="true">PDF</span>
               {% endif %}
             </a>
             <figcaption>
               <span class="bestandsnaam" title="{{ b.naam }}">{{ b.naam }}</span>
+              {% if b.naam.lower().endswith('.heic') or b.naam.lower().endswith('.heif') %}
+              <span class="hint">Geen voorbeeld. Een JPG of PNG wel.</span>
+              {% endif %}
               <span class="bijlage-acties">
                 <form method="post" action="{{ url_for('bijlage_meesturen', bijlage_id=b.id) }}">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

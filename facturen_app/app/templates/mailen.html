@@ -15,8 +15,9 @@
     font-size: 15px;
     line-height: 1.5;
   }
-  .bijlagen { margin: 0; padding-left: 1.2em; }
-  .bijlagen li { margin: 4px 0; }
+  .bijlagen { margin: 0; padding-left: 0; list-style: none; }
+  .bijlagen li { margin: 8px 0; }
+  .bijlagen label { display: flex; gap: 8px; align-items: flex-start; }
   .reden {
     margin: 0;
     padding: 12px 14px;
@@ -31,46 +32,57 @@
 
 <div class="page-head">
   <h1>Mail controleren</h1>
-  <a class="btn btn-outline" href="{{ url_for('index') }}">Terug naar rekeningen</a>
+  <a class="btn btn-outline" href="{{ terug_url }}">{{ terug_label }}</a>
 </div>
 
 <p class="hint" style="margin-bottom:14px">
   {% if reden %}
-  Dit zou {{ factuur.klant_naam or 'de klant' }} krijgen. Er gaat nu niets weg;
+  Dit zou {{ wie or 'de klant' }} krijgen. Er gaat nu niets weg;
   onderaan staat waarom mailen nog niet kan.
+  {% elif herinnering %}
+  Dit krijgt {{ wie or 'de klant' }} als herinnering, zodra je op Mail versturen drukt.
+  Tot die tijd gaat er niets weg.
   {% else %}
-  Dit krijgt {{ factuur.klant_naam or 'de klant' }} zodra je op Mail versturen drukt.
+  Dit krijgt {{ wie or 'de klant' }} zodra je op Mail versturen drukt.
   Tot die tijd gaat er niets weg.
   {% endif %}
 </p>
 
-{% if concept %}
+{% if voorlopig_nummer %}
 <p class="hint" style="margin-bottom:14px">
-  Dit is nog een concept. Bij het versturen krijgt de rekening nummer
-  <strong>{{ inhoud.pdf|replace('.pdf', '') }}</strong>. Dat nummer staat in de mail
-  en op de PDF.
+  Dit is nog een concept. Het nummer
+  <strong>{{ inhoud.pdf|replace('.pdf', '') }}</strong> is voorlopig: het staat in
+  deze tekst en op de PDF hieronder, en wordt pas vastgelegd als de mail lukt.
+  Lukt de mail niet, dan blijft dit een concept.
 </p>
 {% elif al_verzonden %}
 <p class="hint" style="margin-bottom:14px">
+  {% if 'offerte' in document_label|lower %}
+  Deze offerte is al eens gemaild. Dit stuurt hem nog een keer.
+  {% else %}
   Deze rekening is al eens gemaild. Dit stuurt hem nog een keer.
+  {% endif %}
 </p>
 {% endif %}
 
-{# .card heeft zelf geen marge. Zonder deze wrapper staan Rekening, Bericht en
-   Bijlagen koud op elkaar; de ruimte komt van de gap op .cards. #}
+{# .card heeft zelf geen marge. Zonder deze wrapper staan de kaarten koud op
+   elkaar; de ruimte komt van de gap op .cards. #}
 <div class="cards">
 
 <section class="card">
   <div class="card-head">
-    <h2>Rekening</h2>
+    <h2>{{ 'Herinnering' if herinnering else 'Document' }}</h2>
   </div>
+  {% if inhoud.pdf %}
   <p class="mailregel">
     <span class="label">PDF</span>
     {{ inhoud.pdf }}
-    {% if factuur.klant_naam %} voor {{ factuur.klant_naam }}{% endif %}
+    {% if wie %} voor {{ wie }}{% endif %}
   </p>
-  <a class="btn btn-outline" href="{{ url_for('bekijk_pdf', factuur_id=factuur.id) }}"
-     {{ nieuw_tabblad }}>PDF bekijken</a>
+  <a class="btn btn-outline" href="{{ pdf_url }}" {{ nieuw_tabblad }}>PDF bekijken</a>
+  {% else %}
+  <p class="hint">Er is nog geen PDF om te bekijken.</p>
+  {% endif %}
 </section>
 
 <section class="card">
@@ -85,7 +97,7 @@
     <span class="label">Onderwerp</span>
     {{ inhoud.onderwerp }}
   </p>
-  <pre class="mailtekst">{{ inhoud.tekst }}</pre>
+  <pre class="mailtekst" id="mailtekst">{{ inhoud.tekst }}</pre>
 </section>
 
 <section class="card">
@@ -93,13 +105,26 @@
     <h2>Bijlagen</h2>
   </div>
   <ul class="bijlagen">
-    <li>PDF van de rekening ({{ inhoud.pdf }})</li>
-    {% for naam in inhoud.bonnen %}
-    <li>{{ naam }}</li>
+    {% if inhoud.pdf %}
+    <li>{{ document_label }} ({{ inhoud.pdf }})</li>
+    {% endif %}
+    {% for bon in bonnen %}
+    <li>
+      {% if not reden %}
+      <label>
+        <input type="checkbox" name="mee" value="{{ bon.id }}" form="mailform" checked>
+        {{ bon.naam }}
+      </label>
+      {% else %}
+      {{ bon.naam }}
+      {% endif %}
+    </li>
     {% endfor %}
   </ul>
-  {% if not inhoud.bonnen %}
+  {% if not bonnen %}
   <p class="hint">Alleen de PDF. Er gaan geen bonnetjes mee.</p>
+  {% elif not reden %}
+  <p class="hint">Vink uit wat niet mee hoeft. Notitiefoto's gaan nooit mee.</p>
   {% endif %}
 </section>
 
@@ -109,10 +134,17 @@
 </section>
 {% else %}
 <section class="card">
-  <form method="post" action="{{ url_for('verstuur', factuur_id=factuur.id) }}">
+  <form method="post" action="{{ form_action }}" id="mailform">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="bonnen_gekozen" value="1">
+    <div class="field">
+      <label for="eigen_zin">Eigen zin</label>
+      <input type="text" id="eigen_zin" name="eigen_zin" maxlength="200"
+             placeholder="Bijvoorbeeld: de kit van vorige week zit erbij.">
+      <p class="hint">Komt direct na «Beste …». Laat leeg voor alleen de standaardtekst.</p>
+    </div>
     <div class="indienen">
-      <a class="btn btn-outline" href="{{ url_for('index') }}">Annuleren</a>
+      <a class="btn btn-outline" href="{{ terug_url }}">Annuleren</a>
       <button type="submit" class="btn">Mail versturen</button>
     </div>
   </form>
@@ -120,5 +152,29 @@
 {% endif %}
 
 </div>
+
+{% if not reden %}
+<script>
+  (function () {
+    var veld = document.getElementById('eigen_zin');
+    var blok = document.getElementById('mailtekst');
+    if (!veld || !blok) return;
+    var basis = blok.textContent;
+    veld.addEventListener('input', function () {
+      var zin = veld.value.replace(/\s+/g, ' ').trim();
+      if (!zin) {
+        blok.textContent = basis;
+        return;
+      }
+      var knip = basis.indexOf('\n\n');
+      if (knip === -1) {
+        blok.textContent = basis + '\n\n' + zin;
+        return;
+      }
+      blok.textContent = basis.slice(0, knip) + '\n\n' + zin + basis.slice(knip);
+    });
+  })();
+</script>
+{% endif %}
 
 {% endblock %}

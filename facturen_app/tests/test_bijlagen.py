@@ -128,13 +128,15 @@ def test_alleen_aangevinkte_bonnen_gaan_mee_met_de_rekening(post, db, klus_id):
     eerste = db.execute("SELECT id FROM bijlagen ORDER BY id").fetchone()[0]
     post(f"/bijlage/{eerste}/meesturen")
 
-    post(f"/klus/{klus_id}/dag", {"datum": "2026-08-14", "van": "09:00", "tot": "17:00"})
+    inkoop_id = db.execute(
+        "SELECT inkoop_id FROM bijlagen WHERE id=?", (eerste,)
+    ).fetchone()[0]
     post("/nieuw", {"klant_naam": "Jan", "datum": "2026-08-14",
-                    "omschrijving": "Uren", "type": "arbeid_uur", "aantal": "8",
-                    "prijs": "45", "regel_klus": str(klus_id)})
+                    "omschrijving": "Bon", "type": "bon", "aantal": "1",
+                    "prijs": "10", "regel_inkoop": str(inkoop_id)})
     factuur_id = db.execute("SELECT id FROM facturen").fetchone()[0]
 
-    namen = [naam for _, naam in facturen.bonnen_bij_factuur(db, factuur_id)]
+    namen = [bon["naam"] for bon in facturen.bonnen_bij_factuur(db, factuur_id)]
     assert namen == ["meesturen.png"]
 
 
@@ -156,11 +158,14 @@ def test_de_bonnen_gaan_echt_als_bijlage_mee(monkeypatch, post, db, klus_id):
     db.commit()
 
     upload(post, klus_id, "bon.png")
-    post(f"/bijlage/{db.execute('SELECT id FROM bijlagen').fetchone()[0]}/meesturen")
-    post(f"/klus/{klus_id}/dag", {"datum": "2026-08-14", "van": "09:00", "tot": "17:00"})
+    bijlage_id = db.execute("SELECT id FROM bijlagen").fetchone()[0]
+    post(f"/bijlage/{bijlage_id}/meesturen")
+    inkoop_id = db.execute(
+        "SELECT inkoop_id FROM bijlagen WHERE id=?", (bijlage_id,)
+    ).fetchone()[0]
     post("/nieuw", {"klant_naam": "Jan", "klant_email": "jan@example.com",
-                    "datum": "2026-08-14", "omschrijving": "Uren", "type": "arbeid_uur",
-                    "aantal": "8", "prijs": "45", "regel_klus": str(klus_id)})
+                    "datum": "2026-08-14", "omschrijving": "Bon", "type": "bon",
+                    "aantal": "1", "prijs": "12", "regel_inkoop": str(inkoop_id)})
     # Opslaan mailt niet. De bon gaat mee zodra je de rekening zelf mailt.
     assert "extra" not in opgevangen
     factuur_id = db.execute("SELECT id FROM facturen").fetchone()[0]
