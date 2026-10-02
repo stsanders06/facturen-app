@@ -43,6 +43,10 @@
     --radius: 12px;
     --radius-sm: 8px;
     --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    /* Hoogte van de tabbalk, zodat een melding eronder hangt en niet erover.
+       JavaScript meet de echte hoogte; dit is de waarde tot die meting er is.
+       De inkeping zit erbij omdat de tabbalk diezelfde marge bovenop krijgt. */
+    --balkhoogte: calc(56px + env(safe-area-inset-top, 0px));
   }
 
   @media (prefers-color-scheme: dark) {
@@ -96,6 +100,10 @@
     position: sticky;
     top: 0;
     z-index: 10;
+    /* Zonder viewport-fit=cover houdt de browser de pagina uit de inkeping en is
+       deze marge 0. Staat de inset wél aan (sommige webviews), dan schuift de
+       tabbalk onder de inkeping vandaan in plaats van erachter. */
+    padding-top: env(safe-area-inset-top, 0px);
   }
   .appbar-inner {
     max-width: 940px;
@@ -136,6 +144,7 @@
   /* Op een telefoon kostten merknaam én tabbladen samen twee regels. De naam mag
      daar weg: je weet welke app je open hebt. */
   @media (max-width: 620px) {
+    :root { --balkhoogte: calc(48px + env(safe-area-inset-top, 0px)); }
     /* 10px, niet 16: elk tabblad heeft zelf ook 6px ruimte naast zijn tekst, en
        samen komt die tekst dan precies op dezelfde kantlijn als de kaarten eronder.
        Met minder liep de balk net buiten de rest uit. */
@@ -320,13 +329,31 @@
   .chip-verlopen { background: var(--warn-bg); color: var(--warn-text); }
   .chip-deels { background: var(--info-soft); color: var(--info); }
 
-  /* ---------- Melding ---------- */
   /* ---------- Meldingen ----------
      Alles zag er eerst hetzelfde uit — geel met een rand — waardoor ook
      "Instellingen opgeslagen" las als een waarschuwing. Nu draagt de kleur de
      betekenis: groen als het gelukt is, rood als het niet kon, blauw als er nog
      iets loopt. Verder dezelfde kaart als de rest van de app, met een gekleurde
-     rand aan de zijkant in plaats van er helemaal omheen. */
+     rand aan de zijkant in plaats van er helemaal omheen.
+
+     Het vak hangt vast aan het scherm, net onder de tabbalk. Eerst stond de
+     melding bovenaan de pagina zelf: bleef je na een bon halverwege staan, dan
+     zag je hem niet. Onder de tabbalk, niet erover, en met de inkeping
+     meegerekend in de balkhoogte, zodat hij op een iPhone niet achter de
+     statusbalk of de tabbladen verdwijnt. */
+  .meldingen {
+    position: fixed;
+    /* Onder de tabbalk (die heeft 10). Hoger, en de melding dekt de tabbladen af. */
+    z-index: 9;
+    top: calc(var(--balkhoogte, 56px) + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(908px, calc(100% - 32px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    pointer-events: none;
+  }
   .melding {
     display: flex;
     align-items: flex-start;
@@ -334,12 +361,13 @@
     background: var(--card);
     border-left: 3px solid var(--ok);
     border-radius: var(--radius-sm);
-    box-shadow: var(--shadow-card);
+    box-shadow: var(--shadow-raised);
     padding: 13px 16px;
-    margin-bottom: 12px;
-    font-size: 14px;
+    margin: 0;
+    font-size: 15px;
     position: relative;
     overflow: hidden;
+    pointer-events: auto;
   }
   .melding .teken {
     flex: none;
@@ -353,7 +381,13 @@
     line-height: 18px;
     text-align: center;
   }
-  .melding .woorden { flex: 1; min-width: 0; }
+  .melding .woorden { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  /* Op een telefoon las een zwevende regel van 15px te klein om hem in het
+     voorbijgaan te lezen. 16px is de maat die je op een iPhone zonder te
+     knijpen leest. */
+  @media (pointer: coarse), (max-width: 620px) {
+    .meldingen .melding { font-size: 16px; }
+  }
   .melding.fout { border-left-color: var(--danger); }
   .melding.fout .teken { background: var(--danger); }
   .melding.bezig { border-left-color: var(--info); }
@@ -391,8 +425,11 @@
     animation: leeglopen linear forwards;
   }
   @keyframes leeglopen { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+  .melding.weg { animation: meldingweg .2s ease forwards; }
+  @keyframes meldingweg { to { opacity: 0; transform: translateY(-6px); } }
   @media (prefers-reduced-motion: reduce) {
     .melding .balk { animation: none; opacity: .4; }
+    .melding.weg { animation: none; }
   }
 
   .versie {
@@ -664,7 +701,10 @@
 </header>
 
 <main class="container">
-  {% for soort, ruw in get_flashed_messages(with_categories=true) %}
+  {% set meldingen = get_flashed_messages(with_categories=true) %}
+  {% if meldingen %}
+  <div class="meldingen" role="status">
+    {% for soort, ruw in meldingen %}
     {% set m = ruw|uit_json %}
     <div class="melding {{ soort }}">
       <span class="teken" aria-hidden="true">{{ '✕' if soort == 'fout' else ('·' if soort == 'bezig' else '✓') }}</span>
@@ -679,13 +719,111 @@
       <span class="balk" style="animation-duration: {{ m.knop.seconden }}s"></span>
       {% endif %}
     </div>
-  {% endfor %}
+    {% endfor %}
+  </div>
+  {% endif %}
   {% block content %}{% endblock %}
 
   <p class="versie">Facturen App {{ versie }}</p>
 </main>
 
 <script>
+  // Na een formulier laadt de pagina opnieuw en zet de browser je bovenaan.
+  // Op een lange kluspagina stond je bij de bon; die plek is bij het versturen
+  // bewaard en zetten we hier terug. Alleen als het dezelfde pagina is én er
+  // een melding staat — een gewone klik naar een andere pagina hoort wél
+  // bovenaan te beginnen. Safari op de iPhone schuift na het laden soms alsnog
+  // naar boven, vandaar dat we het even blijven herhalen.
+  var SCHUIFSLEUTEL = 'facturen-schuif';
+  var bewaardeSchuif = 0;
+  var schuifLosgelaten = false;
+
+  function bewaarSchuif() {
+    try {
+      var el = document.scrollingElement || document.documentElement;
+      var y = window.scrollY || el.scrollTop || 0;
+      sessionStorage.setItem(SCHUIFSLEUTEL, JSON.stringify({
+        pad: location.pathname + location.search,
+        y: y
+      }));
+    } catch (e) {}
+  }
+
+  (function () {
+    try {
+      var ruw = sessionStorage.getItem(SCHUIFSLEUTEL);
+      if (!ruw) return;
+      sessionStorage.removeItem(SCHUIFSLEUTEL);
+      var gegevens = JSON.parse(ruw);
+      if (!gegevens || gegevens.pad !== location.pathname + location.search) return;
+      if (!(gegevens.y > 0)) return;
+      if (!document.querySelector('.melding')) return;
+      bewaardeSchuif = gegevens.y;
+    } catch (e) {}
+  })();
+
+  function herstelSchuif() {
+    if (schuifLosgelaten || !(bewaardeSchuif > 0)) return;
+    var doel = document.scrollingElement || document.documentElement;
+    doel.scrollTop = bewaardeSchuif;
+  }
+
+  function volgSchuif(ms) {
+    if (!(bewaardeSchuif > 0)) return;
+    var tot = Date.now() + ms;
+    function stap() {
+      if (schuifLosgelaten || Date.now() > tot) return;
+      herstelSchuif();
+      requestAnimationFrame(stap);
+    }
+    herstelSchuif();
+    requestAnimationFrame(stap);
+  }
+
+  function laatSchuifLos() { schuifLosgelaten = true; }
+  window.addEventListener('wheel', laatSchuifLos, {passive: true});
+  window.addEventListener('touchstart', laatSchuifLos, {passive: true});
+  window.addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'PageDown' ||
+        e.key === 'PageUp' || e.key === ' ' || e.key === 'Home' || e.key === 'End') {
+      laatSchuifLos();
+    }
+  });
+  volgSchuif(1200);
+  window.addEventListener('load', function () { volgSchuif(800); });
+
+  // De tabbalk is op een telefoon lager dan op een breed scherm, en kan
+  // omslaan. Zonder meting zou de melding over de tabbladen vallen of er
+  // een gat onder laten.
+  function meetBalk() {
+    var balk = document.querySelector('.appbar');
+    if (!balk) return;
+    document.documentElement.style.setProperty('--balkhoogte', balk.offsetHeight + 'px');
+  }
+  meetBalk();
+  window.addEventListener('resize', meetBalk);
+
+  function verdwijnMelding(melding) {
+    if (!melding || !melding.parentNode) return;
+    melding.classList.add('weg');
+    setTimeout(function () {
+      var vak = melding.parentNode;
+      melding.remove();
+      if (vak && vak.classList && vak.classList.contains('meldingen') && !vak.children.length) {
+        vak.remove();
+      }
+    }, 220);
+  }
+
+  // Een knop (ongedaan maken, of een mail nog tegenhouden) moet blijven staan
+  // tot je hem gebruikt. Een gewone bevestiging of fout mag weg zodra je hem
+  // hebt kunnen lezen: anders dekt hij, vast aan het scherm, de pagina af.
+  document.querySelectorAll('.meldingen .melding').forEach(function (melding) {
+    if (melding.querySelector('form, .balk')) return;
+    var duur = melding.classList.contains('fout') ? 8000 : 5000;
+    setTimeout(function () { verdwijnMelding(melding); }, duur);
+  });
+
   // Bevestiging vragen voor onomkeerbare acties. De vraag staat in een
   // data-attribuut en niet in de HTML-regel zelf: een apostrof in een naam
   // ("Anne d'Hondt") brak anders de code, waarna er zonder vragen werd verwijderd.
@@ -694,6 +832,14 @@
     if (vraag && !window.confirm(vraag)) {
       e.preventDefault();
     }
+  });
+
+  document.addEventListener('submit', function (e) {
+    if (e.defaultPrevented) return;
+    // Zoeken verstuurt met GET. De nieuwe lijst hoort bovenaan, niet waar je
+    // op de vorige lijst stond.
+    if (!e.target || (e.target.method || '').toLowerCase() === 'get') return;
+    bewaarSchuif();
   });
 
   // De menu's achter de drie puntjes openen en sluiten zichzelf (<details>),
@@ -763,6 +909,10 @@
     knop.addEventListener('click', function () { veld.click(); });
     veld.addEventListener('change', function () {
       if (veld.dataset.verstuurt && veld.files.length) {
+        // form.submit() slaat het submit-event over, en daarmee ook het
+        // bewaren van de scrollplek. Zonder deze regel spring je na een
+        // foto bij een notitie of bon alsnog naar boven.
+        bewaarSchuif();
         veld.form.submit();
         return;
       }
@@ -783,9 +933,14 @@
     var seconden = parseFloat(balk.style.animationDuration) || 0;
     if (!seconden) { return; }
     setTimeout(function () {
-      var formulier = balk.closest('.melding').querySelector('form');
+      var melding = balk.closest('.melding');
+      var formulier = melding.querySelector('form');
       if (formulier) { formulier.remove(); }
       balk.remove();
+      // Tegenhouden kan niet meer, en of het lukte zie je op de volgende
+      // pagina. De regel zelf mag daarna weg, anders blijft hij over de
+      // pagina hangen.
+      setTimeout(function () { verdwijnMelding(melding); }, 2000);
     }, seconden * 1000);
   });
 

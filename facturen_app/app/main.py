@@ -34,7 +34,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.30.1"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.30.2"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -172,7 +172,7 @@ def terug_naar(standaard=None):
 
 
 def melding(tekst, soort="gelukt", knop=None):
-    """Een regel bovenaan de pagina na een handeling.
+    """Een regel die na een handeling bovenaan het scherm blijft hangen.
 
     Drie soorten: "gelukt" voor een bevestiging, "fout" voor iets dat niet kon, en
     "bezig" voor iets dat nog loopt en dat je kunt tegenhouden. Eerst zag alles er

@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.30.2
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **Na een bon of andere handeling blijf je waar je was.** De pagina springt niet
+  meer naar boven.
+- **De melding blijft in beeld**, ook als je halverwege de pagina werkt. Hij hangt
+  vast bovenaan het scherm, onder de tabbladen. Een gewone bevestiging verdwijnt
+  vanzelf; een knop om iets terug te halen blijft staan.
+
 ## 1.30.1
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
