@@ -85,14 +85,18 @@ PDF staat "CONCEPT" en in de lijst "nog geen nummer". Zo laat een rekening die j
 niet verstuurt geen gat achter in je nummering — handig, want een boekhouding hoort een
 doorlopende reeks te hebben.
 
-Het nummer komt er zodra de rekening vastligt. Dat gebeurt vanzelf als je hem **mailt**,
-of met **Definitief maken** in het menu als je hem zelf uitprint of appt. Lukt het mailen
-niet, dan blijft hij concept: je raakt geen nummer kwijt aan een mail die nooit is
-aangekomen.
+Het nummer komt er zodra de rekening vastligt. Dat gebeurt met **Definitief maken**
+in het menu als je hem zelf uitprint of appt, of pas als een **mail** door de
+mailserver is aangenomen. Op **Mail controleren** zie je al welk nummer hij zou
+krijgen, ook op de PDF. Dat nummer is dan nog voorlopig: lukt het mailen niet, dan
+blijft hij concept en komt het nummer weer vrij. Je raakt geen nummer kwijt aan een
+mail die nooit is aangekomen.
 
-Opslaan van de rekening stuurt zelf geen mail. Met **Mailen** op de kaart zie je eerst
-wat er weggaat: het onderwerp, de tekst, de PDF en de bonnetjes die op meesturen staan.
-Pas als je daar op **Mail versturen** drukt, gaat de mail de deur uit.
+Opslaan van de rekening of de offerte stuurt zelf geen mail. Met **Mailen** zie je
+eerst wat er weggaat: het onderwerp, de tekst, de PDF en de bonnetjes die bij deze
+rekening horen. Je kunt één eigen zin toevoegen; die komt direct na de aanhef. Pas
+als je op **Mail versturen** drukt, gaat de mail de deur uit. Een herinnering gaat
+door hetzelfde scherm.
 
 Op elke rekening staan de knoppen die je op dat moment waarschijnlijk nodig hebt. De rest
 zit achter de **drie puntjes** rechts op de kaart: bekijken, bewerken, downloaden,
@@ -119,10 +123,11 @@ Rekeningen waarvan de vervaldatum voorbij is, krijgen een chip **Te laat** en st
 in de balk bovenaan, met een eigen filter. Zonder termijn op de rekening komt die chip er
 niet. Bij **Openstaand** staat de langst wachtende rekening bovenaan.
 
-Met **Herinnering sturen** in het menu mail je de klant een vriendelijk berichtje met de
-rekening er nog een keer bij. Heeft de rekening een termijn, dan rekent de app uit
-hoeveel dagen die voorbij is; zonder termijn blijft de mail bij het openstaande bedrag.
-Is er al een deel binnen, dan bedankt de mail daar netjes voor.
+Met **Herinnering sturen** in het menu open je hetzelfde controlescherm als bij mailen.
+Je ziet de tekst (openstaand bedrag, en of de termijn voorbij is) en de PDF, en pas
+daarna gaat de mail weg. Is er al een deel binnen, dan bedankt de mail daar netjes voor.
+Bonnetjes die op deze rekening staan en op meesturen staan, gaan ook bij de herinnering
+mee; notitiefoto's nooit.
 
 ### Terugkerend werk
 
@@ -216,8 +221,11 @@ op de rekening te staan. Vanaf de kluspagina kan het ook andersom, met de knop *
 rekening zetten**.
 
 Uren die op een rekening staan, tellen daarna niet meer mee: in de keuzelijst zie je
-alleen nog wat openstaat, en bij zo'n dag staat het rekeningnummer. Verwijder je die
-rekening weer, dan komen de uren gewoon vrij om opnieuw te factureren.
+alleen nog wat openstaat, en bij zo'n dag staat het rekeningnummer. De app markeert
+alleen hele dagen die in het aantal uur op de regel passen, van oud naar nieuw. Een
+regel van € 0 zet niets vast. Verwijder je de rekening, dan komen de uren vrij; haal
+je hem terug uit de prullenbak, dan hangen ze weer aan die rekening, zodat je ze niet
+per ongeluk een tweede keer factureert.
 
 Een klus die klaar is zet je op afgerond. Hij zakt dan naar onderen in de lijst, maar de
 uren blijven bewaard.
@@ -227,6 +235,9 @@ uren blijven bewaard.
 Onderaan de kluspagina zet je foto's en bonnetjes neer: een bon van de groothandel, een
 foto van hoe het eruitzag voordat je begon, of van het eindresultaat. Meerdere tegelijk
 kiezen mag; JPG, PNG, HEIC en PDF worden geaccepteerd, samen hooguit 32 MB per keer.
+Een HEIC-foto van een iPhone wordt wel bewaard, maar de app kan er geen voorbeeld van
+tonen en hem niet op de rekening tekenen. Gebruik daarvoor JPG of PNG. Op de iPhone:
+Instellingen → Camera → Formaten → Meest compatibel.
 
 Bij elk bestand staat een knop **Meesturen**. Zet die aan bij een bon die de klant moet
 zien: zodra je de uren van deze klus op een rekening zet en die rekening mailt, gaat het
@@ -261,9 +272,10 @@ wachtwoord. Voor iCloud is de server `smtp.mail.me.com` en moet het afzenderadre
 iCloud-account horen.
 
 **Ik ben mijn wachtwoord kwijt.** Open de app via de zijbalk van Home Assistant; daar
-kom je binnen zonder dit wachtwoord. Ga naar **Instellingen → Inloggen**. Kun je daar niet
-bij, verwijder dan de regel uit de tabel `gebruikers` in `/data/facturen.db`; de app vraagt
-je dan bij de eerstvolgende keer op poort 8099 weer om een nieuw account.
+kom je binnen zonder dit wachtwoord. Ga naar **Instellingen → Inloggen** en kies een
+nieuw wachtwoord. Het oude heb je niet nodig. Op poort 8099 zelf wel: daar vraag je
+het huidige wachtwoord, anders kan iemand op je thuisnetwerk het zomaar vervangen.
+Een nagemaakte zijbalk-header vanaf dat netwerk telt niet als de zijbalk.
 
 **"Deze opdracht kwam niet van de app zelf."** Je hebt een pagina gebruikt die al heel
 lang openstond, of de add-on is tussendoor herstart. Ververs de pagina en probeer het

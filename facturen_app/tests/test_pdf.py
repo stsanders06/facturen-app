@@ -131,8 +131,9 @@ def test_een_hele_lange_omschrijving_loopt_niet_over_de_kolommen(db, maak_factuu
     )
     db.commit()
     tekst = tekst_uit_pdf(facturen.maak_pdf(factuur_id))
-    assert "…" in tekst                                  # afgekapt met een beletselteken
-    assert "Kraan Kraan Kraan Kraan Kraan Kraan Kraan Kraan Kraan Kraan Kraan" not in tekst
+    # De hele omschrijving blijft leesbaar, verdeeld over meerdere regels.
+    assert tekst.count("Kraan") >= 60
+    assert "…" not in tekst
 
 
 def test_ontbrekend_logo_laat_de_pdf_gewoon_doorgaan(db, maak_factuur):

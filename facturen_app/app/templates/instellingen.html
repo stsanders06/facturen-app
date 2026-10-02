@@ -134,7 +134,10 @@
 <section class="card" style="margin-top:12px">
   <div class="card-head">
     <h2>Inloggen</h2>
-    {% if gebruiker %}
+    {% if via_zijbalk %}
+    <p>Je bent via de zijbalk binnengekomen. Hier kies je het wachtwoord voor poort
+      8099. Het oude heb je niet nodig.</p>
+    {% elif gebruiker %}
     <p>Ingelogd als <b>{{ gebruiker }}</b>. Alleen nodig op poort 8099; in de zijbalk
       regelt Home Assistant de inlog.</p>
     {% else %}
@@ -144,14 +147,22 @@
     {% endif %}
   </div>
 
-  {% if gebruiker %}
+  {% if via_zijbalk or gebruiker %}
   <form method="post" action="{{ url_for('wachtwoord_wijzigen') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="velden">
+      {% if via_zijbalk and not heeft_account %}
+      <div>
+        <label for="naam">Gebruikersnaam</label>
+        <input type="text" id="naam" name="naam" autocomplete="username" required>
+      </div>
+      {% endif %}
+      {% if not via_zijbalk %}
       <div>
         <label for="huidig">Huidig wachtwoord</label>
         <input type="password" id="huidig" name="huidig" autocomplete="current-password" required>
       </div>
+      {% endif %}
       <div>
         <label for="nieuw">Nieuw wachtwoord</label>
         <input type="password" id="nieuw" name="nieuw" autocomplete="new-password"
@@ -168,10 +179,12 @@
     </div>
   </form>
 
+  {% if gebruiker %}
   <form method="post" action="{{ url_for('uitloggen') }}" style="margin-top:16px">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button type="submit" class="btn btn-text">Uitloggen</button>
   </form>
+  {% endif %}
   {% endif %}
 </section>
 

@@ -1,5 +1,48 @@
 # Changelog
 
+## 1.30.0
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **Uren en bonnen van een andere klant gaan niet meer op de rekening.** Wissel je
+  van klant terwijl er al een regel aan een klus of bon hangt, dan vraagt de app of
+  die regels weg mogen. Opslaan weigert ze als ze toch meegaan.
+- **Niet alle open dagen gaan meer dicht bij een ander aantal of € 0.** Alleen hele
+  dagen die in de uren op de regel passen worden als gefactureerd gemarkeerd, de
+  oudste eerst. Een bedrag van nul laat de dagen open, met een melding.
+- **Ongedaan maken koppelt de uren en bonnen weer aan die rekening**, zodat je ze
+  niet een tweede keer kunt factureren.
+- **De PDF wordt opnieuw getekend** vlak voor elke mail, en ook als je Betaald of
+  Toch niet betaald zet. De strook klopt dan met wat er openstaat.
+- **Een mislukte mail geeft een concept geen nummer.** Het nummer wordt pas
+  vastgelegd als de mailserver de mail aanneemt. Lukt het niet, dan blijft het een
+  concept.
+- **Op Mail controleren is de PDF dezelfde als die de klant krijgt**, inclusief het
+  voorlopige nummer. Dat nummer is pas echt als de mail lukt.
+- **Offertes en herinneringen gaan door hetzelfde controlescherm.** Je ziet
+  onderwerp, tekst en PDF, en kunt één eigen zin toevoegen na de aanhef. Het vinkje
+  om een offerte direct bij opslaan te mailen is weg.
+- **Lange omschrijvingen op de PDF lopen over meerdere regels** in plaats van
+  afgekapt te worden. Een lange toelichting gaat door op een volgende pagina.
+- **Openstaand bij Klanten telt betalingen mee**, net als op de klantpagina en het
+  beginscherm.
+- **Een aanbetaling hoort bij de offerte.** Nog een aanbetaling die samen meer is
+  dan de offerte, wordt geweigerd. Naar rekening maakt een concept voor het restant
+  en neemt de bonnen van de offerte mee.
+- **Alleen bonnetjes van bonnen op deze rekening gaan mee in de mail.** Notitiefoto's
+  nooit. Op het controlescherm kun je per bestand uitzetten wat niet mee hoeft.
+- **Via de zijbalk kun je een nieuw wachtwoord zetten zonder het oude.** Op poort
+  8099 blijft het huidige wachtwoord nodig.
+- **Datums volgen de tijdzone van Home Assistant, of anders Nederland.** Zo kloppen
+  "vandaag", te laat en het jaar in het nummer ook na middernacht.
+- **Een HEIC-foto krijgt een melding** dat een voorbeeld of logo alleen met JPG of
+  PNG kan.
+
+Nog niet in deze versie: een jaaroverzicht met CSV, een back-upknop, btw aanzetten,
+en een materialenlijst om regels van te kiezen. Dagen zelf aanvinken bij uren kan
+ook nog niet; de app boekt nu hele dagen die in het aantal passen.
+
 ## 1.29.1
 
 - **Uren van een klus zijn alleen van dezelfde klant.** Onder "Uren van een klus"

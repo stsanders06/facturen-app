@@ -20,6 +20,7 @@ RUN \
         ca-certificates \
         freetype \
         jpeg \
+        tzdata \
         zlib \
     && apk add --no-cache --virtual .build-deps \
         build-base \

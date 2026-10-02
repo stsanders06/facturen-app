@@ -489,16 +489,6 @@
 
   <section class="card">
     <div class="fields">
-      {#- Alleen bij een offerte. Een rekening mailt niet mee met opslaan: dat gaat
-          via Mailen, na een controle van wat er de deur uitgaat. -#}
-      {% if is_offerte %}
-      <div class="checkregel">
-        <input type="checkbox" id="verstuur" name="verstuur" value="ja">
-        <label for="verstuur">
-          {% if factuur %}Opnieuw naar de klant mailen na opslaan{% else %}Direct naar de klant mailen na opslaan{% endif %}
-        </label>
-      </div>
-      {% endif %}
       <div class="indienen">
         <a class="btn btn-outline" href="{{ url_for('offertes') if is_offerte else url_for('index') }}">Annuleren</a>
         <button type="submit" class="btn">
@@ -1024,7 +1014,36 @@
       document.getElementById('klant_naam').focus();
     });
 
+    // Wissel je van klant terwijl er al uren of een bon op de rekening staan, dan
+    // horen die regels niet meer bij de nieuwe klant. De server weigert ze; hier
+    // vraag je het meteen, zodat je ze niet per ongeluk kwijt bent.
+    var vorigeKlant = klantKeuze.value;
+
+    function gekoppeldeRegels() {
+      return Array.prototype.filter.call(container.querySelectorAll('.regel'), function (regel) {
+        var klus = regel.querySelector('[name="regel_klus"]');
+        var inkoop = regel.querySelector('[name="regel_inkoop"]');
+        return (klus && klus.value) || (inkoop && inkoop.value);
+      });
+    }
+
     klantKeuze.addEventListener('change', function () {
+      var gekoppeld = gekoppeldeRegels();
+      if (gekoppeld.length) {
+        var weg = window.confirm(
+          'Er staan uren of een bon van de vorige klant op deze rekening. '
+          + 'Die regels weghalen? Ze horen niet bij de nieuwe klant.'
+        );
+        if (!weg) {
+          klantKeuze.value = vorigeKlant;
+          return;
+        }
+        for (var i = 0; i < gekoppeld.length; i++) gekoppeld[i].remove();
+        if (!container.querySelector('.regel')) regelErbij();
+        pasInklappenAan();
+        berekenTotaal();
+      }
+      vorigeKlant = klantKeuze.value;
       klantBewerken = false;
       pasKlantAan(true);
     });

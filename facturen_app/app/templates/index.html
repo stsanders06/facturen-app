@@ -178,11 +178,7 @@
             {%- if f.betaald > 0 %} (&euro; {{ f.betaald|bedrag }} binnen){% endif %}</a>
 
           {% if f.status != 'betaald' and f.nummer and f.klant_email %}
-          <form method="post" action="{{ url_for('herinnering', factuur_id=f.id) }}"
-                data-bevestig="Een herinnering mailen naar {{ f.klant_email }}?">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="menu-item">Herinnering sturen</button>
-          </form>
+          <a class="menu-item" href="{{ url_for('herinnering', factuur_id=f.id) }}">Herinnering sturen</a>
           {% endif %}
 
           {% if f.klant_email and f.status != 'concept' %}

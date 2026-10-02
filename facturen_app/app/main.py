@@ -11,12 +11,14 @@ import socket
 import sqlite3
 import smtplib
 import threading
+import time
 from datetime import date, datetime, timedelta
 from email.message import EmailMessage
 from itertools import zip_longest
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
 from urllib.error import URLError
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from flask import (
     Flask, abort, request, redirect, url_for, render_template, send_file, flash, session
 )
@@ -32,7 +34,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.29.1"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.30.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -44,6 +46,46 @@ os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(PDF_DIR, exist_ok=True)
 os.makedirs(LOGO_DIR, exist_ok=True)
 os.makedirs(BIJLAGE_DIR, exist_ok=True)
+
+
+def _activeer_tijdzone():
+    """Zet de procesklok op de tijdzone van Home Assistant, of op Nederland.
+
+    `vandaag()` volgt de klok van het proces. In de add-on zet het startscript
+    TZ al; hier nog een keer, zodat een losse start (tests, demo) hetzelfde doet
+    als er niets is gezet."""
+    if not os.environ.get("TZ"):
+        os.environ["TZ"] = "Europe/Amsterdam"
+    if hasattr(time, "tzset"):
+        try:
+            time.tzset()
+        except OSError:
+            pass
+
+
+_activeer_tijdzone()
+
+
+def actieve_tijdzone():
+    """De tijdzone waarin 'vandaag' wordt gerekend.
+
+    Eerst wat Home Assistant of het startscript in TZ zette. Bestaat die naam
+    niet, dan Nederland: liever een uur verschil dan een datum van gisteren."""
+    naam = os.environ.get("TZ") or "Europe/Amsterdam"
+    try:
+        return ZoneInfo(naam)
+    except ZoneInfoNotFoundError:
+        return ZoneInfo("Europe/Amsterdam")
+
+
+def nu():
+    """Lokale tijd zonder tijdzone-achtervoegsel, zodat opgeslagen tijdstippen
+    hetzelfde blijven vergelijken als voorheen."""
+    return datetime.now(actieve_tijdzone()).replace(tzinfo=None)
+
+
+def vandaag():
+    return nu().date()
 
 
 def _secret_key():
@@ -93,7 +135,7 @@ app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
 # Wat je als bonnetje of werkfoto bij een klus mag zetten.
-BIJLAGE_TYPES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".heic", ".pdf"}
+BIJLAGE_TYPES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".heic", ".heif", ".pdf"}
 
 # Wat een browser zelf als plaatje kan laten zien; de rest krijgt een bestandsicoon.
 BIJLAGE_PLAATJES = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
@@ -216,7 +258,7 @@ def waarom_mailen_niet_kan(tabel, rij_id):
     return None
 
 
-def mail_rekening(factuur_id, functie=None, wat=None):
+def mail_rekening(factuur_id, functie=None, wat=None, eigen_zin="", bon_ids=None):
     """Zet de rekening klaar om over een paar tellen te mailen."""
     reden = waarom_mailen_niet_kan("facturen", factuur_id)
     if reden:
@@ -227,10 +269,10 @@ def mail_rekening(factuur_id, functie=None, wat=None):
         factuur = conn.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
         conn.close()
         wat = f"Rekening {factuurnaam(factuur)}"
-    mail_straks(wat, functie or verstuur_email, factuur_id)
+    mail_straks(wat, functie or verstuur_email, factuur_id, eigen_zin, bon_ids)
 
 
-def mail_offerte(offerte_id):
+def mail_offerte(offerte_id, eigen_zin=""):
     reden = waarom_mailen_niet_kan("offertes", offerte_id)
     if reden:
         melding(reden, "fout")
@@ -238,7 +280,7 @@ def mail_offerte(offerte_id):
     conn = get_db()
     offerte = conn.execute("SELECT nummer FROM offertes WHERE id=?", (offerte_id,)).fetchone()
     conn.close()
-    mail_straks(f"Offerte {offerte['nummer']}", verstuur_offerte_email, offerte_id)
+    mail_straks(f"Offerte {offerte['nummer']}", verstuur_offerte_email, offerte_id, eigen_zin)
 
 
 @app.template_filter("uit_json")
@@ -357,7 +399,7 @@ def wachttijd_over():
     pogingen, laatste = MISLUKTE_POGINGEN.get(_afzender(), (0, None))
     if pogingen < MAX_POGINGEN or laatste is None:
         return 0
-    verstreken = (datetime.now() - laatste).total_seconds() / 60
+    verstreken = (nu() - laatste).total_seconds() / 60
     if verstreken >= WACHTTIJD_MINUTEN:
         MISLUKTE_POGINGEN.pop(_afzender(), None)
         return 0
@@ -407,7 +449,7 @@ def account_instellen():
         conn = get_db()
         conn.execute(
             "INSERT INTO gebruikers (naam, wachtwoord, aangemaakt) VALUES (?, ?, ?)",
-            (naam, generate_password_hash(wachtwoord), date.today().isoformat()),
+            (naam, generate_password_hash(wachtwoord), vandaag().isoformat()),
         )
         conn.commit()
         conn.close()
@@ -455,7 +497,7 @@ def inloggen():
             return redirect(url_for("index"))
 
         pogingen, _ = MISLUKTE_POGINGEN.get(_afzender(), (0, None))
-        MISLUKTE_POGINGEN[_afzender()] = (pogingen + 1, datetime.now())
+        MISLUKTE_POGINGEN[_afzender()] = (pogingen + 1, nu())
         # Niet verklappen wélk van de twee er niet klopte.
         melding("Gebruikersnaam of wachtwoord klopt niet.", "fout")
         return redirect(url_for("inloggen"))
@@ -473,18 +515,25 @@ def uitloggen():
 
 @app.route("/wachtwoord", methods=["POST"])
 def wachtwoord_wijzigen():
-    huidig = request.form.get("huidig", "")
+    """Nieuw wachtwoord voor poort 8099.
+
+    Via de zijbalk hoef je het oude niet te kennen: daar ben je al binnen met
+    Home Assistant, en dat is de herstelroute als je het wachtwoord kwijt bent
+    of als iemand anders het op poort 8099 heeft gezet. Op poort 8099 zelf
+    blijft het huidige wachtwoord verplicht."""
     nieuw = request.form.get("nieuw", "")
     nogmaals = request.form.get("nogmaals", "")
+    zijbalk = via_ingress()
 
     conn = get_db()
     gebruiker = conn.execute("SELECT * FROM gebruikers ORDER BY id LIMIT 1").fetchone()
-    if gebruiker is None:
+    if gebruiker is None and not zijbalk:
         conn.close()
         melding("Er is nog geen account om een wachtwoord van te wijzigen.", "fout")
         return redirect(url_for("instellingen"))
 
-    if not check_password_hash(gebruiker["wachtwoord"], huidig):
+    if not zijbalk and not check_password_hash(gebruiker["wachtwoord"],
+                                                request.form.get("huidig", "")):
         conn.close()
         melding("Je huidige wachtwoord klopt niet.", "fout")
         return redirect(url_for("instellingen"))
@@ -497,11 +546,22 @@ def wachtwoord_wijzigen():
         melding("De twee nieuwe wachtwoorden zijn niet hetzelfde.", "fout")
         return redirect(url_for("instellingen"))
 
-    conn.execute("UPDATE gebruikers SET wachtwoord=? WHERE id=?",
-                 (generate_password_hash(nieuw), gebruiker["id"]))
+    if gebruiker is None:
+        naam = request.form.get("naam", "").strip()
+        if not naam:
+            conn.close()
+            melding("Kies een gebruikersnaam.", "fout")
+            return redirect(url_for("instellingen"))
+        conn.execute(
+            "INSERT INTO gebruikers (naam, wachtwoord, aangemaakt) VALUES (?, ?, ?)",
+            (naam, generate_password_hash(nieuw), vandaag().isoformat()),
+        )
+    else:
+        conn.execute("UPDATE gebruikers SET wachtwoord=? WHERE id=?",
+                     (generate_password_hash(nieuw), gebruiker["id"]))
     conn.commit()
     conn.close()
-    melding("Je wachtwoord is gewijzigd.")
+    melding("Je wachtwoord is gewijzigd. Op poort 8099 log je hiermee in.")
     return redirect(url_for("instellingen"))
 
 
@@ -955,6 +1015,10 @@ def init_db():
             """UPDATE facturen SET vervalt_op = date(datum, '+14 days')
                WHERE vervalt_op IS NULL OR vervalt_op = ''"""
         )
+    # Aanbetalingen en de eindrekening horen bij dezelfde offerte, zodat "Naar
+    # rekening" het restant kan voorstellen en niet nog een keer het volle bedrag.
+    if "offerte_id" not in {rij["name"] for rij in conn.execute("PRAGMA table_info(facturen)")}:
+        conn.execute("ALTER TABLE facturen ADD COLUMN offerte_id INTEGER")
     offertekolommen = {rij["name"] for rij in conn.execute("PRAGMA table_info(offertes)")}
     if "kenmerk" not in offertekolommen:
         conn.execute("ALTER TABLE offertes ADD COLUMN kenmerk TEXT DEFAULT ''")
@@ -1033,7 +1097,7 @@ TERUG_TE_ZETTEN = {
 }
 
 
-def naar_prullenbak(conn, omschrijving, rijen, bestanden=None):
+def naar_prullenbak(conn, omschrijving, rijen, bestanden=None, koppelingen=None):
     """Bewaart weggegooide rijen en geeft het id terug om ze mee terug te halen.
 
     `rijen` is {"tabelnaam": [rij, ...]} in de volgorde waarin ze terug moeten:
@@ -1042,12 +1106,17 @@ def naar_prullenbak(conn, omschrijving, rijen, bestanden=None):
 
     `bestanden` zijn foto's en bonnetjes in BIJLAGE_DIR. Die blijven gewoon staan
     zolang ze in de prullenbak zitten — een foto is niet opnieuw te maken, een PDF
-    wel — en gaan pas weg als de prullenbak wordt opgeruimd."""
+    wel — en gaan pas weg als de prullenbak wordt opgeruimd.
+
+    `koppelingen` zijn uren en bonnen die aan een rekening hingen. Die rijen
+    zelf blijven bestaan (ze komen weer vrij), maar bij ongedaan maken moeten
+    ze terug aan díé rekening, anders kun je ze een tweede keer factureren."""
     inhoud = {"rijen": {tabel: [dict(r) for r in lijst] for tabel, lijst in rijen.items()},
-              "bestanden": list(bestanden or [])}
+              "bestanden": list(bestanden or []),
+              "koppelingen": koppelingen or {}}
     prullenbak_id = conn.execute(
         "INSERT INTO prullenbak (omschrijving, inhoud, wanneer) VALUES (?, ?, ?)",
-        (omschrijving, json.dumps(inhoud, ensure_ascii=False), datetime.now().isoformat()),
+        (omschrijving, json.dumps(inhoud, ensure_ascii=False), nu().isoformat()),
     ).lastrowid
     ruim_prullenbak_op(conn)
     return prullenbak_id
@@ -1055,7 +1124,7 @@ def naar_prullenbak(conn, omschrijving, rijen, bestanden=None):
 
 def ruim_prullenbak_op(conn):
     """Wat te lang in de prullenbak staat gaat er echt uit, bestanden en al."""
-    grens = (datetime.now() - timedelta(days=PRULLENBAK_DAGEN)).isoformat()
+    grens = (nu() - timedelta(days=PRULLENBAK_DAGEN)).isoformat()
     oud = conn.execute("SELECT id, inhoud FROM prullenbak WHERE wanneer < ?", (grens,)).fetchall()
     for rij in oud:
         for bestand in json.loads(rij["inhoud"]).get("bestanden", []):
@@ -1080,7 +1149,8 @@ def prullenbak_terug(prullenbak_id):
         melding("Dit is niet meer terug te halen.", "fout")
         return redirect(terug_naar(url_for("index")))
 
-    for tabel, regels in json.loads(rij["inhoud"])["rijen"].items():
+    inhoud = json.loads(rij["inhoud"])
+    for tabel, regels in inhoud["rijen"].items():
         if tabel not in TERUG_TE_ZETTEN:
             continue
         for regel in regels:
@@ -1095,11 +1165,40 @@ def prullenbak_terug(prullenbak_id):
             # klappen op een id dat er al staat.
             conn.execute(f"INSERT OR IGNORE INTO {tabel} ({kolommen}) VALUES ({vraagtekens})",
                          list(regel.values()))
+    gemist = _herstel_koppelingen(conn, inhoud.get("koppelingen") or {})
     conn.execute("DELETE FROM prullenbak WHERE id=?", (prullenbak_id,))
     conn.commit()
     conn.close()
     melding(f"{rij['omschrijving']} staat weer terug.")
+    if gemist:
+        melding("Een deel van de uren of bonnen stond al op een andere rekening "
+                "en is daar gebleven.", "fout")
     return redirect(terug_naar(url_for("index")))
+
+
+def _herstel_koppelingen(conn, koppelingen):
+    """Hangt uren en bonnen weer aan de teruggezette rekening.
+
+    Alleen als ze nog vrij zijn. Staan ze intussen op een andere rekening, dan
+    laten we die met rust: anders haal je ze daar stilletjes af."""
+    factuur_id = koppelingen.get("factuur_id")
+    if not factuur_id:
+        return 0
+    gemist = 0
+    for tabel, sleutel in (("uren", "uren"), ("inkopen", "inkopen")):
+        for rij_id in koppelingen.get(sleutel) or []:
+            cur = conn.execute(
+                f"UPDATE {tabel} SET factuur_id=? WHERE id=? AND factuur_id IS NULL",
+                (factuur_id, rij_id),
+            )
+            if cur.rowcount:
+                continue
+            bestaat = conn.execute(
+                f"SELECT factuur_id FROM {tabel} WHERE id=?", (rij_id,)
+            ).fetchone()
+            if bestaat and bestaat["factuur_id"] not in (None, factuur_id):
+                gemist += 1
+    return gemist
 
 
 def factuurnaam(factuur):
@@ -1150,7 +1249,7 @@ def volgend_nummer(conn=None):
     eigen = conn is None
     if eigen:
         conn = get_db()
-    jaar = date.today().year
+    jaar = vandaag().year
     nummers = conn.execute(
         "SELECT nummer FROM facturen WHERE nummer LIKE ?", (f"{jaar}-%",)
     ).fetchall()
@@ -1168,7 +1267,7 @@ def volgend_offertenummer(conn=None):
     eigen = conn is None
     if eigen:
         conn = get_db()
-    jaar = date.today().year
+    jaar = vandaag().year
     nummers = conn.execute(
         "SELECT nummer FROM offertes WHERE nummer LIKE ?", (f"OFF-{jaar}-%",)
     ).fetchall()
@@ -1320,7 +1419,7 @@ def herzie_betaalstatus(conn, factuur_id):
 def factuurlijst(conn, klant_id=None):
     """Alle rekeningen, met de vervaldatum, wat er al betaald is en wat er nog
     openstaat. Met een klant_id alleen die van één klant."""
-    vandaag = date.today().isoformat()
+    vandaag = nu().date().isoformat()
     per_factuur = {
         rij["factuur_id"]: rij["som"]
         for rij in conn.execute(
@@ -1369,7 +1468,7 @@ def index():
     facturen = factuurlijst(conn)
     conn.close()
 
-    jaar = str(date.today().year)
+    jaar = str(vandaag().year)
     openstaand = [f for f in facturen if f["status"] != "betaald"]
     verlopen = [f for f in openstaand if f["verlopen"]]
     overzicht = {
@@ -1456,6 +1555,8 @@ def instellingen():
 
     return render_template("instellingen.html", s=get_settings(),
                            gebruiker=session.get("gebruiker"),
+                           via_zijbalk=via_ingress(),
+                           heeft_account=heeft_account(),
                            wachtwoord_minimum=WACHTWOORD_MINIMUM, actief="instellingen")
 
 
@@ -1466,8 +1567,10 @@ def klantenlijst():
         """SELECT k.*,
                   COUNT(f.id) AS aantal_facturen,
                   COALESCE(SUM(f.totaal), 0) AS omzet,
-                  COALESCE(SUM(CASE WHEN f.status <> 'betaald' THEN f.totaal ELSE 0 END), 0)
-                      AS openstaand
+                  COALESCE(SUM(CASE WHEN f.status <> 'betaald' THEN
+                      f.totaal - COALESCE((SELECT SUM(b.bedrag) FROM betalingen b
+                                           WHERE b.factuur_id = f.id), 0)
+                      ELSE 0 END), 0) AS openstaand
            FROM klanten k
            LEFT JOIN facturen f ON f.klant_id = k.id
            GROUP BY k.id
@@ -1681,7 +1784,7 @@ def klant(klant_id):
     ).fetchall()
     conn.close()
 
-    vandaag = date.today().isoformat()
+    vandaag = nu().date().isoformat()
     onbetaald = [f for f in facturen if f["status"] != "betaald"]
     klussen_van_klant = [k for k in klussenlijst() if k["klant_id"] == klant_id]
     open_offertes = [o for o in offertes_van_klant
@@ -1865,7 +1968,7 @@ def klus_nieuw():
         if not naam:
             melding("Geef de klus een naam om hem op te slaan.", "fout")
             return redirect(url_for("klus_nieuw"))
-        vandaag = date.today().isoformat()
+        vandaag = nu().date().isoformat()
         # Een klus die nog moet beginnen is een aanvraag: iemand heeft gebeld, er is
         # nog geen intake en er zijn nog geen uren.
         aanvraag = request.form.get("aanvraag") == "ja"
@@ -1910,7 +2013,7 @@ def klus(klus_id):
         inkopen=aankopen, notities=aantekeningen, offerte=offerte, fases=KLUS_FASES,
         offerte_status=OFFERTE_STATUS,
         bedrag=round(totaal * (gegevens["uurtarief"] or 0), 2),
-        vandaag=date.today().isoformat(), actief="klussen",
+        vandaag=vandaag().isoformat(), actief="klussen",
     )
 
 
@@ -1963,7 +2066,7 @@ def klus_status(klus_id):
     # je kunt zien hoe lang het heeft geduurd.
     if nieuw_status == "open" and gegevens["status"] == "aangevraagd":
         velden.append("gestart=?")
-        waarden.append(date.today().isoformat())
+        waarden.append(vandaag().isoformat())
     conn.execute(f"UPDATE klussen SET {', '.join(velden)} WHERE id=?",
                  waarden + [klus_id])
     conn.commit()
@@ -1982,7 +2085,7 @@ def klus_intake(klus_id):
         abort(404)
     weg = bool(gegevens["intake_op"])
     conn.execute("UPDATE klussen SET intake_op=? WHERE id=?",
-                 ("" if weg else date.today().isoformat(), klus_id))
+                 ("" if weg else vandaag().isoformat(), klus_id))
     conn.commit()
     conn.close()
     melding("Intake weer opengezet." if weg else "Intake afgevinkt.")
@@ -2105,10 +2208,16 @@ def bewaar_bestanden(conn, klus_id, bestanden, notitie_id=None, inkoop_id=None):
         conn.execute(
             """INSERT INTO bijlagen (klus_id, bestand, naam, toegevoegd, meesturen,
                notitie_id, inkoop_id) VALUES (?, ?, ?, ?, 0, ?, ?)""",
-            (klus_id, opslagnaam, veilig, date.today().isoformat(),
+            (klus_id, opslagnaam, veilig, vandaag().isoformat(),
              notitie_id, inkoop_id),
         )
         erbij += 1
+        if extensie in {".heic", ".heif"}:
+            # De browser en reportlab tekenen HEIC niet. Het bestand blijft staan
+            # zodat je het niet kwijt bent, maar zonder deze zin lijkt de preview stuk.
+            melding("Dit is een HEIC-foto van een iPhone. Hij is opgeslagen, maar een "
+                    "voorbeeld of het logo lukt alleen met JPG of PNG. Op de iPhone: "
+                    "Instellingen → Camera → Formaten → Meest compatibel.", "fout")
     return erbij, geweigerd
 
 
@@ -2131,7 +2240,7 @@ def notitie_erbij(klus_id):
         melding("Schrijf iets op of kies een foto.", "fout")
         return redirect(url_for("klus", klus_id=klus_id))
 
-    wanneer = geldige_datum(request.form.get("wanneer"), date.today().isoformat())
+    wanneer = geldige_datum(request.form.get("wanneer"), vandaag().isoformat())
     notitie_id = conn.execute(
         "INSERT INTO notities (klus_id, wanneer, tekst) VALUES (?, ?, ?)",
         (klus_id, wanneer, tekst),
@@ -2252,7 +2361,7 @@ def inkoop_erbij(klus_id):
     inkoop_id = conn.execute(
         """INSERT INTO inkopen (klus_id, omschrijving, bedrag, toegevoegd)
            VALUES (?, ?, ?, ?)""",
-        (klus_id, omschrijving, bedrag, date.today().isoformat()),
+        (klus_id, omschrijving, bedrag, vandaag().isoformat()),
     ).lastrowid
 
     # Optionele materialen: parallelle lijsten, net als regels op een rekening.
@@ -2422,7 +2531,7 @@ def bijlage_erbij(klus_id):
         inkoop_id = conn.execute(
             """INSERT INTO inkopen (klus_id, omschrijving, bedrag, toegevoegd)
                VALUES (?, ?, 0, ?)""",
-            (klus_id, naam, date.today().isoformat()),
+            (klus_id, naam, vandaag().isoformat()),
         ).lastrowid
 
     erbij, geweigerd = bewaar_bestanden(
@@ -2810,7 +2919,7 @@ def wachtduur(datum):
     Bij een aanvraag is dat het cijfer dat telt: niet hoeveel uur erin zit, maar hoe
     lang die persoon al op je wacht."""
     try:
-        dagen = (date.today() - date.fromisoformat(str(datum))).days
+        dagen = (vandaag() - date.fromisoformat(str(datum))).days
     except (TypeError, ValueError):
         return ""
     if dagen <= 0:
@@ -2833,7 +2942,7 @@ def geldige_datum(waarde, terugval=None):
     try:
         return date.fromisoformat(str(waarde)).isoformat()
     except (TypeError, ValueError):
-        return terugval or date.today().isoformat()
+        return terugval or vandaag().isoformat()
 
 
 def geboekte_klussen(factuur_id=None, klant_id=None):
@@ -2942,6 +3051,32 @@ def bepaal_klant(conn, form):
     return None
 
 
+def regels_passen_bij_klant(conn, regels, klant_id):
+    """None als elke gekoppelde klus en bon bij deze klant hoort, anders een melding.
+
+    Het menu verbergt andermans uren al. Een regel die er al stond, of een POST
+    die het menu omzeilt, mag de uren of de bon niet alsnog op de verkeerde
+    rekening zetten."""
+    for _o, _t, _a, _p, _sub, klus_id, inkoop_id in regels:
+        if klus_id:
+            klus = conn.execute(
+                "SELECT klant_id FROM klussen WHERE id=?", (klus_id,)
+            ).fetchone()
+            if klus is None or not inkoop_past_bij_klant(klus["klant_id"], klant_id):
+                return ("De uren op een regel horen bij een andere klant. Haal die "
+                        "regel weg of kies de klant waarbij de klus hoort.")
+        if inkoop_id:
+            bon = conn.execute(
+                """SELECT k.klant_id FROM inkopen i
+                   JOIN klussen k ON k.id = i.klus_id WHERE i.id=?""",
+                (inkoop_id,),
+            ).fetchone()
+            if bon is None or not inkoop_past_bij_klant(bon["klant_id"], klant_id):
+                return ("Een bon op een regel hoort bij een andere klant. Haal die "
+                        "regel weg of kies de klant waarbij de bon hoort.")
+    return None
+
+
 def bewaar_regels(conn, factuur_id, regels):
     conn.execute("DELETE FROM regels WHERE factuur_id=?", (factuur_id,))
     for o, t, a, p, subtotaal, klus_id, inkoop_id in regels:
@@ -2950,19 +3085,81 @@ def bewaar_regels(conn, factuur_id, regels):
                klus_id, inkoop_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (factuur_id, o, t, a, p, subtotaal, klus_id, inkoop_id),
         )
-    boek_uren(conn, factuur_id, [r[5] for r in regels if r[5]])
+    meldingen = boek_uren(conn, factuur_id, regels)
     boek_inkopen(conn, factuur_id, [r[6] for r in regels if r[6]])
+    return meldingen
 
 
-def boek_uren(conn, factuur_id, klus_ids):
-    """Legt vast welke gewerkte dagen op deze rekening staan, zodat dezelfde uren
-    niet per ongeluk een tweede keer worden gefactureerd."""
+def _uren_tekst(waarde):
+    return f"{filter_uren(waarde)} uur"
+
+
+def boek_uren(conn, factuur_id, regels):
+    """Markeert alleen de dagen die in de uren op de regel passen.
+
+    Hele dagen, oudste eerst. Een dag die niet meer in het resterende aantal
+    past blijft open, zodat de rest later nog gefactureerd kan worden. Bij een
+    bedrag van nul wordt niets gemarkeerd: anders staat de klus op 'al op een
+    rekening' terwijl er niets is gerekend.
+
+    Een dag zelf splitsen (4 uur van een dag van 8) kan hier niet. Die dag
+    blijft dan open; de melding zegt dat."""
     conn.execute("UPDATE uren SET factuur_id=NULL WHERE factuur_id=?", (factuur_id,))
-    for klus_id in klus_ids:
-        conn.execute(
-            """UPDATE uren SET factuur_id=? WHERE klus_id=? AND factuur_id IS NULL""",
-            (factuur_id, klus_id),
-        )
+    per_klus = {}
+    for _o, _t, aantal, _p, subtotaal, klus_id, _inkoop in regels:
+        if not klus_id:
+            continue
+        emmer = per_klus.setdefault(klus_id, {"uren": 0.0, "bedrag": 0.0})
+        emmer["uren"] += float(aantal)
+        emmer["bedrag"] += float(subtotaal)
+
+    meldingen = []
+    for klus_id, emmer in per_klus.items():
+        klus = conn.execute("SELECT naam FROM klussen WHERE id=?", (klus_id,)).fetchone()
+        naam = klus["naam"] if klus else "deze klus"
+        if emmer["bedrag"] <= 0.004 or emmer["uren"] <= 0:
+            meldingen.append(
+                f"De uren van {naam} zijn niet als gefactureerd gemarkeerd: het "
+                "bedrag op de regel is nul. De dagen blijven open."
+            )
+            continue
+        dagen = conn.execute(
+            """SELECT id, van, tot FROM uren
+               WHERE klus_id=? AND factuur_id IS NULL
+               ORDER BY datum, id""",
+            (klus_id,),
+        ).fetchall()
+        if not dagen:
+            continue
+        open_uren = sum(duur_in_uren(dag["van"], dag["tot"]) for dag in dagen)
+        if emmer["uren"] + 0.01 >= open_uren:
+            gekozen = list(dagen)
+        else:
+            gekozen = []
+            geboekt = 0.0
+            for dag in dagen:
+                duur = duur_in_uren(dag["van"], dag["tot"])
+                if geboekt + duur <= emmer["uren"] + 0.01:
+                    gekozen.append(dag)
+                    geboekt += duur
+        if not gekozen:
+            meldingen.append(
+                f"De uren van {naam} zijn niet als gefactureerd gemarkeerd: de "
+                f"open dagen ({_uren_tekst(open_uren)}) passen niet in de "
+                f"{_uren_tekst(emmer['uren'])} op de regel. Ze blijven open."
+            )
+            continue
+        for dag in gekozen:
+            conn.execute(
+                "UPDATE uren SET factuur_id=? WHERE id=?", (factuur_id, dag["id"])
+            )
+        geboekt = sum(duur_in_uren(dag["van"], dag["tot"]) for dag in gekozen)
+        if geboekt + 0.01 < open_uren:
+            meldingen.append(
+                f"Van {naam} staan {_uren_tekst(geboekt)} op deze rekening. "
+                f"Er blijft {_uren_tekst(round(open_uren - geboekt, 2))} open."
+            )
+    return meldingen
 
 
 def boek_inkopen(conn, factuur_id, inkoop_ids):
@@ -2988,6 +3185,11 @@ def nieuw():
 
         conn = get_db()
         klant_id = bepaal_klant(conn, request.form)
+        past_niet = regels_passen_bij_klant(conn, regels, klant_id)
+        if past_niet:
+            conn.close()
+            melding(past_niet, "fout")
+            return redirect(url_for("nieuw"))
         datum = geldige_datum(request.form.get("datum"))
 
         # Nog geen nummer: dat komt pas als de rekening definitief wordt. Zo laat een
@@ -3009,7 +3211,7 @@ def nieuw():
             ),
         )
         factuur_id = cur.lastrowid
-        bewaar_regels(conn, factuur_id, regels)
+        uren_meldingen = bewaar_regels(conn, factuur_id, regels)
         conn.commit()
         conn.close()
 
@@ -3019,6 +3221,8 @@ def nieuw():
         # De mail gaat pas weg vanaf het controlescherm, met Mail versturen.
         melding("Rekening opgeslagen als concept. Hij krijgt zijn nummer zodra je "
               "hem verstuurt of definitief maakt.")
+        for tekst in uren_meldingen:
+            melding(tekst, "fout")
 
         return redirect(url_for("index"))
 
@@ -3030,7 +3234,7 @@ def nieuw():
         gekozen = conn.execute("SELECT * FROM klanten WHERE id=?", (vooraf,)).fetchone()
         conn.close()
 
-    vandaag = date.today().isoformat()
+    vandaag = nu().date().isoformat()
     return render_template(
         "nieuw.html", vandaag=vandaag, actief="nieuw",
         factuur=None, regels=[], klanten=klantenlijst(), gekozen_klant=gekozen,
@@ -3059,6 +3263,11 @@ def bewerk(factuur_id):
             return redirect(url_for("bewerk", factuur_id=factuur_id))
 
         klant_id = bepaal_klant(conn, request.form)
+        past_niet = regels_passen_bij_klant(conn, regels, klant_id)
+        if past_niet:
+            conn.close()
+            melding(past_niet, "fout")
+            return redirect(url_for("bewerk", factuur_id=factuur_id))
         datum = geldige_datum(request.form.get("datum"), factuur["datum"])
         conn.execute(
             """UPDATE facturen SET datum=?, vervalt_op=?, klant_id=?, klant_naam=?,
@@ -3077,7 +3286,7 @@ def bewerk(factuur_id):
                 factuur_id,
             ),
         )
-        bewaar_regels(conn, factuur_id, regels)
+        uren_meldingen = bewaar_regels(conn, factuur_id, regels)
         conn.commit()
         conn.close()
 
@@ -3086,6 +3295,8 @@ def bewerk(factuur_id):
         # Bewerken mailt niet mee, ook niet als `verstuur=ja` in het formulier staat.
         # Mailen is een aparte stap, na de controle van wat er de deur uitgaat.
         melding(f"Rekening {factuurnaam(factuur)} bijgewerkt.")
+        for tekst in uren_meldingen:
+            melding(tekst, "fout")
 
         return redirect(url_for("index"))
 
@@ -3156,7 +3367,7 @@ def offertes():
     lijst = conn.execute("SELECT * FROM offertes ORDER BY datum DESC, id DESC").fetchall()
     conn.close()
 
-    vandaag = date.today().isoformat()
+    vandaag = nu().date().isoformat()
     open_offertes = [o for o in lijst
                      if o["status"] in ("concept", "verzonden") and not o["factuur_id"]]
     overzicht = {
@@ -3197,6 +3408,11 @@ def offerte_nieuw():
         conn = get_db()
         nummer = volgend_offertenummer(conn)
         klant_id = bepaal_klant(conn, request.form)
+        past_niet = regels_passen_bij_klant(conn, regels, klant_id)
+        if past_niet:
+            conn.close()
+            melding(past_niet, "fout")
+            return redirect(url_for("offerte_nieuw"))
         datum = geldige_datum(request.form.get("datum"))
 
         cur = conn.execute(
@@ -3229,10 +3445,6 @@ def offerte_nieuw():
 
         maak_offerte_pdf(offerte_id)
         melding(f"Offerte {nummer} aangemaakt.")
-
-        if request.form.get("verstuur") == "ja":
-            mail_offerte(offerte_id)
-
         return redirect(url_for("offertes"))
 
     vooraf = request.args.get("klant", "")
@@ -3242,7 +3454,7 @@ def offerte_nieuw():
         gekozen = conn.execute("SELECT * FROM klanten WHERE id=?", (vooraf,)).fetchone()
         conn.close()
 
-    vandaag = date.today().isoformat()
+    vandaag = nu().date().isoformat()
     return render_template(
         "nieuw.html", mode="offerte", vandaag=vandaag, actief="offertes",
         factuur=None, regels=[], klanten=klantenlijst(), gekozen_klant=gekozen,
@@ -3267,6 +3479,11 @@ def offerte_bewerk(offerte_id):
             return redirect(url_for("offerte_bewerk", offerte_id=offerte_id))
 
         klant_id = bepaal_klant(conn, request.form)
+        past_niet = regels_passen_bij_klant(conn, regels, klant_id)
+        if past_niet:
+            conn.close()
+            melding(past_niet, "fout")
+            return redirect(url_for("offerte_bewerk", offerte_id=offerte_id))
         datum = geldige_datum(request.form.get("datum"), offerte["datum"])
         conn.execute(
             """UPDATE offertes SET datum=?, geldig_tot=?, klant_id=?, klant_naam=?,
@@ -3291,10 +3508,6 @@ def offerte_bewerk(offerte_id):
 
         maak_offerte_pdf(offerte_id)
         melding(f"Offerte {offerte['nummer']} bijgewerkt.")
-
-        if request.form.get("verstuur") == "ja":
-            mail_offerte(offerte_id)
-
         return redirect(url_for("offertes"))
 
     regels = conn.execute(
@@ -3342,9 +3555,34 @@ def vernieuw_offerte(offerte_id):
     return redirect(terug_naar(url_for("offertes")))
 
 
+@app.route("/offerte/<int:offerte_id>/mail")
+def offerte_mail(offerte_id):
+    """Hetzelfde controlescherm als bij een rekening, vóór de offerte de deur uitgaat."""
+    conn = get_db()
+    offerte = offerte_of_404(conn, offerte_id)
+    conn.close()
+    maak_offerte_pdf(offerte_id)
+    return render_template(
+        "mailen.html",
+        wie=offerte["klant_naam"],
+        inhoud=mailinhoud_offerte(offerte),
+        pdf_url=url_for("bekijk_offerte", offerte_id=offerte_id),
+        concept=False,
+        voorlopig_nummer=False,
+        al_verzonden=offerte["status"] != "concept",
+        reden=waarom_mailen_niet_kan("offertes", offerte_id),
+        form_action=url_for("verstuur_offerte", offerte_id=offerte_id),
+        terug_url=url_for("offertes"),
+        terug_label="Terug naar offertes",
+        document_label="PDF van de offerte",
+        bonnen=[],
+        actief="offertes",
+    )
+
+
 @app.route("/offerte/<int:offerte_id>/verstuur", methods=["POST"])
 def verstuur_offerte(offerte_id):
-    mail_offerte(offerte_id)
+    mail_offerte(offerte_id, request.form.get("eigen_zin", ""))
     return redirect(terug_naar(url_for("offertes")))
 
 
@@ -3363,10 +3601,23 @@ def offerte_status(offerte_id):
     return redirect(terug_naar(url_for("offertes")))
 
 
+def al_gefactureerd_van_offerte(conn, offerte_id):
+    """Wat er al op rekeningen staat die aan deze offerte hangen."""
+    som = conn.execute(
+        "SELECT COALESCE(SUM(totaal), 0) FROM facturen WHERE offerte_id=?",
+        (offerte_id,),
+    ).fetchone()[0]
+    return round(som, 2)
+
+
 @app.route("/offerte/<int:offerte_id>/naar-rekening", methods=["POST"])
 def offerte_naar_rekening(offerte_id):
-    """Maakt van een geaccepteerde offerte een rekening met dezelfde regels. De
-    offerte blijft staan als vastlegging van wat er is afgesproken."""
+    """Maakt van een offerte een concept-rekening voor wat er nog openstaat.
+
+    Zonder eerdere aanbetaling zijn dat de regels van de offerte, inclusief de
+    bonnen: die worden dan pas als gefactureerd gemarkeerd. Is er al een deel
+    gerekend, dan komt er een regel 'reeds aanbetaald' bij zodat het totaal het
+    restant is en niet nog een keer het volle bedrag."""
     conn = get_db()
     offerte = offerte_of_404(conn, offerte_id)
     if offerte["factuur_id"]:
@@ -3378,14 +3629,23 @@ def offerte_naar_rekening(offerte_id):
             melding(f"Offerte {offerte['nummer']} is al omgezet naar een rekening.", "fout")
             return redirect(url_for("bewerk", factuur_id=offerte["factuur_id"]))
 
-    regels = conn.execute(
+    bron = conn.execute(
         "SELECT * FROM offerte_regels WHERE offerte_id=? ORDER BY id", (offerte_id,)
     ).fetchall()
-    nieuwe_datum = date.today().isoformat()
+    reeds = al_gefactureerd_van_offerte(conn, offerte_id)
+    lijn_som = round(sum(r["subtotaal"] for r in bron), 2)
+    rest = round(lijn_som - reeds, 2)
+    if rest <= 0.005:
+        conn.close()
+        melding(f"Van offerte {offerte['nummer']} staat al het hele bedrag op een "
+                "rekening. Er is geen restant meer.", "fout")
+        return redirect(url_for("offertes"))
+
+    nieuwe_datum = vandaag().isoformat()
     cur = conn.execute(
         """INSERT INTO facturen (nummer, datum, vervalt_op, klant_id, klant_naam,
-           klant_adres, klant_email, betaalmethode, status, totaal, kenmerk)
-           VALUES ('', ?, ?, ?, ?, ?, ?, 'bank', 'concept', ?, ?)""",
+           klant_adres, klant_email, betaalmethode, status, totaal, kenmerk, offerte_id)
+           VALUES ('', ?, ?, ?, ?, ?, ?, 'bank', 'concept', ?, ?, ?)""",
         (
             nieuwe_datum,
             standaard_vervalt(nieuwe_datum),
@@ -3393,18 +3653,25 @@ def offerte_naar_rekening(offerte_id):
             offerte["klant_naam"],
             offerte["klant_adres"],
             offerte["klant_email"],
-            offerte["totaal"],
+            rest,
             offerte["kenmerk"],
+            offerte_id,
         ),
     )
     factuur_id = cur.lastrowid
-    for r in regels:
-        conn.execute(
-            """INSERT INTO regels (factuur_id, omschrijving, type, aantal, prijs,
-               subtotaal) VALUES (?, ?, ?, ?, ?, ?)""",
-            (factuur_id, r["omschrijving"], r["type"], r["aantal"], r["prijs"],
-             r["subtotaal"]),
-        )
+    regels = []
+    for r in bron:
+        inkoop_id = r["inkoop_id"] if "inkoop_id" in r.keys() else None
+        regels.append((
+            r["omschrijving"], r["type"], r["aantal"], r["prijs"], r["subtotaal"],
+            None, inkoop_id,
+        ))
+    if reeds > 0.004:
+        regels.append((
+            f"Reeds aanbetaald op offerte {offerte['nummer']}",
+            "arbeid_klus", 1, -reeds, -reeds, None, None,
+        ))
+    bewaar_regels(conn, factuur_id, regels)
     conn.execute(
         "UPDATE offertes SET factuur_id=?, status='geaccepteerd' WHERE id=?",
         (factuur_id, offerte_id),
@@ -3413,8 +3680,13 @@ def offerte_naar_rekening(offerte_id):
     conn.close()
 
     maak_pdf(factuur_id)
-    melding(f"Offerte {offerte['nummer']} staat nu als concept-rekening klaar. "
-          "Controleer hem en verstuur hem als hij klopt; dan krijgt hij zijn nummer.")
+    if reeds > 0.004:
+        melding(f"Offerte {offerte['nummer']} staat als concept klaar voor het restant "
+                f"van € {nl_bedrag(rest)}. De eerdere aanbetaling is eraf gehaald. "
+                "Controleer hem voordat je hem verstuurt.")
+    else:
+        melding(f"Offerte {offerte['nummer']} staat nu als concept-rekening klaar. "
+                "Controleer hem en verstuur hem als hij klopt; dan krijgt hij zijn nummer.")
     return redirect(url_for("bewerk", factuur_id=factuur_id))
 
 
@@ -3425,9 +3697,14 @@ def offerte_aanbetaling(offerte_id):
     conn = get_db()
     offerte = offerte_of_404(conn, offerte_id)
 
+    reeds = al_gefactureerd_van_offerte(conn, offerte_id)
+    openstaand = round(offerte["totaal"] - reeds, 2)
     if request.method != "POST":
         conn.close()
-        return render_template("aanbetaling.html", offerte=offerte, actief="offertes")
+        return render_template(
+            "aanbetaling.html", offerte=offerte, actief="offertes",
+            reeds=reeds, openstaand=max(openstaand, 0),
+        )
 
     try:
         deel = _getal(request.form.get("percentage"))
@@ -3439,14 +3716,20 @@ def offerte_aanbetaling(offerte_id):
         return redirect(url_for("offerte_aanbetaling", offerte_id=offerte_id))
 
     bedrag = round(offerte["totaal"] * deel / 100, 2)
+    if bedrag > openstaand + 0.005:
+        conn.close()
+        melding(f"Samen met eerdere rekeningen is dat meer dan de offerte. "
+                f"Er staat nog € {nl_bedrag(max(openstaand, 0))} open.", "fout")
+        return redirect(url_for("offerte_aanbetaling", offerte_id=offerte_id))
+
     omschrijving = (request.form.get("omschrijving", "").strip()
                     or f"Aanbetaling {deel:g}% van offerte {offerte['nummer']}")
 
-    nieuwe_datum = date.today().isoformat()
+    nieuwe_datum = vandaag().isoformat()
     cur = conn.execute(
         """INSERT INTO facturen (nummer, datum, vervalt_op, klant_id, klant_naam,
-           klant_adres, klant_email, betaalmethode, status, totaal, kenmerk)
-           VALUES ('', ?, ?, ?, ?, ?, ?, 'bank', 'concept', ?, ?)""",
+           klant_adres, klant_email, betaalmethode, status, totaal, kenmerk, offerte_id)
+           VALUES ('', ?, ?, ?, ?, ?, ?, 'bank', 'concept', ?, ?, ?)""",
         (
             nieuwe_datum,
             standaard_vervalt(nieuwe_datum),
@@ -3456,6 +3739,7 @@ def offerte_aanbetaling(offerte_id):
             offerte["klant_email"],
             bedrag,
             offerte["kenmerk"],
+            offerte_id,
         ),
     )
     factuur_id = cur.lastrowid
@@ -3513,8 +3797,13 @@ def _regels_afbreken(c, tekst, font, grootte, maxbreedte):
     return regels
 
 
-def maak_pdf(factuur_id):
-    """Tekent de rekening en geeft het pad naar de PDF terug."""
+def maak_pdf(factuur_id, weergavenummer=None, pad=None):
+    """Tekent de rekening en geeft het pad naar de PDF terug.
+
+    `weergavenummer` zet een nummer op het vel zonder het op de rekening op te
+    slaan. Het mailvoorbeeld van een concept gebruikt dat, zodat je dezelfde PDF
+    ziet als de klant straks krijgt. `pad` is waar het bestand komt; zonder pad
+    de gewone naam in de PDF-map."""
     conn = get_db()
     factuur = conn.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
     regels = conn.execute("SELECT * FROM regels WHERE factuur_id=?", (factuur_id,)).fetchall()
@@ -3525,10 +3814,13 @@ def maak_pdf(factuur_id):
     conn.close()
 
     doc = dict(factuur)
+    if weergavenummer is not None:
+        doc["nummer"] = weergavenummer
     doc["soort"] = "factuur"
-    doc["weergavenummer"] = factuur["nummer"] or "CONCEPT"
+    doc["weergavenummer"] = doc["nummer"] or "CONCEPT"
     doc["betaald"] = betaald
-    return _teken_document(os.path.join(PDF_DIR, pdf_bestandsnaam(factuur)), doc, regels, s)
+    doel = pad or os.path.join(PDF_DIR, pdf_bestandsnaam(doc))
+    return _teken_document(doel, doc, regels, s)
 
 
 def maak_offerte_pdf(offerte_id):
@@ -3705,29 +3997,44 @@ def _teken_regels(vel, regels):
     Geen typenaam onder de omschrijving (rekening én offerte): die staat al in
     de tekst van de regel, en dubbele labeling verwart — zelfde reden als geen
     badge in de UI. Eenheid (st/u/dg) blijft wel staan.
+
+    Een lange materiaalomschrijving loopt over meerdere regels in plaats van
+    afgekapt te worden: de klant moet de hele naam kunnen lezen.
     """
     c = vel.c
     _teken_kolomkoppen(vel)
+    omschrijfbreedte = vel.kolom_aantal - vel.links - 6 * mm
 
     for r in regels:
-        if vel.y < 78 * mm:
+        soort_info = soort(r["type"])
+        c.setFont("Helvetica", 9.5)
+        tekstregels = _regels_afbreken(
+            c, r["omschrijving"] or "", "Helvetica", 9.5, omschrijfbreedte)
+        # Hoogte van deze regel plus de streep eronder, zodat hij niet half op
+        # de volgende pagina begint als het nog net past.
+        nodig = len(tekstregels) * 4.4 * mm + 8 * mm
+        if vel.y - nodig < 78 * mm:
             vel.nieuwe_pagina(vervolg=True)
             _teken_kolomkoppen(vel)
 
-        soort_info = soort(r["type"])
-        c.setFillColor(INKT)
-        c.setFont("Helvetica", 9.5)
-        c.drawString(vel.links, vel.y,
-                     vel.kort(r["omschrijving"], "Helvetica", 9.5,
-                              vel.kolom_aantal - vel.links - 6 * mm))
-        # Bij een vaste prijs per klus zeggen aantal en tarief niets; alleen het bedrag.
-        if soort_info["eenheid"]:
-            aantal = f"{r['aantal']:g}".replace(".", ",")
-            c.drawRightString(vel.kolom_aantal, vel.y, f"{aantal} {soort_info['eenheid']}")
-            c.drawRightString(vel.kolom_prijs, vel.y, nl_bedrag(r["prijs"]))
-        c.drawRightString(vel.rechts, vel.y, nl_bedrag(r["subtotaal"]))
+        for i, tekst in enumerate(tekstregels):
+            if vel.y < 78 * mm:
+                vel.nieuwe_pagina(vervolg=True)
+                _teken_kolomkoppen(vel)
+            c.setFillColor(INKT)
+            c.setFont("Helvetica", 9.5)
+            c.drawString(vel.links, vel.y, tekst)
+            if i == 0:
+                # Bij een vaste prijs per klus zeggen aantal en tarief niets.
+                if soort_info["eenheid"]:
+                    aantal = f"{r['aantal']:g}".replace(".", ",")
+                    c.drawRightString(vel.kolom_aantal, vel.y,
+                                      f"{aantal} {soort_info['eenheid']}")
+                    c.drawRightString(vel.kolom_prijs, vel.y, nl_bedrag(r["prijs"]))
+                c.drawRightString(vel.rechts, vel.y, nl_bedrag(r["subtotaal"]))
+            vel.y -= 4.4 * mm
 
-        vel.y -= 9 * mm
+        vel.y -= 4 * mm
         c.setStrokeColor(LIJN)
         c.setLineWidth(0.5)
         c.line(vel.links, vel.y, vel.rechts, vel.y)
@@ -3743,7 +4050,13 @@ def _teken_totaal(vel, totaal):
 
 
 def _teken_toelichting(vel, toelichting):
-    """Wat er wel en niet bij de prijs zit; staat vooral op een offerte."""
+    """Wat er wel en niet bij de prijs zit; staat vooral op een offerte.
+
+    Een lange toelichting gaat door op een volgend vel in plaats van door de
+    voettekst heen te lopen. De betaalstrook van een rekening heeft die check
+    al; de toelichting had hem niet."""
+    if vel.y < 40 * mm:
+        vel.nieuwe_pagina(vervolg=True)
     vel.y -= 14 * mm
     vel.label("Toelichting", vel.links, vel.y)
     vel.y -= 5.5 * mm
@@ -3752,6 +4065,10 @@ def _teken_toelichting(vel, toelichting):
     for alinea in toelichting.split("\n"):
         for regel in _regels_afbreken(vel.c, alinea.strip(), "Helvetica", 9,
                                       vel.rechts - vel.links):
+            if vel.y < 24 * mm:
+                vel.nieuwe_pagina(vervolg=True)
+                vel.c.setFont("Helvetica", 9)
+                vel.c.setFillColor(GRIJS_DONKER)
             vel.c.drawString(vel.links, vel.y, regel)
             vel.y -= 4.6 * mm
 
@@ -3913,34 +4230,89 @@ def _mail_pdf(s, ontvanger, onderwerp, tekst, pad, bestandsnaam, extra=None):
     return True, ""
 
 
+def _eigen_zin(tekst):
+    """Eén zin die de gebruiker aan de mail toevoegt. Regeleinden worden een spatie,
+    anders is het geen zin meer maar een tweede brief."""
+    return " ".join((tekst or "").split())[:200].rstrip()
+
+
+def met_eigen_zin(tekst, eigen_zin):
+    """Zet de eigen zin direct na de aanhef. Leeg betekent de standaardtekst."""
+    zin = _eigen_zin(eigen_zin)
+    if not zin:
+        return tekst
+    delen = tekst.split("\n\n", 1)
+    if len(delen) == 1:
+        return tekst + "\n\n" + zin
+    return delen[0] + "\n\n" + zin + "\n\n" + delen[1]
+
+
+def gekozen_bon_ids(form):
+    """Welke bonnetjes mee mogen, of None als het formulier daar niets over zegt.
+
+    None betekent: alles wat op deze rekening op 'meesturen' staat. Het verborgen
+    veld `bonnen_gekozen` onderscheidt dat van 'de gebruiker heeft alles uitgezet'."""
+    if form is None or form.get("bonnen_gekozen") != "1":
+        return None
+    return {int(x) for x in form.getlist("mee") if str(x).isdigit()}
+
+
 def bonnen_bij_factuur(conn, factuur_id):
-    """De bestanden die mee moeten met deze rekening: bijlagen op 'meesturen' bij
-    klussen waarvan de uren hier staan, of bij inkopen die als bon-regel erop staan."""
+    """Bestanden van bonnen die op díéze rekening staan en op 'meesturen' staan.
+
+    Een urenregel van dezelfde klus haalt niet alle foto's van die klus mee.
+    Notitiefoto's gaan nooit mee, ook niet als `meesturen` per ongeluk aan staat."""
     rijen = conn.execute(
-        """SELECT bestand, naam FROM (
-             SELECT DISTINCT b.bestand AS bestand, b.naam AS naam, b.id AS id
-             FROM bijlagen b
-             JOIN regels r ON r.klus_id = b.klus_id
-             WHERE r.factuur_id = ? AND b.meesturen = 1
-             UNION
-             SELECT DISTINCT b.bestand AS bestand, b.naam AS naam, b.id AS id
-             FROM bijlagen b
-             JOIN regels r ON r.inkoop_id = b.inkoop_id
-             WHERE r.factuur_id = ? AND b.meesturen = 1 AND b.inkoop_id IS NOT NULL
-           )
-           ORDER BY id""",
-        (factuur_id, factuur_id),
+        """SELECT DISTINCT b.id AS id, b.bestand AS bestand, b.naam AS naam
+           FROM bijlagen b
+           JOIN regels r ON r.inkoop_id = b.inkoop_id
+           WHERE r.factuur_id = ?
+             AND b.meesturen = 1
+             AND b.inkoop_id IS NOT NULL
+             AND b.notitie_id IS NULL
+           ORDER BY b.id""",
+        (factuur_id,),
     ).fetchall()
-    return [(os.path.join(BIJLAGE_DIR, r["bestand"]), r["naam"]) for r in rijen]
+    return [{"id": r["id"], "pad": os.path.join(BIJLAGE_DIR, r["bestand"]),
+             "naam": r["naam"]} for r in rijen]
 
 
-def meegestuurde_bonnen(conn, factuur_id):
+def meegestuurde_bonnen(conn, factuur_id, alleen_ids=None):
     """Bonnetjes die echt mee de mail in gaan.
 
     Een vinkje 'meesturen' op een bestand dat intussen weg is, levert geen bijlage
-    op. Die hoort dus ook niet in het voorbeeld te staan."""
-    return [(pad, naam) for pad, naam in bonnen_bij_factuur(conn, factuur_id)
-            if os.path.exists(pad)]
+    op. Die hoort dus ook niet in het voorbeeld te staan. `alleen_ids` beperkt
+    dat tot wat er op het controlescherm aangevinkt bleef."""
+    uit = []
+    for bon in bonnen_bij_factuur(conn, factuur_id):
+        if alleen_ids is not None and bon["id"] not in alleen_ids:
+            continue
+        if os.path.exists(bon["pad"]):
+            uit.append(bon)
+    return uit
+
+
+def _extra_bestanden(bonnen):
+    return [(bon["pad"], bon["naam"]) for bon in bonnen]
+
+
+def draai_nummer_terug(factuur_id):
+    """Haalt een nummer weg dat bij een mislukte mail was vergeven.
+
+    De klant heeft niets ontvangen, dus de rekening blijft een concept en het
+    nummer komt weer vrij. De genummerde PDF gaat weg; de concept-PDF komt terug."""
+    conn = get_db()
+    factuur = conn.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
+    if factuur is None or not factuur["nummer"] or factuur["status"] != "concept":
+        conn.close()
+        return
+    genummerd = os.path.join(PDF_DIR, pdf_bestandsnaam(factuur))
+    conn.execute("UPDATE facturen SET nummer='' WHERE id=?", (factuur_id,))
+    conn.commit()
+    conn.close()
+    if os.path.exists(genummerd):
+        os.remove(genummerd)
+    maak_pdf(factuur_id)
 
 
 def factuur_zoals_in_de_mail(conn, factuur):
@@ -3948,13 +4320,14 @@ def factuur_zoals_in_de_mail(conn, factuur):
 
     Een concept heeft nog geen nummer, maar krijgt dat zodra de mail de deur uitgaat.
     Het voorbeeld moet dat nummer al laten zien, anders controleer je een andere
-    tekst dan de klant ontvangt. Er wordt hier nog niets opgeslagen."""
+    tekst dan de klant ontvangt. Er wordt hier nog niets opgeslagen: een andere
+    rekening kan het nummer intussen pakken, en een mislukte mail draait het terug."""
     if factuur["nummer"]:
         return dict(factuur)
     return dict(factuur, nummer=volgend_nummer(conn))
 
 
-def mailinhoud_rekening(factuur, bonnen):
+def mailinhoud_rekening(factuur, bonnen, eigen_zin=""):
     """Onderwerp, tekst en bijlagen van de mail bij deze rekening.
 
     Het controlescherm en het echte versturen gebruiken dezelfde tekst, zodat wat
@@ -3970,15 +4343,17 @@ def mailinhoud_rekening(factuur, bonnen):
     return {
         "ontvanger": factuur["klant_email"] or "",
         "onderwerp": f"Rekening {naam} - {s.get('naam') or ''}",
-        "tekst": tekst,
+        "tekst": met_eigen_zin(tekst, eigen_zin),
         "pdf": pdf_bestandsnaam(factuur),
-        "bonnen": [bon_naam for _pad, bon_naam in bonnen],
+        "bonnen": bonnen,
     }
 
 
-def verstuur_email(factuur_id):
-    """Mailt de rekening naar de klant en zet hem op verzonden. Een concept krijgt
-    hierbij zijn nummer: de rekening gaat de deur uit, dus vanaf nu ligt hij vast."""
+def verstuur_email(factuur_id, eigen_zin="", bon_ids=None):
+    """Mailt de rekening naar de klant en zet hem op verzonden.
+
+    Het nummer komt er pas als de mailserver de mail heeft aangenomen. Lukt dat
+    niet, dan blijft een concept een concept en komt het nummer weer vrij."""
     conn = get_db()
     factuur = conn.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
     if factuur is None:
@@ -3986,25 +4361,25 @@ def verstuur_email(factuur_id):
         abort(404)
     s = get_settings()
 
-    # Eerst kijken of het mailen überhaupt kan; anders krijgt een concept een nummer
-    # voor een mail die nooit is verstuurd.
-    if factuur["klant_email"] and s.get("smtp_host"):
-        factuur = maak_definitief(conn, factuur_id)
-    bonnen = meegestuurde_bonnen(conn, factuur_id)
-    conn.close()
-
     if not factuur["klant_email"]:
+        conn.close()
         return False, ("Deze klant heeft geen e-mailadres. Vul dat in bij de rekening "
                        "of bij de klant.")
     if not s.get("smtp_host"):
+        conn.close()
         return False, ("Er is nog geen mailserver ingesteld. Vul die in onder "
                        "Instellingen → Mailen.")
 
-    inhoud = mailinhoud_rekening(factuur, bonnen)
-    pad = os.path.join(PDF_DIR, inhoud["pdf"])
-    if not os.path.exists(pad):
-        maak_pdf(factuur_id)
+    was_concept = not factuur["nummer"]
+    if was_concept:
+        factuur = maak_definitief(conn, factuur_id)
+    # Altijd opnieuw tekenen: logo, IBAN of een betaling kunnen intussen anders zijn.
+    maak_pdf(factuur_id)
+    bonnen = meegestuurde_bonnen(conn, factuur_id, bon_ids)
+    conn.close()
 
+    inhoud = mailinhoud_rekening(factuur, bonnen, eigen_zin)
+    pad = os.path.join(PDF_DIR, inhoud["pdf"])
     gelukt, tekst = _mail_pdf(
         s,
         inhoud["ontvanger"],
@@ -4012,53 +4387,31 @@ def verstuur_email(factuur_id):
         inhoud["tekst"],
         pad,
         inhoud["pdf"],
-        bonnen,
+        _extra_bestanden(bonnen),
     )
     if not gelukt:
+        if was_concept:
+            draai_nummer_terug(factuur_id)
         return False, tekst
 
     conn = get_db()
     conn.execute("UPDATE facturen SET status='verzonden' WHERE id=?", (factuur_id,))
     conn.commit()
     conn.close()
+    voorbeeld = os.path.join(PDF_DIR, f"voorbeeld-{factuur_id}.pdf")
+    if os.path.exists(voorbeeld):
+        os.remove(voorbeeld)
     return True, f"Rekening {factuurnaam(factuur)} gemaild naar {factuur['klant_email']}."
 
 
-def herinnering_email(factuur_id):
-    """Stuurt een vriendelijke herinnering met de rekening er nog eens bij. Noemt
-    hoeveel er nog openstaat; heeft de rekening een termijn, dan ook of die voorbij
-    is."""
-    conn = get_db()
-    factuur = conn.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
-    if factuur is None:
-        conn.close()
-        abort(404)
-    betaald = betaald_op(conn, factuur_id)
+def mailinhoud_herinnering(factuur, betaald, bonnen, eigen_zin=""):
+    """De tekst van een herinnering. Voorbeeld en versturen gebruiken dezelfde."""
     s = get_settings()
-    conn.close()
-
-    if factuur["status"] == "betaald":
-        return False, "Deze rekening is al betaald; er valt niets te herinneren."
-    if not factuur["nummer"]:
-        return False, ("Dit is nog een concept. Verstuur de rekening eerst; daarna kun "
-                       "je een herinnering sturen.")
-    if not factuur["klant_email"]:
-        return False, ("Deze klant heeft geen e-mailadres. Vul dat in bij de rekening "
-                       "of bij de klant.")
-    if not s.get("smtp_host"):
-        return False, ("Er is nog geen mailserver ingesteld. Vul die in onder "
-                       "Instellingen → Mailen.")
-
-    bestandsnaam = pdf_bestandsnaam(factuur)
-    pad = os.path.join(PDF_DIR, bestandsnaam)
-    if not os.path.exists(pad):
-        maak_pdf(factuur_id)
-
     openstaand = round(factuur["totaal"] - betaald, 2)
     vervalt = factuur["vervalt_op"] or ""
     if vervalt:
         try:
-            te_laat = (date.today() - date.fromisoformat(vervalt)).days
+            te_laat = (vandaag() - date.fromisoformat(vervalt)).days
         except ValueError:
             te_laat = 0
         if te_laat > 0:
@@ -4067,10 +4420,8 @@ def herinnering_email(factuur_id):
         else:
             opening = f"De rekening staat open tot {filter_datum_nl(vervalt)}."
     else:
-        # Zonder termijn geen "te laat" of "staat open tot"; wel het openstaande bedrag.
         opening = ""
 
-    # Is er al iets binnen, dan hoort de herinnering niet om het hele bedrag te vragen.
     bedragregel = f"Het openstaande bedrag is € {nl_bedrag(openstaand)}."
     if betaald > 0:
         bedragregel += (f" Van het totaal van € {nl_bedrag(factuur['totaal'])} is er al "
@@ -4079,19 +4430,65 @@ def herinnering_email(factuur_id):
     open_zin = (f"Deze rekening ({factuur['nummer']}) staat nog open. {opening}".rstrip()
                 if opening else
                 f"Deze rekening ({factuur['nummer']}) staat nog open.")
-
-    gelukt, tekst = _mail_pdf(
-        s,
-        factuur["klant_email"],
-        f"Herinnering: rekening {factuur['nummer']} - {s.get('naam', '')}",
+    tekst = (
         f"Beste {factuur['klant_naam']},\n\n"
         f"{open_zin}\n\n"
         f"{bedragregel}\n\n"
         "Wellicht is hij aan je aandacht ontsnapt; is hij inmiddels betaald, dan kun je "
         "dit bericht negeren. De rekening zit voor de zekerheid nog een keer bijgevoegd."
-        f"\n\nMet vriendelijke groet,\n{s.get('naam', '')}",
-        pad,
-        bestandsnaam,
+        + (f" De bonnetjes zitten erbij." if bonnen else "")
+        + f"\n\nMet vriendelijke groet,\n{s.get('naam') or ''}"
+    )
+    return {
+        "ontvanger": factuur["klant_email"] or "",
+        "onderwerp": f"Herinnering: rekening {factuur['nummer']} - {s.get('naam') or ''}",
+        "tekst": met_eigen_zin(tekst, eigen_zin),
+        "pdf": pdf_bestandsnaam(factuur),
+        "bonnen": bonnen,
+    }
+
+
+def herinnering_email(factuur_id, eigen_zin="", bon_ids=None):
+    """Stuurt een vriendelijke herinnering met de rekening er nog eens bij. Noemt
+    hoeveel er nog openstaat; heeft de rekening een termijn, dan ook of die voorbij
+    is. De PDF wordt opnieuw getekend, net als bij de eerste mail."""
+    conn = get_db()
+    factuur = conn.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
+    if factuur is None:
+        conn.close()
+        abort(404)
+    betaald = betaald_op(conn, factuur_id)
+    s = get_settings()
+
+    if factuur["status"] == "betaald":
+        conn.close()
+        return False, "Deze rekening is al betaald; er valt niets te herinneren."
+    if not factuur["nummer"]:
+        conn.close()
+        return False, ("Dit is nog een concept. Verstuur de rekening eerst; daarna kun "
+                       "je een herinnering sturen.")
+    if not factuur["klant_email"]:
+        conn.close()
+        return False, ("Deze klant heeft geen e-mailadres. Vul dat in bij de rekening "
+                       "of bij de klant.")
+    if not s.get("smtp_host"):
+        conn.close()
+        return False, ("Er is nog geen mailserver ingesteld. Vul die in onder "
+                       "Instellingen → Mailen.")
+
+    maak_pdf(factuur_id)
+    bonnen = meegestuurde_bonnen(conn, factuur_id, bon_ids)
+    conn.close()
+
+    inhoud = mailinhoud_herinnering(factuur, betaald, bonnen, eigen_zin)
+    gelukt, tekst = _mail_pdf(
+        s,
+        inhoud["ontvanger"],
+        inhoud["onderwerp"],
+        inhoud["tekst"],
+        os.path.join(PDF_DIR, inhoud["pdf"]),
+        inhoud["pdf"],
+        _extra_bestanden(bonnen),
     )
     if not gelukt:
         return False, tekst
@@ -4099,8 +4496,29 @@ def herinnering_email(factuur_id):
                   f"{factuur['klant_email']}.")
 
 
-def verstuur_offerte_email(offerte_id):
-    """Mailt de offerte naar de klant en zet hem op verzonden."""
+def mailinhoud_offerte(offerte, eigen_zin=""):
+    s = get_settings()
+    tekst = (
+        f"Beste {offerte['klant_naam']},\n\n"
+        f"Hierbij de offerte ({offerte['nummer']}) voor het besproken werk."
+        + (f" De prijs geldt tot {filter_datum_nl(offerte['geldig_tot'])}."
+           if offerte["geldig_tot"] else "")
+        + f"\n\nMet vriendelijke groet,\n{s.get('naam') or ''}"
+    )
+    return {
+        "ontvanger": offerte["klant_email"] or "",
+        "onderwerp": f"Offerte {offerte['nummer']} - {s.get('naam') or ''}",
+        "tekst": met_eigen_zin(tekst, eigen_zin),
+        "pdf": f"{offerte['nummer']}.pdf",
+        "bonnen": [],
+    }
+
+
+def verstuur_offerte_email(offerte_id, eigen_zin=""):
+    """Mailt de offerte naar de klant en zet hem op verzonden.
+
+    De PDF wordt vlak voor het versturen opnieuw getekend, zodat een gewijzigd
+    logo of adres niet de oude versie meestuurt."""
     conn = get_db()
     offerte = conn.execute("SELECT * FROM offertes WHERE id=?", (offerte_id,)).fetchone()
     s = get_settings()
@@ -4113,21 +4531,15 @@ def verstuur_offerte_email(offerte_id):
         return False, ("Er is nog geen mailserver ingesteld. Vul die in onder "
                        "Instellingen → Mailen.")
 
-    pad = os.path.join(PDF_DIR, f"{offerte['nummer']}.pdf")
-    if not os.path.exists(pad):
-        maak_offerte_pdf(offerte_id)
-
+    pad = maak_offerte_pdf(offerte_id)
+    inhoud = mailinhoud_offerte(offerte, eigen_zin)
     gelukt, tekst = _mail_pdf(
         s,
-        offerte["klant_email"],
-        f"Offerte {offerte['nummer']} - {s.get('naam', '')}",
-        f"Beste {offerte['klant_naam']},\n\n"
-        f"Hierbij de offerte ({offerte['nummer']}) voor het besproken werk."
-        + (f" De prijs geldt tot {filter_datum_nl(offerte['geldig_tot'])}."
-           if offerte["geldig_tot"] else "")
-        + f"\n\nMet vriendelijke groet,\n{s.get('naam', '')}",
+        inhoud["ontvanger"],
+        inhoud["onderwerp"],
+        inhoud["tekst"],
         pad,
-        f"{offerte['nummer']}.pdf",
+        inhoud["pdf"],
     )
     if not gelukt:
         return False, tekst
@@ -4210,20 +4622,61 @@ def mail_voorbeeld(factuur_id):
     zoals_gemaild = factuur_zoals_in_de_mail(conn, factuur)
     bonnen = meegestuurde_bonnen(conn, factuur_id)
     conn.close()
+    if factuur["nummer"]:
+        maak_pdf(factuur_id)
+        pdf_url = url_for("bekijk_pdf", factuur_id=factuur_id)
+    else:
+        # Los bestand: de opgeslagen concept-PDF blijft "CONCEPT" zeggen. Het
+        # voorbeeld toont het voorlopige nummer, zonder dat nummer vast te leggen.
+        maak_pdf(factuur_id, weergavenummer=zoals_gemaild["nummer"],
+                 pad=os.path.join(PDF_DIR, f"voorbeeld-{factuur_id}.pdf"))
+        pdf_url = url_for("mail_pdf", factuur_id=factuur_id)
     return render_template(
         "mailen.html",
-        factuur=factuur,
+        wie=factuur["klant_naam"],
         inhoud=mailinhoud_rekening(zoals_gemaild, bonnen),
+        pdf_url=pdf_url,
         concept=not factuur["nummer"],
+        voorlopig_nummer=not factuur["nummer"],
         al_verzonden=factuur["status"] != "concept",
         reden=waarom_mailen_niet_kan("facturen", factuur_id),
+        form_action=url_for("verstuur", factuur_id=factuur_id),
+        terug_url=url_for("index"),
+        terug_label="Terug naar rekeningen",
+        document_label="PDF van de rekening",
+        bonnen=bonnen,
         actief="index",
     )
 
 
+@app.route("/factuur/<int:factuur_id>/mail-pdf")
+def mail_pdf(factuur_id):
+    """De PDF zoals de mail hem meestuurt, inclusief een voorlopig nummer."""
+    conn = get_db()
+    factuur = conn.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
+    if factuur is None:
+        conn.close()
+        abort(404)
+    zoals = factuur_zoals_in_de_mail(conn, factuur)
+    conn.close()
+    if factuur["nummer"]:
+        pad = maak_pdf(factuur_id)
+        naam = pdf_bestandsnaam(factuur)
+    else:
+        pad = os.path.join(PDF_DIR, f"voorbeeld-{factuur_id}.pdf")
+        maak_pdf(factuur_id, weergavenummer=zoals["nummer"], pad=pad)
+        naam = f"{zoals['nummer']}.pdf"
+    return send_file(pad, mimetype="application/pdf", as_attachment=als_download(),
+                     download_name=naam)
+
+
 @app.route("/factuur/<int:factuur_id>/verstuur", methods=["POST"])
 def verstuur(factuur_id):
-    mail_rekening(factuur_id)
+    mail_rekening(
+        factuur_id,
+        eigen_zin=request.form.get("eigen_zin", ""),
+        bon_ids=gekozen_bon_ids(request.form),
+    )
     return redirect(terug_naar(url_for("index")))
 
 
@@ -4263,7 +4716,7 @@ def markeer_betaald(factuur_id):
             conn.execute(
                 """INSERT INTO betalingen (factuur_id, datum, bedrag, notitie, automatisch)
                    VALUES (?, ?, ?, '', 1)""",
-                (factuur_id, date.today().isoformat(), rest),
+                (factuur_id, vandaag().isoformat(), rest),
             )
         # Onthoud waar de rekening vandaan komt, zodat terugzetten geen gok is.
         conn.execute(
@@ -4272,6 +4725,9 @@ def markeer_betaald(factuur_id):
         )
         conn.commit()
     conn.close()
+    if factuur["status"] != "betaald":
+        # De strook moet "betaald" zeggen, niet het openstaande bedrag van ervoor.
+        maak_pdf(factuur_id)
     return redirect(terug_naar(url_for("index")))
 
 
@@ -4293,6 +4749,7 @@ def markeer_niet_betaald(factuur_id):
     )
     conn.commit()
     conn.close()
+    maak_pdf(factuur_id)
     melding(f"Rekening {factuurnaam(factuur)} staat weer open.")
     return redirect(terug_naar(url_for("index")))
 
@@ -4309,7 +4766,7 @@ def kopieer(factuur_id):
 
     # Had de originele rekening een termijn, dan een nieuwe default vanaf vandaag;
     # stond er geen einddatum, dan ook geen op de kopie (de oude datum past niet).
-    nieuwe_datum = date.today().isoformat()
+    nieuwe_datum = vandaag().isoformat()
     vervalt = standaard_vervalt(nieuwe_datum) if origineel["vervalt_op"] else ""
     cur = conn.execute(
         """INSERT INTO facturen (nummer, datum, vervalt_op, klant_id, klant_naam,
@@ -4391,7 +4848,7 @@ def betalingen(factuur_id):
         "betalingen.html", factuur=factuur, naam=factuurnaam(factuur),
         betalingen=lijst, betaald=betaald,
         openstaand=round(factuur["totaal"] - betaald, 2),
-        vandaag=date.today().isoformat(), actief="index",
+        vandaag=vandaag().isoformat(), actief="index",
     )
 
 
@@ -4416,9 +4873,58 @@ def betaling_verwijder(betaling_id):
     return redirect(url_for("betalingen", factuur_id=factuur_id))
 
 
-@app.route("/factuur/<int:factuur_id>/herinnering", methods=["POST"])
+@app.route("/factuur/<int:factuur_id>/herinnering", methods=["GET", "POST"])
 def herinnering(factuur_id):
-    mail_rekening(factuur_id, herinnering_email, "De herinnering")
+    """Eerst hetzelfde controlescherm als bij de rekening, daarna pas versturen."""
+    conn = get_db()
+    factuur = conn.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
+    if factuur is None:
+        conn.close()
+        abort(404)
+    if request.method == "GET":
+        betaald = betaald_op(conn, factuur_id)
+        bonnen = meegestuurde_bonnen(conn, factuur_id) if factuur["nummer"] else []
+        conn.close()
+        reden = None
+        if factuur["status"] == "betaald":
+            reden = "Deze rekening is al betaald; er valt niets te herinneren."
+        elif not factuur["nummer"]:
+            reden = ("Dit is nog een concept. Verstuur de rekening eerst; daarna kun "
+                     "je een herinnering sturen.")
+        else:
+            reden = waarom_mailen_niet_kan("facturen", factuur_id)
+        if factuur["nummer"]:
+            maak_pdf(factuur_id)
+        return render_template(
+            "mailen.html",
+            wie=factuur["klant_naam"],
+            inhoud=mailinhoud_herinnering(factuur, betaald, bonnen) if factuur["nummer"] else {
+                "ontvanger": factuur["klant_email"] or "",
+                "onderwerp": "Herinnering",
+                "tekst": "",
+                "pdf": "",
+                "bonnen": [],
+            },
+            pdf_url=url_for("bekijk_pdf", factuur_id=factuur_id) if factuur["nummer"] else "",
+            concept=False,
+            voorlopig_nummer=False,
+            al_verzonden=False,
+            herinnering=True,
+            reden=reden,
+            form_action=url_for("herinnering", factuur_id=factuur_id),
+            terug_url=url_for("index"),
+            terug_label="Terug naar rekeningen",
+            document_label="PDF van de rekening",
+            bonnen=bonnen,
+            actief="index",
+        )
+
+    conn.close()
+    mail_rekening(
+        factuur_id, herinnering_email, "De herinnering",
+        request.form.get("eigen_zin", ""),
+        gekozen_bon_ids(request.form),
+    )
     return redirect(terug_naar(url_for("index")))
 
 
@@ -4435,6 +4941,12 @@ def verwijder(factuur_id):
         "facturen": [factuur],
         "regels": conn.execute("SELECT * FROM regels WHERE factuur_id=?", (factuur_id,)).fetchall(),
         "betalingen": conn.execute("SELECT * FROM betalingen WHERE factuur_id=?", (factuur_id,)).fetchall(),
+    }, koppelingen={
+        "factuur_id": factuur_id,
+        "uren": [r["id"] for r in conn.execute(
+            "SELECT id FROM uren WHERE factuur_id=?", (factuur_id,))],
+        "inkopen": [r["id"] for r in conn.execute(
+            "SELECT id FROM inkopen WHERE factuur_id=?", (factuur_id,))],
     })
     # Uren en bonnen die op deze rekening stonden komen weer vrij om te factureren.
     conn.execute("UPDATE uren SET factuur_id=NULL WHERE factuur_id=?", (factuur_id,))
