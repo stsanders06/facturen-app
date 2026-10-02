@@ -161,7 +161,13 @@
     margin-top: 2px;
     font-variant-numeric: tabular-nums;
     letter-spacing: -.02em;
+    /* Zelfde reden als in de overzichtsbalk: "€ 34,95" mag niet na het euroteken
+       op de volgende regel vallen, ook niet in een smalle tegel op de telefoon. */
+    white-space: nowrap;
   }
+  /* De onderregel blijft grijs en mag wél afbreken. Op nowrap zetten zou een
+     langere toelichting de tegel van een smalle telefoon af duwen. */
+  .tegel b + small { margin-top: 2px; white-space: normal; }
   .tegel.geld b { color: var(--info); }
 
   /* ---------- Kolomkoppen: één keer boven de lijst ---------- */
@@ -432,8 +438,8 @@
 <div class="cards">
 
   <section class="card">
-    {% if klus.status == 'aangevraagd' %}
     <div class="tegels">
+    {% if klus.status == 'aangevraagd' %}
       <div class="tegel">
         <small>Binnengekomen</small>
         <b>{{ wachtduur(klus.aangevraagd_op) }}</b>
@@ -445,9 +451,7 @@
         <b>&euro; {{ klus.uurtarief|bedrag }}</b>
       </div>
       {% endif %}
-    </div>
     {% else %}
-    <div class="tegels">
       <div class="tegel">
         <small>Totaal uren</small>
         <b id="tegel-totaal">{{ totaal|uren }}</b>
@@ -460,8 +464,15 @@
         <small>{% if klus.uurtarief %}Tegen &euro; {{ klus.uurtarief|bedrag }} per uur{% else %}Geen uurtarief{% endif %}</small>
         <b id="tegel-bedrag">&euro; {{ bedrag|bedrag }}</b>
       </div>
-    </div>
     {% endif %}
+      {#- Som van inkopen.bedrag bij deze klus: wat je zelf betaalt en op de
+          rekening terugkrijgt. Materiaalregels tellen niet mee. -#}
+      <div class="tegel geld">
+        <small>Bonnen</small>
+        <b id="tegel-bonnen">&euro; {{ bonnen_bedrag|bedrag }}</b>
+        <small>{% if inkopen %}terug te krijgen{% else %}nog geen bonnen{% endif %}</small>
+      </div>
+    </div>
     <p class="opsomming">
       {% if klus.klant_naam %}Klant: <a href="{{ url_for('klant', klant_id=klus.klant_id) }}">{{ klus.klant_naam }}</a> ·
       {% endif %}

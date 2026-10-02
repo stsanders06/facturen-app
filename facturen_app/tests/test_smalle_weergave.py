@@ -197,6 +197,19 @@ def test_het_notitieveld_krijgt_geen_hoogte_uit_zijn_flexbasis(client, db):
     assert "flex: 0 0 auto" in regel_met(smal, ".notitie-form .tekst-veld")
 
 
+def test_een_bedrag_in_een_klus_tegel_breekt_niet_na_het_euroteken(client, db):
+    """Op de kluspagina staan de urenopbrengst en het bonnentotaal in dezelfde
+    tegels. Zonder nowrap viel "€" op de ene regel en het bedrag op de volgende.
+    De toelichting eronder ("terug te krijgen") mag juist wél afbreken."""
+    db.execute("""INSERT INTO klussen (naam, uurtarief, gestart)
+                  VALUES ('Gevel reinigen', 55.0, '2026-09-01')""")
+    db.commit()
+    klus_id = db.execute("SELECT id FROM klussen").fetchone()[0]
+    css = css_van(client.get(f"/klus/{klus_id}").data.decode())
+    assert "nowrap" in regel_met(css, ".tegel b")
+    assert "nowrap" not in regel_met(css, ".tegel b + small")
+
+
 def test_een_bedrag_onder_een_tegel_breekt_ook_niet_na_het_euroteken(client, db):
     """Op 320px stond "€" op de ene regel en "1.273,75" op de volgende. De regel
     hierboven dekt alleen het grote bedrag en het label, niet dit kleine."""

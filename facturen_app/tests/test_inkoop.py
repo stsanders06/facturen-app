@@ -306,3 +306,46 @@ def test_menu_verdwijnt_als_geen_enkele_bon_past(post, db, client):
     pagina = client.get("/nieuw").data.decode()
     kop = pagina.split('id="bon-menu"', 1)[1].split(">", 1)[0]
     assert "hidden" in kop
+
+
+def _tegel(html, tegel_id):
+    """Het stuk HTML van één tegel bovenaan de klus, tot aan de sluitende div."""
+    return html.split(f'id="{tegel_id}"', 1)[1].split("</div>", 1)[0]
+
+
+def test_bovenaan_de_klus_staat_wat_de_bonnen_opleveren(post, db, client, klus_id):
+    """Naast de urenopbrengst staat de som van de aankopen bij deze klus: wat je
+    terugkrijgt op de rekening. Materiaalregels en bonnen van een andere klus
+    tellen niet mee; een bon die al op een rekening staat nog wel."""
+    post(f"/klus/{klus_id}/dag", {"datum": "2026-08-14", "van": "09:00", "tot": "17:00"})
+    post(f"/klus/{klus_id}/inkoop", {"omschrijving": "Gamma", "bedrag": "24,95"})
+    post(f"/klus/{klus_id}/inkoop", {"omschrijving": "Praxis", "bedrag": "10,10"})
+    gamma = db.execute(
+        "SELECT id FROM inkopen WHERE omschrijving='Gamma'").fetchone()[0]
+    post(f"/inkoop/{gamma}/materiaal",
+         {"omschrijving": "Tegellijm", "aantal": "2", "prijs": "100"})
+    db.execute("UPDATE inkopen SET factuur_id=1 WHERE id=?", (gamma,))
+    db.commit()
+
+    post("/klussen/nieuw", {"naam": "Andere klus", "uurtarief": "45"})
+    andere = db.execute(
+        "SELECT id FROM klussen WHERE naam='Andere klus'").fetchone()[0]
+    post(f"/klus/{andere}/inkoop", {"omschrijving": "Hornbach", "bedrag": "999"})
+
+    assert facturen.bonnen_totaal(facturen.inkopen_van(db, klus_id)) == 35.05
+
+    pagina = client.get(f"/klus/{klus_id}").data.decode()
+    bonnen = _tegel(pagina, "tegel-bonnen")
+    assert "35,05" in bonnen
+    assert "terug te krijgen" in bonnen
+    assert "999" not in bonnen
+    assert "200" not in bonnen
+    # 8 uur × € 45 staat apart, in de urentegel.
+    assert "360,00" in _tegel(pagina, "tegel-bedrag")
+    assert "35,05" not in _tegel(pagina, "tegel-bedrag")
+
+
+def test_zonder_bonnen_staat_er_nul_bovenaan_de_klus(client, klus_id):
+    bonnen = _tegel(client.get(f"/klus/{klus_id}").data.decode(), "tegel-bonnen")
+    assert "0,00" in bonnen
+    assert "nog geen bonnen" in bonnen

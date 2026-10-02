@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.30.1
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **Bovenaan een klus zie je wat de bonnen opleveren.** Naast de uren staat het
+  totaal van de aankopen bij die klus: het bedrag dat je terugkrijgt op de rekening.
+
 ## 1.30.0
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
