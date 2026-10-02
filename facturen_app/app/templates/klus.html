@@ -139,8 +139,25 @@
   @media (max-width: 620px) {
     .inkoop-form .fields-rij,
     .inkoop .fields-rij { grid-template-columns: 1fr; }
-    .inkoop-form .materiaal-rij { grid-template-columns: 1fr 1fr; }
+    /* Twee kolommen zette het kruisje — het vierde vak — op een eigen regel,
+       midden in de lege ruimte onder aantal en prijs. Drie kolommen houden het
+       naast de prijs. minmax(0, 1fr) zodat een getalveld de kolom niet breder
+       maakt dan de helft en het formulier van een smalle telefoon af duwt. */
+    .inkoop-form .materiaal-rij {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+    }
     .inkoop-form .materiaal-rij .mat-oms { grid-column: 1 / -1; }
+    .inkoop-form .materiaal-rij .field { min-width: 0; }
+    .inkoop-form .materiaal-rij .mat-weg {
+      align-self: end;
+      justify-self: end;
+      /* De gewone knop-padding rekt één kruisje op tot een brede balk. 44px is
+         het aanraakvlak, naast de prijs, zonder aantal en prijs weg te drukken. */
+      width: 44px;
+      min-width: 44px;
+      padding-left: 0;
+      padding-right: 0;
+    }
   }
 
   .tegels {
@@ -1013,7 +1030,7 @@
         + '<input type="number" step="any" name="materiaal_aantal" value="1"></div>'
         + '<div class="field"><label>Prijs</label>'
         + '<input type="number" step="any" name="materiaal_prijs" placeholder="0,00"></div>'
-        + '<button type="button" class="btn btn-text danger mat-weg" title="Weg">&times;</button>';
+        + '<button type="button" class="btn btn-text danger mat-weg" title="Materiaalregel verwijderen" aria-label="Materiaalregel verwijderen">&times;</button>';
       rij.querySelector('.mat-weg').addEventListener('click', function () { rij.remove(); });
       lijst.appendChild(rij);
       rij.querySelector('[name="materiaal_omschrijving"]').focus();
