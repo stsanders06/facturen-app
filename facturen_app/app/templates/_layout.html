@@ -368,6 +368,8 @@
     position: relative;
     overflow: hidden;
     pointer-events: auto;
+    /* Verticaal vegen schuift de pagina; opzij vegen is de melding zelf weghalen. */
+    touch-action: pan-y;
   }
   .melding .teken {
     flex: none;
@@ -382,11 +384,34 @@
     text-align: center;
   }
   .melding .woorden { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  /* Zelf weghalen: een gewone bevestiging verdwijnt vanzelf, maar een knop
+     om iets terug te halen blijft staan tot je hem gebruikt. Die mag je óók
+     wegvegen of dichttikken als je hem al gelezen hebt. */
+  .melding .sluit {
+    flex: none;
+    width: 32px;
+    height: 32px;
+    margin: -4px -6px -4px 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+  }
+  .melding .sluit:hover { background: var(--neutral-soft); color: var(--text); }
+  .melding .sluit:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
   /* Op een telefoon las een zwevende regel van 15px te klein om hem in het
      voorbijgaan te lezen. 16px is de maat die je op een iPhone zonder te
-     knijpen leest. */
+     knijpen leest. Het kruisje is 44px, dezelfde duimmaat als de andere knoppen. */
   @media (pointer: coarse), (max-width: 620px) {
     .meldingen .melding { font-size: 16px; }
+    .melding .sluit { width: 44px; height: 44px; margin: -8px -8px -8px 0; font-size: 26px; }
   }
   .melding.fout { border-left-color: var(--danger); }
   .melding.fout .teken { background: var(--danger); }
@@ -715,6 +740,7 @@
         <button type="submit" class="terugknop">{{ m.knop.label }}</button>
       </form>
       {% endif %}
+      <button type="button" class="sluit" aria-label="Melding sluiten">&times;</button>
       {% if m.knop and m.knop.seconden %}
       <span class="balk" style="animation-duration: {{ m.knop.seconden }}s"></span>
       {% endif %}
@@ -729,11 +755,13 @@
 
 <script>
   // Na een formulier laadt de pagina opnieuw en zet de browser je bovenaan.
-  // Op een lange kluspagina stond je bij de bon; die plek is bij het versturen
-  // bewaard en zetten we hier terug. Alleen als het dezelfde pagina is én er
-  // een melding staat — een gewone klik naar een andere pagina hoort wél
-  // bovenaan te beginnen. Safari op de iPhone schuift na het laden soms alsnog
-  // naar boven, vandaar dat we het even blijven herhalen.
+  // Op een lange kluspagina stond je bij de bon of de uren; die plek is bij het
+  // versturen bewaard en zetten we hier terug. Alleen als het dezelfde pagina
+  // is: een gewone klik, of een post die ergens anders uitkomt, hoort wél
+  // bovenaan te beginnen. Een melding is geen voorwaarde — een gewerkte dag,
+  // een dag wijzigen en "meesturen" komen terug zonder tekst, en anders spring
+  // je daar alsnog naar boven. Safari op de iPhone schuift na het laden soms
+  // alsnog naar boven, vandaar dat we het even blijven herhalen.
   var SCHUIFSLEUTEL = 'facturen-schuif';
   var bewaardeSchuif = 0;
   var schuifLosgelaten = false;
@@ -757,15 +785,17 @@
       var gegevens = JSON.parse(ruw);
       if (!gegevens || gegevens.pad !== location.pathname + location.search) return;
       if (!(gegevens.y > 0)) return;
-      if (!document.querySelector('.melding')) return;
       bewaardeSchuif = gegevens.y;
+      // Zonder dit zet Safari de plek ná ons herstel alsnog op nul.
+      if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
     } catch (e) {}
   })();
 
   function herstelSchuif() {
     if (schuifLosgelaten || !(bewaardeSchuif > 0)) return;
+    window.scrollTo(0, bewaardeSchuif);
     var doel = document.scrollingElement || document.documentElement;
-    doel.scrollTop = bewaardeSchuif;
+    if (doel.scrollTop !== bewaardeSchuif) doel.scrollTop = bewaardeSchuif;
   }
 
   function volgSchuif(ms) {
@@ -780,7 +810,10 @@
     requestAnimationFrame(stap);
   }
 
-  function laatSchuifLos() { schuifLosgelaten = true; }
+  function laatSchuifLos() {
+    schuifLosgelaten = true;
+    if ('scrollRestoration' in history) history.scrollRestoration = 'auto';
+  }
   window.addEventListener('wheel', laatSchuifLos, {passive: true});
   window.addEventListener('touchstart', laatSchuifLos, {passive: true});
   window.addEventListener('keydown', function (e) {
@@ -791,6 +824,13 @@
   });
   volgSchuif(1200);
   window.addEventListener('load', function () { volgSchuif(800); });
+  // pageshow vangt de iPhone als load niet nog een keer afgaat na een terugkeer.
+  window.addEventListener('pageshow', function () { volgSchuif(800); });
+  if (bewaardeSchuif > 0) {
+    setTimeout(function () {
+      if ('scrollRestoration' in history) history.scrollRestoration = 'auto';
+    }, 2100);
+  }
 
   // De tabbalk is op een telefoon lager dan op een breed scherm, en kan
   // omslaan. Zonder meting zou de melding over de tabbladen vallen of er
@@ -804,24 +844,96 @@
   window.addEventListener('resize', meetBalk);
 
   function verdwijnMelding(melding) {
-    if (!melding || !melding.parentNode) return;
+    if (!melding || !melding.parentNode || melding.dataset.weg) return;
+    melding.dataset.weg = '1';
+    clearTimeout(melding._timer);
+    // Een veeg zet een eigen verschuiving; die moet weg, anders wint hij van
+    // de sluit-animatie en blijft de regel half in beeld hangen.
+    melding.style.transform = '';
+    melding.style.opacity = '';
     melding.classList.add('weg');
     setTimeout(function () {
       var vak = melding.parentNode;
+      if (!vak) return;
       melding.remove();
-      if (vak && vak.classList && vak.classList.contains('meldingen') && !vak.children.length) {
+      if (vak.classList && vak.classList.contains('meldingen') && !vak.children.length) {
         vak.remove();
       }
     }, 220);
   }
 
+  // Opzij vegen of het kruisje: geldt voor elke melding, ook een die blijft
+  // staan (ongedaan maken, een mail tegenhouden). Een tik op die knop zelf
+  // is geen veeg — anders zou wegvegen de actie per ongeluk uitvoeren.
+  function maakWegveegbaar(melding) {
+    var sluit = melding.querySelector('.sluit');
+    if (sluit) {
+      sluit.addEventListener('click', function () { verdwijnMelding(melding); });
+    }
+    var startX = 0, dx = 0, bezig = false, horizontaal = false;
+    melding.addEventListener('pointerdown', function (e) {
+      if (e.button && e.button !== 0) return;
+      if (e.target.closest && e.target.closest('button, a, input, textarea, select')) return;
+      startX = e.clientX;
+      dx = 0;
+      bezig = true;
+      horizontaal = false;
+      if (melding.setPointerCapture) {
+        try { melding.setPointerCapture(e.pointerId); } catch (err) {}
+      }
+    });
+    melding.addEventListener('pointermove', function (e) {
+      if (!bezig) return;
+      dx = e.clientX - startX;
+      if (!horizontaal) {
+        if (Math.abs(dx) < 10) return;
+        horizontaal = true;
+        clearTimeout(melding._timer);
+      }
+      melding.style.transition = 'none';
+      melding.style.transform = 'translateX(' + dx + 'px)';
+      melding.style.opacity = String(Math.max(0.25, 1 - Math.abs(dx) / 180));
+    });
+    function klaar() {
+      if (!bezig) return;
+      bezig = false;
+      if (horizontaal && Math.abs(dx) > 72) {
+        // De klik die na een veeg nog komt mag niet op de knop eronder vallen.
+        window.addEventListener('click', function stop(ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          window.removeEventListener('click', stop, true);
+        }, true);
+        melding.style.transition = '';
+        verdwijnMelding(melding);
+        return;
+      }
+      if (horizontaal && melding.dataset.plakt !== '1' && !melding.dataset.weg) {
+        var duur = melding.classList.contains('fout') ? 8000 : 5000;
+        melding._timer = setTimeout(function () { verdwijnMelding(melding); }, duur);
+      }
+      horizontaal = false;
+      melding.style.transition = '';
+      melding.style.transform = '';
+      melding.style.opacity = '';
+    }
+    melding.addEventListener('pointerup', klaar);
+    melding.addEventListener('pointercancel', klaar);
+  }
+
   // Een knop (ongedaan maken, of een mail nog tegenhouden) moet blijven staan
   // tot je hem gebruikt. Een gewone bevestiging of fout mag weg zodra je hem
   // hebt kunnen lezen: anders dekt hij, vast aan het scherm, de pagina af.
+  // Wegvegen en het kruisje gelden voor allebei; de timer alleen voor de
+  // gewone.
   document.querySelectorAll('.meldingen .melding').forEach(function (melding) {
-    if (melding.querySelector('form, .balk')) return;
+    maakWegveegbaar(melding);
+    if (melding.querySelector('form, .balk')) {
+      melding.dataset.plakt = '1';
+      return;
+    }
     var duur = melding.classList.contains('fout') ? 8000 : 5000;
-    setTimeout(function () { verdwijnMelding(melding); }, duur);
+    melding._timer = setTimeout(function () { verdwijnMelding(melding); }, duur);
   });
 
   // Bevestiging vragen voor onomkeerbare acties. De vraag staat in een
