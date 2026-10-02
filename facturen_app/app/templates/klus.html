@@ -117,6 +117,27 @@
     display: grid; grid-template-columns: 1fr 4.5rem 5.5rem auto; gap: 8px;
     align-items: end; margin-top: 6px;
   }
+  /* Zonder rand is het kruisje een los teken dat naast de velden zweeft.
+     Zelfde rand, hoek, hoogte en witte vulling als aantal en prijs. De
+     formulierachtergrond is al grijs; een grijs vak zou daarin wegvallen. */
+  .inkoop-form .materiaal-rij .mat-weg {
+    align-self: end;
+    justify-self: end;
+    width: 42px;
+    height: 42px;
+    min-width: 42px;
+    padding: 0;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--danger);
+    font-size: 22px;
+    line-height: 1;
+  }
+  .inkoop-form .materiaal-rij .mat-weg:hover {
+    background: var(--danger-soft);
+    border-color: var(--danger);
+  }
   /* Compacte actiesbalk, zelfde idee als .notitie-acties. */
   .inkoop-acties {
     display: flex;
@@ -149,14 +170,12 @@
     .inkoop-form .materiaal-rij .mat-oms { grid-column: 1 / -1; }
     .inkoop-form .materiaal-rij .field { min-width: 0; }
     .inkoop-form .materiaal-rij .mat-weg {
-      align-self: end;
-      justify-self: end;
-      /* De gewone knop-padding rekt één kruisje op tot een brede balk. 44px is
-         het aanraakvlak, naast de prijs, zonder aantal en prijs weg te drukken. */
+      /* Op een telefoon zijn de invoervelden 44px hoog; het vak groeit mee,
+         anders staat het kruisje kleiner naast de prijs. */
       width: 44px;
+      height: 44px;
       min-width: 44px;
-      padding-left: 0;
-      padding-right: 0;
+      min-height: 44px;
     }
   }
 

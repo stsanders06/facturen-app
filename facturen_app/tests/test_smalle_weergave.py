@@ -242,3 +242,8 @@ def test_het_kruisje_bij_een_nieuw_materiaal_blijft_naast_de_prijs(client, db):
     assert "minmax(0, 1fr) minmax(0, 1fr) auto" in kolommen
     assert "grid-column: 1 / -1" in regel_met(smal, ".inkoop-form .materiaal-rij .mat-oms")
     assert "44px" in regel_met(smal, ".inkoop-form .materiaal-rij .mat-weg")
+    # Het kruisje zelf heeft een vak, anders blijft het een los teken naast de prijs.
+    vak = regel_met(css, ".inkoop-form .materiaal-rij .mat-weg")
+    assert "border: 1px solid var(--border)" in vak
+    assert "border-radius: var(--radius-sm)" in vak
+    assert "background: var(--card)" in vak
