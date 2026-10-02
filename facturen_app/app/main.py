@@ -34,7 +34,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.30.0"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.30.1"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -2013,6 +2013,7 @@ def klus(klus_id):
         inkopen=aankopen, notities=aantekeningen, offerte=offerte, fases=KLUS_FASES,
         offerte_status=OFFERTE_STATUS,
         bedrag=round(totaal * (gegevens["uurtarief"] or 0), 2),
+        bonnen_bedrag=bonnen_totaal(aankopen),
         vandaag=vandaag().isoformat(), actief="klussen",
     )
 
@@ -2173,6 +2174,16 @@ def inkopen_van(conn, klus_id):
         ]
         lijst.append(inkoop)
     return lijst
+
+
+def bonnen_totaal(inkopen):
+    """Som van de aankoopbedragen bij een klus.
+
+    Dat is wat je zelf betaalt en via de rekening terugkrijgt. Alleen
+    inkopen.bedrag telt: de materiaalregels eronder zijn een notitie, geen
+    tweede bedrag, en een bon die al op een rekening staat hoort er nog bij.
+    """
+    return round(sum(float(rij["bedrag"] or 0) for rij in inkopen), 2)
 
 
 def notities_van(conn, klus_id):

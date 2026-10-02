@@ -207,7 +207,9 @@ goed bij, dan haal je die regel met het kruisje weg.
 Onder het tabblad **Uren** maak je een klus aan, bijvoorbeeld "badkamer Kerkstraat". Geef
 er eventueel een klant en een uurtarief bij. Op de kluspagina zet je per gewerkte dag een
 regel neer: de datum, van hoe laat tot hoe laat en een notitie voor jezelf. De uren worden
-opgeteld; werk je door tot na middernacht, dan telt dat gewoon door.
+opgeteld; werk je door tot na middernacht, dan telt dat gewoon door. Bovenaan staat wat
+die uren opleveren, en daarnaast het totaal van de bonnen: de som van de aankopen bij
+deze klus, het bedrag dat je op de rekening terugkrijgt.
 
 Wat je invult wordt vanzelf bewaard zodra je uit een veld klikt; je hoeft er niet apart
 op Opslaan te drukken.
