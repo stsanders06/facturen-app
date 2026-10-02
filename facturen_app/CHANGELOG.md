@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.30.3
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **Een gewerkte dag toevoegen springt niet meer naar boven.** Hetzelfde geldt
+  voor een dag wijzigen, een bon, een notitie, iets verwijderen en ongedaan
+  maken, en voor dezelfde soort handeling op een andere lange pagina: je blijft
+  waar je was, ook als er geen melding bij staat.
+- **Een melding kun je zelf weghalen.** Veeg hem opzij of tik op het kruisje.
+  Een gewone bevestiging verdwijnt nog vanzelf. Ongedaan maken en een mail
+  tegenhouden blijven staan tot je ze zelf weghaalt.
+
 ## 1.30.2
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
