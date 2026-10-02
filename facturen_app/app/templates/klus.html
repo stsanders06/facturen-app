@@ -117,6 +117,27 @@
     display: grid; grid-template-columns: 1fr 4.5rem 5.5rem auto; gap: 8px;
     align-items: end; margin-top: 6px;
   }
+  /* Zonder rand is het kruisje een los teken dat naast de velden zweeft.
+     Zelfde rand, hoek, hoogte en witte vulling als aantal en prijs. De
+     formulierachtergrond is al grijs; een grijs vak zou daarin wegvallen. */
+  .inkoop-form .materiaal-rij .mat-weg {
+    align-self: end;
+    justify-self: end;
+    width: 42px;
+    height: 42px;
+    min-width: 42px;
+    padding: 0;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--danger);
+    font-size: 22px;
+    line-height: 1;
+  }
+  .inkoop-form .materiaal-rij .mat-weg:hover {
+    background: var(--danger-soft);
+    border-color: var(--danger);
+  }
   /* Compacte actiesbalk, zelfde idee als .notitie-acties. */
   .inkoop-acties {
     display: flex;
@@ -139,8 +160,23 @@
   @media (max-width: 620px) {
     .inkoop-form .fields-rij,
     .inkoop .fields-rij { grid-template-columns: 1fr; }
-    .inkoop-form .materiaal-rij { grid-template-columns: 1fr 1fr; }
+    /* Twee kolommen zette het kruisje — het vierde vak — op een eigen regel,
+       midden in de lege ruimte onder aantal en prijs. Drie kolommen houden het
+       naast de prijs. minmax(0, 1fr) zodat een getalveld de kolom niet breder
+       maakt dan de helft en het formulier van een smalle telefoon af duwt. */
+    .inkoop-form .materiaal-rij {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+    }
     .inkoop-form .materiaal-rij .mat-oms { grid-column: 1 / -1; }
+    .inkoop-form .materiaal-rij .field { min-width: 0; }
+    .inkoop-form .materiaal-rij .mat-weg {
+      /* Op een telefoon zijn de invoervelden 44px hoog; het vak groeit mee,
+         anders staat het kruisje kleiner naast de prijs. */
+      width: 44px;
+      height: 44px;
+      min-width: 44px;
+      min-height: 44px;
+    }
   }
 
   .tegels {
@@ -1013,7 +1049,7 @@
         + '<input type="number" step="any" name="materiaal_aantal" value="1"></div>'
         + '<div class="field"><label>Prijs</label>'
         + '<input type="number" step="any" name="materiaal_prijs" placeholder="0,00"></div>'
-        + '<button type="button" class="btn btn-text danger mat-weg" title="Weg">&times;</button>';
+        + '<button type="button" class="btn btn-text danger mat-weg" title="Materiaalregel verwijderen" aria-label="Materiaalregel verwijderen">&times;</button>';
       rij.querySelector('.mat-weg').addEventListener('click', function () { rij.remove(); });
       lijst.appendChild(rij);
       rij.querySelector('[name="materiaal_omschrijving"]').focus();

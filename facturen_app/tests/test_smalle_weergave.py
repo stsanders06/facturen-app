@@ -222,3 +222,28 @@ def test_een_bedrag_onder_een_tegel_breekt_ook_niet_na_het_euroteken(client, db)
     inhoud = client.get("/klussen").data.decode()
     assert '<small class="geldregel">' in inhoud
     assert "nowrap" in regel_met(css_van(inhoud), ".overzicht small.geldregel")
+
+
+def test_het_kruisje_bij_een_nieuw_materiaal_blijft_naast_de_prijs(client, db):
+    """Twee kolommen op een telefoon zetten het kruisje — het vierde vak van de
+    materiaalregel — op een eigen regel, midden in de lege ruimte onder aantal
+    en prijs. Drie kolommen houden het naast de prijs. De omschrijving blijft
+    over de volle breedte, anders passen de velden niet naast elkaar."""
+    db.execute("""INSERT INTO klussen (naam, uurtarief, gestart)
+                  VALUES ('Badkamer', 45.0, '2026-09-01')""")
+    db.commit()
+    klus_id = db.execute("SELECT id FROM klussen").fetchone()[0]
+    css = css_van(client.get(f"/klus/{klus_id}").data.decode())
+    # Het blok van het bonformulier. Later op de pagina staat nog een
+    # @media (max-width: 620px) voor de notities; die heeft dit raster niet.
+    begin = css.index(".inkoop-form .materiaal-rijen")
+    smal = css[css.index("@media (max-width: 620px)", begin):]
+    kolommen = regel_met(smal, ".inkoop-form .materiaal-rij")
+    assert "minmax(0, 1fr) minmax(0, 1fr) auto" in kolommen
+    assert "grid-column: 1 / -1" in regel_met(smal, ".inkoop-form .materiaal-rij .mat-oms")
+    assert "44px" in regel_met(smal, ".inkoop-form .materiaal-rij .mat-weg")
+    # Het kruisje zelf heeft een vak, anders blijft het een los teken naast de prijs.
+    vak = regel_met(css, ".inkoop-form .materiaal-rij .mat-weg")
+    assert "border: 1px solid var(--border)" in vak
+    assert "border-radius: var(--radius-sm)" in vak
+    assert "background: var(--card)" in vak

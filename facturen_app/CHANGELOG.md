@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.30.4
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **Het kruisje bij een materiaalregel zit weer naast die regel.** Op een telefoon
+  stond het los in de lege ruimte onder aantal en prijs, als je bij een nieuwe bon
+  materiaal toevoegde. Het zit nu in een vak met dezelfde rand als de invoervelden,
+  zodat het een knop is en geen los teken.
+
 ## 1.30.3
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
