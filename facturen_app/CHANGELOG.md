@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.31.0
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **Gewerkte dagen, notities en inkopen zien er hetzelfde uit.** Elke sectie is
+  één kaart: bovenaan vul je iets in, daaronder een lijntje, en dan de lijst.
+  Een dag toevoegen staat niet meer in een losse kaart. Bij een bon zit het
+  formulier niet meer in een kaart in de kaart. Weghalen is overal hetzelfde
+  kruisje.
+
 ## 1.30.4
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
