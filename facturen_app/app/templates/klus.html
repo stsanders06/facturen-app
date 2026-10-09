@@ -493,7 +493,9 @@
   <h1>{{ klus.naam }}</h1>
   <div class="kop-acties">
     <a class="btn btn-outline" href="{{ url_for('klus_bewerk', klus_id=klus.id) }}">Bewerken</a>
-    {% if open_uren %}
+    {#- Dagen van een aanvraag staan uit beeld. De knop zou ze anders alsnog
+        op een rekening zetten, terwijl je ze op de klus niet ziet. -#}
+    {% if open_uren and klus.status != 'aangevraagd' %}
     <a class="btn" href="{{ url_for('nieuw') }}?klus={{ klus.id }}{% if klus.klant_id %}&klant={{ klus.klant_id }}{% endif %}">
       Op rekening zetten</a>
     {% endif %}
@@ -575,9 +577,11 @@
         <form method="post" action="{{ url_for('klus_intake', klus_id=klus.id) }}"
               {%- if klus.intake_op %} data-bevestig="Intake weer openzetten? De datum gaat dan weg."{% endif %}>
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          {#- Eén patroon: de naam blijft "Intake geweest", de stand zit alleen
+              in aria-pressed. Een label dat óók wisselt zegt de stand twee keer. -#}
           <button type="submit" class="vink-knop"
                   aria-pressed="{{ 'true' if klus.intake_op else 'false' }}"
-                  aria-label="{{ 'Intake weer openzetten' if klus.intake_op else 'Intake afvinken' }}">
+                  aria-label="Intake geweest">
             <span class="vink" aria-hidden="true">{{ '✓' if klus.intake_op else '' }}</span>
           </button>
         </form>

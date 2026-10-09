@@ -1019,6 +1019,11 @@ def init_db():
         conn.execute("ALTER TABLE klussen ADD COLUMN intake_op TEXT DEFAULT ''")
     if "offerte_id" not in kluskolommen:
         conn.execute("ALTER TABLE klussen ADD COLUMN offerte_id INTEGER")
+    # De echte startdatum, bewaard als je een lopende klus terugzet naar een
+    # aanvraag. `gestart` gaat dan terug naar de aanvraagdag; zonder deze kolom
+    # is de dag waarop het werk begon weg zodra je opnieuw start.
+    if "gestart_was" not in kluskolommen:
+        conn.execute("ALTER TABLE klussen ADD COLUMN gestart_was TEXT DEFAULT ''")
 
     # Een foto kan bij een notitie horen in plaats van bij de bonnen. Zo blijven de
     # foto's van wat je hebt gezien los van de bonnetjes die de klant moet zien.
@@ -1812,6 +1817,9 @@ def klant(klant_id):
     vandaag = nu().date().isoformat()
     onbetaald = [f for f in facturen if f["status"] != "betaald"]
     klussen_van_klant = [k for k in klussenlijst() if k["klant_id"] == klant_id]
+    # Dagen van een aanvraag staan niet op de klus. Ze horen hier ook niet bij
+    # het totaal, anders factureer je uren die je nergens ziet.
+    te_factureren = [k for k in klussen_van_klant if k["status"] != "aangevraagd"]
     open_offertes = [o for o in offertes_van_klant
                      if o["status"] in ("concept", "verzonden") and not o["factuur_id"]]
 
@@ -1825,8 +1833,8 @@ def klant(klant_id):
         "te_laat_aantal": sum(1 for f in facturen if f["verlopen"]),
         "offertes_uit": sum(o["totaal"] for o in open_offertes),
         "offertes_aantal": len(open_offertes),
-        "uren_open": round(sum(k["uren_open"] for k in klussen_van_klant), 2),
-        "uren_bedrag": round(sum(k["bedrag_open"] for k in klussen_van_klant), 2),
+        "uren_open": round(sum(k["uren_open"] for k in te_factureren), 2),
+        "uren_bedrag": round(sum(k["bedrag_open"] for k in te_factureren), 2),
         "laatste": max((f["datum"] for f in facturen), default=""),
     }
     return render_template("klant.html", klant=gegevens, facturen=facturen,
@@ -1951,6 +1959,12 @@ def klussenlijst():
         rij["laatste_datum"] = gegevens["tot"]
         rij["bedrag"] = round(rij["uren"] * (kl["uurtarief"] or 0), 2)
         rij["bedrag_open"] = round(rij["uren_open"] * (kl["uurtarief"] or 0), 2)
+        # De dagen zelf blijven meetellen in rij["dagen"], voor de vraag bij
+        # terugzetten. Als open uren zouden ze overal waar die som gebruikt
+        # wordt tóch te factureren zijn.
+        if rij["status"] == "aangevraagd":
+            rij["uren_open"] = 0.0
+            rij["bedrag_open"] = 0.0
         lijst.append(rij)
     return lijst
 
@@ -2090,15 +2104,32 @@ def klus_status(klus_id):
         # Zonder opgave: de knop wisselt tussen lopend en afgerond, zoals eerst.
         nieuw_status = "open" if gegevens["status"] == "afgerond" else "afgerond"
 
+    # Afgerond eerst heropenen. Anders sla je die stap over met een los verzoek
+    # en verdwijnen de dagen uit beeld terwijl de klus nog af leek.
+    if nieuw_status == "aangevraagd" and gegevens["status"] == "afgerond":
+        conn.close()
+        melding("Heropen de klus eerst. Daarna kun je hem weer een aanvraag maken.",
+                "fout")
+        return redirect(terug_naar(url_for("klus", klus_id=klus_id)))
+
     velden, waarden = ["status=?"], [nieuw_status]
-    # Bij het echt beginnen telt vanaf vandaag; de aanvraagdatum blijft staan zodat
-    # je kunt zien hoe lang het heeft geduurd.
+    # Bij het echt beginnen telt vanaf vandaag, tenzij deze klus al eens liep:
+    # dan hoort de startdatum bij de dagen die er al staan, niet bij vandaag.
+    # De aanvraagdatum blijft staan zodat je ziet hoe lang het heeft geduurd.
     if nieuw_status == "open" and gegevens["status"] == "aangevraagd":
+        bewaard = (gegevens["gestart_was"] or "").strip()
         velden.append("gestart=?")
-        waarden.append(vandaag().isoformat())
-    # Terug naar een aanvraag: bij het starten is de startdatum overschreven met
-    # vandaag. Daarvoor stond er dezelfde dag als de aanvraag.
-    if nieuw_status == "aangevraagd" and gegevens["status"] != "aangevraagd":
+        waarden.append(bewaard or vandaag().isoformat())
+        if bewaard:
+            velden.append("gestart_was=?")
+            waarden.append("")
+    # Terug naar een aanvraag vanaf lopend. De startdatum zelf gaat terug naar
+    # de aanvraagdag; de dag waarop het werk begon blijft in gestart_was, zodat
+    # opnieuw starten die niet vervangt door vandaag.
+    if nieuw_status == "aangevraagd" and gegevens["status"] == "open":
+        if gegevens["gestart"]:
+            velden.append("gestart_was=?")
+            waarden.append(gegevens["gestart"])
         if gegevens["aangevraagd_op"]:
             velden.append("gestart=?")
             waarden.append(gegevens["aangevraagd_op"])
@@ -3005,11 +3036,17 @@ def geboekte_klussen(factuur_id=None, klant_id=None):
     te voegen. Bij het bewerken van een rekening tellen de uren die er al op staan
     gewoon mee, anders zou de klus daar verdwijnen.
 
+    Een aanvraag telt niet mee: die dagen zijn op de klus uit beeld. Een regel
+    die al op een rekening staat blijft daar staan; die komt uit de regels zelf,
+    niet uit deze lijst.
+
     Elke klus krijgt `past`: of hij bij de klant van deze rekening hoort, dezelfde
     regel als bij de bonnen. De rest blijft in de lijst, zodat wisselen van klant
     de lijst kan bijwerken zonder de pagina opnieuw te laden."""
     lijst = []
     for klus in klussenlijst():
+        if klus["status"] == "aangevraagd":
+            continue
         if factuur_id is not None:
             conn = get_db()
             eigen = conn.execute(
@@ -3106,6 +3143,34 @@ def bepaal_klant(conn, form):
     return None
 
 
+def verborgen_uren_melding(conn, regels, factuur_id=None):
+    """None als geen enkele nieuwe regel uren van een aanvraag pakt.
+
+    Die dagen zie je op de klus niet. Een regel die al op déze rekening stond
+    mag blijven: terugzetten naar een aanvraag maakt een rekening niet ongedaan.
+    """
+    al_eraan = set()
+    if factuur_id is not None:
+        al_eraan = {
+            rij["klus_id"]
+            for rij in conn.execute(
+                """SELECT DISTINCT klus_id FROM regels
+                   WHERE factuur_id=? AND klus_id IS NOT NULL""",
+                (factuur_id,),
+            )
+        }
+    for _o, _t, _a, _p, _sub, klus_id, _inkoop in regels:
+        if not klus_id or klus_id in al_eraan:
+            continue
+        klus = conn.execute(
+            "SELECT status FROM klussen WHERE id=?", (klus_id,)
+        ).fetchone()
+        if klus is not None and klus["status"] == "aangevraagd":
+            return ("Deze klus is nog een aanvraag. Start hem eerst, dan kun je "
+                    "de dagen op de rekening zetten.")
+    return None
+
+
 def regels_passen_bij_klant(conn, regels, klant_id):
     """None als elke gekoppelde klus en bon bij deze klant hoort, anders een melding.
 
@@ -3159,6 +3224,12 @@ def boek_uren(conn, factuur_id, regels):
 
     Een dag zelf splitsen (4 uur van een dag van 8) kan hier niet. Die dag
     blijft dan open; de melding zegt dat."""
+    # Dagen die al op deze rekening stonden. Bij een aanvraag mogen er geen
+    # nieuwe bij; anders markeer je dagen die op de klus uit beeld zijn.
+    eerder = {
+        rij["id"]
+        for rij in conn.execute("SELECT id FROM uren WHERE factuur_id=?", (factuur_id,))
+    }
     conn.execute("UPDATE uren SET factuur_id=NULL WHERE factuur_id=?", (factuur_id,))
     per_klus = {}
     for _o, _t, aantal, _p, subtotaal, klus_id, _inkoop in regels:
@@ -3170,7 +3241,9 @@ def boek_uren(conn, factuur_id, regels):
 
     meldingen = []
     for klus_id, emmer in per_klus.items():
-        klus = conn.execute("SELECT naam FROM klussen WHERE id=?", (klus_id,)).fetchone()
+        klus = conn.execute(
+            "SELECT naam, status FROM klussen WHERE id=?", (klus_id,)
+        ).fetchone()
         naam = klus["naam"] if klus else "deze klus"
         if emmer["bedrag"] <= 0.004 or emmer["uren"] <= 0:
             meldingen.append(
@@ -3178,12 +3251,23 @@ def boek_uren(conn, factuur_id, regels):
                 "bedrag op de regel is nul. De dagen blijven open."
             )
             continue
-        dagen = conn.execute(
-            """SELECT id, van, tot FROM uren
-               WHERE klus_id=? AND factuur_id IS NULL
-               ORDER BY datum, id""",
-            (klus_id,),
-        ).fetchall()
+        if klus is not None and klus["status"] == "aangevraagd":
+            if not eerder:
+                continue
+            plekken = ",".join("?" * len(eerder))
+            dagen = conn.execute(
+                f"""SELECT id, van, tot FROM uren
+                    WHERE klus_id=? AND factuur_id IS NULL AND id IN ({plekken})
+                    ORDER BY datum, id""",
+                (klus_id, *eerder),
+            ).fetchall()
+        else:
+            dagen = conn.execute(
+                """SELECT id, van, tot FROM uren
+                   WHERE klus_id=? AND factuur_id IS NULL
+                   ORDER BY datum, id""",
+                (klus_id,),
+            ).fetchall()
         if not dagen:
             continue
         open_uren = sum(duur_in_uren(dag["van"], dag["tot"]) for dag in dagen)
@@ -3241,6 +3325,8 @@ def nieuw():
         conn = get_db()
         klant_id = bepaal_klant(conn, request.form)
         past_niet = regels_passen_bij_klant(conn, regels, klant_id)
+        if past_niet is None:
+            past_niet = verborgen_uren_melding(conn, regels)
         if past_niet:
             conn.close()
             melding(past_niet, "fout")
@@ -3319,6 +3405,8 @@ def bewerk(factuur_id):
 
         klant_id = bepaal_klant(conn, request.form)
         past_niet = regels_passen_bij_klant(conn, regels, klant_id)
+        if past_niet is None:
+            past_niet = verborgen_uren_melding(conn, regels, factuur_id)
         if past_niet:
             conn.close()
             melding(past_niet, "fout")

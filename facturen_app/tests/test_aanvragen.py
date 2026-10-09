@@ -63,7 +63,9 @@ def test_het_vinkje_zelf_zet_de_intake_aan(client, post, db):
 
     assert 'class="vink-knop"' in inhoud
     assert 'aria-pressed="false"' in inhoud
-    assert 'aria-label="Intake afvinken"' in inhoud
+    # De naam blijft gelijk; de stand zit alleen in aria-pressed.
+    assert 'aria-label="Intake geweest"' in inhoud
+    assert 'aria-label="Intake afvinken"' not in inhoud
     assert "data-bevestig" not in formulier_rond(inhoud, f"/klus/{klus_id}/intake")
     assert ">Toch niet<" not in inhoud
     assert ">Afvinken<" not in inhoud
@@ -77,7 +79,8 @@ def test_uitvinken_vraagt_eerst_omdat_de_datum_dan_weg_is(client, post, db):
 
     formulier = formulier_rond(inhoud, f"/klus/{klus_id}/intake")
     assert 'aria-pressed="true"' in inhoud
-    assert 'aria-label="Intake weer openzetten"' in inhoud
+    assert 'aria-label="Intake geweest"' in inhoud
+    assert 'aria-label="Intake weer openzetten"' not in inhoud
     assert "Intake weer openzetten? De datum gaat dan weg." in formulier
     assert ">Toch niet<" not in inhoud
 
@@ -272,6 +275,164 @@ def test_bestaande_klussen_blijven_gewoon_lopen(db):
     db.commit()
     rij = db.execute("SELECT status FROM klussen WHERE naam='Oude klus'").fetchone()
     assert rij["status"] == "open"
+
+
+def klant_met_naam(db, naam="Jan Jansen"):
+    klant_id = db.execute(
+        "INSERT INTO klanten (naam, email) VALUES (?, ?)",
+        (naam, "jan@example.com"),
+    ).lastrowid
+    db.commit()
+    return klant_id
+
+
+def klus_voor(post, db, naam, klant_id):
+    post("/klussen/nieuw", {
+        "naam": naam, "klant_id": str(klant_id), "uurtarief": "50", "aanvraag": "ja",
+    })
+    return db.execute("SELECT id FROM klussen WHERE naam=?", (naam,)).fetchone()[0]
+
+
+def test_dagen_van_een_aanvraag_tellen_nergens_mee_als_te_factureren(post, db, client):
+    """Terugzetten verbergt de dagen. Die uren horen dan niet bij de klant,
+    niet bij 'nog niet gefactureerd' en niet achter een factureerknop."""
+    klant_id = klant_met_naam(db)
+    lopend = klus_voor(post, db, "Loopt nog", klant_id)
+    post(f"/klus/{lopend}/status", {"naar": "open"})
+    post(f"/klus/{lopend}/dag", {"datum": "2026-10-01", "van": "08:00", "tot": "10:00"})
+
+    terug = klus_voor(post, db, "Even terug", klant_id)
+    post(f"/klus/{terug}/status", {"naar": "open"})
+    post(f"/klus/{terug}/dag", {"datum": "2026-10-01", "van": "08:00", "tot": "12:00"})
+    post(f"/klus/{terug}/status", {"naar": "aangevraagd"})
+
+    klantpagina = client.get(f"/klant/{klant_id}").data.decode()
+    assert "Nog te factureren uren" in klantpagina
+    assert "2 u" in klantpagina
+    assert "100,00" in klantpagina
+    assert "4 u" not in klantpagina
+    assert "200,00" not in klantpagina
+    assert f"?klus={lopend}" in klantpagina
+    assert f"?klus={terug}" not in klantpagina
+    assert "Aanvraag" in klantpagina.split('class="chip chip-aangevraagd"', 1)[1][:40]
+    # De datums van de verborgen dagen horen niet naast de aanvraag.
+    bij_de_aanvraag = klantpagina.split(">Even terug<")[1].split('class="chip chip-aangevraagd"')[0]
+    assert "datum" not in bij_de_aanvraag
+    bij_de_lopende = klantpagina.split(">Loopt nog<")[1].split("chip-open")[0]
+    assert "1 okt 2026" in bij_de_lopende
+
+    overzicht = client.get("/klussen").data.decode()
+    assert "Nog niet gefactureerd" in overzicht
+    assert "2 u" in overzicht
+    assert "4 u" not in overzicht
+    assert overzicht.count("Op rekening zetten") == 1
+
+    kluspagina = client.get(f"/klus/{terug}").data.decode()
+    assert "Op rekening zetten" not in kluspagina
+    assert "Nog niet gefactureerd" not in kluspagina
+    assert "1 gewerkte dag bewaard" in kluspagina
+
+
+def test_een_aanvraag_staat_niet_in_de_urenkiezer(post, db, client):
+    klant_id = klant_met_naam(db)
+    klus_id = klus_voor(post, db, "Even terug", klant_id)
+    post(f"/klus/{klus_id}/status", {"naar": "open"})
+    post(f"/klus/{klus_id}/dag", {"datum": "2026-10-01", "van": "08:00", "tot": "12:00"})
+    post(f"/klus/{klus_id}/status", {"naar": "aangevraagd"})
+
+    assert facturen.geboekte_klussen(klant_id=klant_id) == []
+    pagina = client.get(f"/nieuw?klant={klant_id}&klus={klus_id}").data.decode()
+    assert f'data-klus="{klus_id}"' not in pagina
+
+    antwoord = post("/nieuw", {
+        "klant_id": str(klant_id), "klant_naam": "Jan Jansen", "datum": "2026-10-02",
+        "omschrijving": "Uren", "type": "arbeid_uur", "aantal": "4",
+        "prijs": "50", "regel_klus": str(klus_id),
+    }, follow_redirects=True)
+    assert "nog een aanvraag" in antwoord.data.decode()
+    assert db.execute("SELECT COUNT(*) FROM facturen").fetchone()[0] == 0
+    assert db.execute(
+        "SELECT factuur_id FROM uren WHERE klus_id=?", (klus_id,)
+    ).fetchone()[0] is None
+
+
+def test_opslaan_pakt_geen_extra_dagen_van_een_aanvraag(post, db):
+    """Een rekening die de dagen al had mag blijven. Nieuwe, verborgen dagen
+    komen er niet bij, ook niet als de regel meer uren vraagt."""
+    klant_id = klant_met_naam(db)
+    klus_id = klus_voor(post, db, "Gevel", klant_id)
+    post(f"/klus/{klus_id}/status", {"naar": "open"})
+    post(f"/klus/{klus_id}/dag", {"datum": "2026-10-01", "van": "08:00", "tot": "12:00"})
+    post(f"/klus/{klus_id}/dag", {"datum": "2026-10-02", "van": "08:00", "tot": "12:00"})
+    post("/nieuw", {
+        "klant_id": str(klant_id), "klant_naam": "Jan Jansen", "datum": "2026-10-03",
+        "omschrijving": "Uren gevel", "type": "arbeid_uur", "aantal": "4",
+        "prijs": "50", "regel_klus": str(klus_id),
+    })
+    factuur_id = db.execute("SELECT id FROM facturen").fetchone()[0]
+    post(f"/klus/{klus_id}/status", {"naar": "aangevraagd"})
+
+    antwoord = post(f"/factuur/{factuur_id}/bewerk", {
+        "klant_id": str(klant_id), "klant_naam": "Jan Jansen", "datum": "2026-10-03",
+        "omschrijving": "Uren gevel", "type": "arbeid_uur", "aantal": "8",
+        "prijs": "50", "regel_klus": str(klus_id),
+    }, follow_redirects=True)
+    assert "nog een aanvraag" not in antwoord.data.decode()
+    gekoppeld = [
+        rij["datum"] for rij in db.execute(
+            """SELECT datum FROM uren WHERE klus_id=? AND factuur_id IS NOT NULL
+               ORDER BY datum""",
+            (klus_id,),
+        )
+    ]
+    assert gekoppeld == ["2026-10-01"]
+
+
+def test_opnieuw_starten_zet_de_oorspronkelijke_startdatum_terug(post, db):
+    """De dagen die er al staan horen bij de dag waarop het werk begon, niet
+    bij de dag waarop je de klus later opnieuw start."""
+    klus_id = maak_aanvraag(post, db)
+    post(f"/klus/{klus_id}/status", {"naar": "open"})
+    begonnen = "2026-09-01"
+    db.execute("UPDATE klussen SET gestart=? WHERE id=?", (begonnen, klus_id))
+    db.commit()
+
+    post(f"/klus/{klus_id}/status", {"naar": "aangevraagd"})
+    rij = db.execute(
+        "SELECT status, gestart, gestart_was, aangevraagd_op FROM klussen WHERE id=?",
+        (klus_id,),
+    ).fetchone()
+    assert rij["status"] == "aangevraagd"
+    assert rij["gestart"] == rij["aangevraagd_op"]
+    assert rij["gestart_was"] == begonnen
+
+    post(f"/klus/{klus_id}/status", {"naar": "open"})
+    rij = db.execute(
+        "SELECT status, gestart, gestart_was FROM klussen WHERE id=?", (klus_id,)
+    ).fetchone()
+    assert rij["status"] == "open"
+    assert rij["gestart"] == begonnen
+    assert rij["gestart_was"] == ""
+
+
+def test_een_afgeronde_klus_gaat_niet_rechtstreeks_terug_naar_aanvraag(post, db):
+    """De knop staat er niet, en een los verzoek slaat het heropenen niet over."""
+    klus_id = maak_aanvraag(post, db)
+    post(f"/klus/{klus_id}/status", {"naar": "open"})
+    post(f"/klus/{klus_id}/status")
+
+    antwoord = post(f"/klus/{klus_id}/status", {"naar": "aangevraagd"},
+                    follow_redirects=True)
+    assert db.execute(
+        "SELECT status FROM klussen WHERE id=?", (klus_id,)
+    ).fetchone()[0] == "afgerond"
+    assert "Heropen de klus eerst" in antwoord.data.decode()
+
+    post(f"/klus/{klus_id}/status")
+    post(f"/klus/{klus_id}/status", {"naar": "aangevraagd"})
+    assert db.execute(
+        "SELECT status FROM klussen WHERE id=?", (klus_id,)
+    ).fetchone()[0] == "aangevraagd"
 
 
 def test_hoe_lang_iets_al_wacht(monkeypatch):

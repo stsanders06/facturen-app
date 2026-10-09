@@ -138,17 +138,25 @@
          aria-label="Klus {{ kl.naam }} openen"></a>
       <div class="links">
         <span>{{ kl.naam }}</span>
-        {% if kl.eerste_datum %}
+        {#- De periode komt uit de gewerkte dagen. Bij een aanvraag zijn die
+            uit beeld, dus de datums horen hier ook niet. -#}
+        {% if kl.eerste_datum and kl.status != 'aangevraagd' %}
         <span class="datum">{{ periode_nl(kl.eerste_datum, kl.laatste_datum) }}</span>
         {% endif %}
         <span class="chip chip-{{ kl.status }}">
-          {% if kl.status == 'afgerond' %}Afgerond{% else %}Lopend{% endif %}</span>
+          {% if kl.status == 'afgerond' %}Afgerond
+          {% elif kl.status == 'aangevraagd' %}Aanvraag
+          {% else %}Lopend{% endif %}</span>
       </div>
       <div class="rechts">
+        {#- Dagen van een aanvraag staan niet op de klus en horen hier ook niet
+            als te factureren uren. -#}
+        {% if kl.status != 'aangevraagd' %}
         <span class="bedrag">{{ kl.uren|uren }} u</span>
         {% if kl.uren_open %}
         <a class="btn btn-text" href="{{ url_for('nieuw') }}?klus={{ kl.id }}&klant={{ klant.id }}">
           {{ kl.uren_open|uren }} u factureren</a>
+        {% endif %}
         {% endif %}
       </div>
     </div>

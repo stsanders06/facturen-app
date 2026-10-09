@@ -12,7 +12,11 @@ genoeg; anders blijft de vorige versie draaien.
   rekening staan.
 - **De intake vink je aan en uit met het vinkje zelf.** De knop Toch niet is
   weg. Het vinkje weer uitzetten vraagt even of je dat wilt, want de datum van
-  de intake gaat dan weg.
+  de intake gaat dan weg. Het rondje staat op één lijn met de andere stappen.
+- **Dagen van een aanvraag tellen nergens mee tot je de klus start.** Niet bij
+  de klant, niet bij nog niet gefactureerd, en je kunt ze niet op een rekening
+  zetten. Opnieuw starten houdt de oorspronkelijke startdatum. Een afgeronde
+  klus heropen je eerst.
 
 ## 1.31.0
 
