@@ -224,17 +224,22 @@ def test_een_bedrag_onder_een_tegel_breekt_ook_niet_na_het_euroteken(client, db)
     assert "nowrap" in regel_met(css_van(inhoud), ".overzicht small.geldregel")
 
 
-def test_het_intakevinkje_is_groot_genoeg_voor_een_vinger(client, db):
-    """Het rondje is 22px, net als de andere stappen. Het tikvlak eromheen is
-    44px, anders raak je het op een telefoon naast."""
+def test_het_intakevinkje_lijnt_uit_en_blijft_tikbaar(client, db):
+    """Een knop van 44px in de rij schoof het rondje en de tekst naar rechts.
+    Het rondje blijft daarom 22px, net als de andere stappen. Het tikvlak is
+    een onzichtbare 44px eromheen en telt niet mee in de rij."""
     db.execute("""INSERT INTO klussen (naam, uurtarief, status, gestart, aangevraagd_op)
                   VALUES ('Dakgoot', 55, 'aangevraagd', '2026-10-01', '2026-10-01')""")
     db.commit()
     klus_id = db.execute("SELECT id FROM klussen").fetchone()[0]
     css = css_van(client.get(f"/klus/{klus_id}").data.decode())
     knop = regel_met(css, ".stappen .vink-knop")
-    assert "width: 44px" in knop
-    assert "height: 44px" in knop
+    assert "width: 22px" in knop
+    assert "height: 22px" in knop
+    tik = regel_met(css, ".stappen .vink-knop::after")
+    assert "position: absolute" in tik
+    assert "width: 44px" in tik
+    assert "height: 44px" in tik
 
 
 def test_het_kruisje_bij_een_nieuw_materiaal_blijft_naast_de_prijs(client, db):

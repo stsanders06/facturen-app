@@ -442,18 +442,19 @@
   .stappen .wat { flex: 1; min-width: 0; }
   .stappen .wat small { display: block; font-size: 12.5px; color: var(--text-secondary); }
   .stappen li:not(.af) .wat { color: var(--text-secondary); }
-  .stappen form { margin: 0; display: flex; flex: none; }
-  /* Het vinkje is zelf de knop. 44px is met een vinger te raken; het rondje
-     blijft 22px, net als de stappen ernaast, en de rest valt in de ruimte
-     van de regel. De rand in de merkkleur laat zien dat juist dit vakje
-     aan te tikken is. */
+  .stappen form { margin: 0; display: flex; flex: none; align-items: center; }
+  /* Het vinkje is zelf de knop, maar de knop blijft 22px — even groot als de
+     rondjes ernaast. Een knop van 44px in deze rij schoof het rondje én de
+     tekst naar rechts. Het tikvlak zit in ::after en telt niet mee in de rij. */
   .stappen .vink-knop {
+    position: relative;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 44px;
-    height: 44px;
-    margin: -11px 0;
+    flex: none;
+    width: 22px;
+    height: 22px;
+    margin: 0;
     padding: 0;
     border: none;
     border-radius: 50%;
@@ -463,6 +464,14 @@
     cursor: pointer;
     appearance: none;
     -webkit-appearance: none;
+  }
+  .stappen .vink-knop::after {
+    content: "";
+    position: absolute;
+    left: -11px;
+    top: -11px;
+    width: 44px;
+    height: 44px;
   }
   .stappen .vink-knop:focus-visible {
     outline: 2px solid var(--primary);
