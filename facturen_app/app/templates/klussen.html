@@ -180,6 +180,16 @@
             {% if kl.status == 'afgerond' %}Heropenen{% else %}Afronden{% endif %}
           </button>
         </form>
+        {# Na Afronden, zodat die knop op zijn plek blijft. De vraag legt uit
+           dat dagen bewaard blijven maar even uit beeld gaan. #}
+        {% if kl.status == 'open' %}
+        <form method="post" action="{{ url_for('klus_status', klus_id=kl.id) }}"
+              data-bevestig="{{ vraag_weer_als_aanvraag(kl.dagen, kl.uren_gefactureerd) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="naar" value="aangevraagd">
+          <button type="submit" class="btn btn-text">Weer als aanvraag</button>
+        </form>
+        {% endif %}
       </div>
     </div>
   </article>

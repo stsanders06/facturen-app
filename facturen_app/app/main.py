@@ -34,7 +34,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.31.0"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.32.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -598,6 +598,31 @@ KLUS_FASES = {
     "open": {"label": "Lopend", "melding": "De klus loopt; je kunt uren bijhouden."},
     "afgerond": {"label": "Afgerond", "melding": "Klus afgerond."},
 }
+
+
+def vraag_weer_als_aanvraag(aantal_dagen, op_rekening=False):
+    """De vraag voordat een lopende klus terug een aanvraag wordt.
+
+    Gewerkte dagen worden niet gewist. Op een aanvraag is dat blok verborgen,
+    dus zonder deze zin lijkt het alsof ze weg zijn. Bonnen en notities blijven
+    gewoon op de pagina staan; die hoeven niet in de vraag.
+    """
+    if aantal_dagen and op_rekening:
+        return (
+            "Deze klus weer als aanvraag zetten? De gewerkte dagen blijven bewaard, "
+            "ook de dagen die al op een rekening staan. Je ziet ze pas weer als je "
+            "de klus opnieuw start."
+        )
+    if aantal_dagen:
+        return (
+            "Deze klus weer als aanvraag zetten? De gewerkte dagen blijven bewaard, "
+            "maar je ziet ze pas weer als je de klus opnieuw start. Tot die tijd "
+            "tellen ze niet mee bij 'nog niet gefactureerd'."
+        )
+    return "Deze klus weer als aanvraag zetten? Notities en bonnen blijven staan."
+
+
+app.jinja_env.globals["vraag_weer_als_aanvraag"] = vraag_weer_als_aanvraag
 
 # Wat er bij het opstarten is rechtgezet; wordt één keer aan de gebruiker getoond.
 OPSTARTMELDINGEN = []
@@ -2014,6 +2039,9 @@ def klus(klus_id):
         offerte_status=OFFERTE_STATUS,
         bedrag=round(totaal * (gegevens["uurtarief"] or 0), 2),
         bonnen_bedrag=bonnen_totaal(aankopen),
+        # Voor de vraag bij "weer als aanvraag": dagen op een rekening blijven
+        # daaraan hangen, maar het urenblok verdwijnt zolang het een aanvraag is.
+        dagen_op_rekening=any(d["factuur_id"] for d in dagen),
         vandaag=vandaag().isoformat(), actief="klussen",
     )
 
@@ -2068,11 +2096,27 @@ def klus_status(klus_id):
     if nieuw_status == "open" and gegevens["status"] == "aangevraagd":
         velden.append("gestart=?")
         waarden.append(vandaag().isoformat())
+    # Terug naar een aanvraag: bij het starten is de startdatum overschreven met
+    # vandaag. Daarvoor stond er dezelfde dag als de aanvraag.
+    if nieuw_status == "aangevraagd" and gegevens["status"] != "aangevraagd":
+        if gegevens["aangevraagd_op"]:
+            velden.append("gestart=?")
+            waarden.append(gegevens["aangevraagd_op"])
+    # Niets weggooien. Dagen, notities en bonnen blijven in de database; het
+    # urenblok is op een aanvraag alleen even niet in beeld.
+    aantal_dagen = 0
+    if nieuw_status == "aangevraagd" and gegevens["status"] != "aangevraagd":
+        aantal_dagen = conn.execute(
+            "SELECT COUNT(*) FROM uren WHERE klus_id=?", (klus_id,)
+        ).fetchone()[0]
     conn.execute(f"UPDATE klussen SET {', '.join(velden)} WHERE id=?",
                  waarden + [klus_id])
     conn.commit()
     conn.close()
-    melding(KLUS_FASES[nieuw_status]["melding"])
+    tekst = KLUS_FASES[nieuw_status]["melding"]
+    if aantal_dagen:
+        tekst += " De gewerkte dagen blijven bewaard."
+    melding(tekst)
     return redirect(terug_naar(url_for("klussen")))
 
 

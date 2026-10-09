@@ -224,6 +224,19 @@ def test_een_bedrag_onder_een_tegel_breekt_ook_niet_na_het_euroteken(client, db)
     assert "nowrap" in regel_met(css_van(inhoud), ".overzicht small.geldregel")
 
 
+def test_het_intakevinkje_is_groot_genoeg_voor_een_vinger(client, db):
+    """Het rondje is 22px, net als de andere stappen. Het tikvlak eromheen is
+    44px, anders raak je het op een telefoon naast."""
+    db.execute("""INSERT INTO klussen (naam, uurtarief, status, gestart, aangevraagd_op)
+                  VALUES ('Dakgoot', 55, 'aangevraagd', '2026-10-01', '2026-10-01')""")
+    db.commit()
+    klus_id = db.execute("SELECT id FROM klussen").fetchone()[0]
+    css = css_van(client.get(f"/klus/{klus_id}").data.decode())
+    knop = regel_met(css, ".stappen .vink-knop")
+    assert "width: 44px" in knop
+    assert "height: 44px" in knop
+
+
 def test_het_kruisje_bij_een_nieuw_materiaal_blijft_naast_de_prijs(client, db):
     """Twee kolommen op een telefoon zetten het kruisje — het vierde vak van de
     materiaalregel — op een eigen regel, midden in de lege ruimte onder aantal

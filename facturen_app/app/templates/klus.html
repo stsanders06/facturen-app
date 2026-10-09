@@ -442,7 +442,36 @@
   .stappen .wat { flex: 1; min-width: 0; }
   .stappen .wat small { display: block; font-size: 12.5px; color: var(--text-secondary); }
   .stappen li:not(.af) .wat { color: var(--text-secondary); }
-  .stappen form { margin: 0; }
+  .stappen form { margin: 0; display: flex; flex: none; }
+  /* Het vinkje is zelf de knop. 44px is met een vinger te raken; het rondje
+     blijft 22px, net als de stappen ernaast, en de rest valt in de ruimte
+     van de regel. De rand in de merkkleur laat zien dat juist dit vakje
+     aan te tikken is. */
+  .stappen .vink-knop {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    margin: -11px 0;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+  }
+  .stappen .vink-knop:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+  .stappen li:not(.af) .vink-knop .vink { border-color: var(--primary); }
+  .stappen .vink-knop:hover .vink { filter: brightness(0.92); }
+  .weer-aanvraag { margin: 12px 0 0; }
+  .bewaarde-dagen { margin-top: 12px; }
   .lege-lijst { color: var(--text-secondary); font-size: 14px; margin: 0; }
   .opsomming { margin: 14px 0 0; color: var(--text-secondary); font-size: 14px; }
   .opsomming a { color: var(--primary); }
@@ -506,6 +535,18 @@
       <span class="chip chip-{{ klus.status }}">{{ fases[klus.status].label }}</span>
       {% if klus.notitie %}<br>{{ klus.notitie }}{% endif %}
     </p>
+    {#- Alleen zolang de klus loopt. Afgerond heropen je eerst; daarna kun je
+        de start alsnog terugdraaien. De vraag noemt de dagen, omdat die op
+        een aanvraag uit beeld gaan zonder gewist te worden. -#}
+    {% if klus.status == 'open' %}
+    <form method="post" class="weer-aanvraag"
+          action="{{ url_for('klus_status', klus_id=klus.id) }}"
+          data-bevestig="{{ vraag_weer_als_aanvraag(dagen|length, dagen_op_rekening) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="naar" value="aangevraagd">
+      <button type="submit" class="btn btn-text">Weer als aanvraag</button>
+    </form>
+    {% endif %}
   </section>
 
   {% if klus.status == 'aangevraagd' %}
@@ -519,14 +560,20 @@
         <span class="wat">Aangevraagd<small>{{ klus.aangevraagd_op|datum_nl }}</small></span>
       </li>
       <li class="{{ 'af' if klus.intake_op }}">
-        <span class="vink" aria-hidden="true">{{ '✓' if klus.intake_op else '' }}</span>
+        {#- Het vinkje zelf schakelt. Uitvinken vraagt eerst: de datum gaat
+            dan weg, en per ongeluk tikken is op een telefoon zo gebeurd.
+            Aanvinken is één tik; dat draai je met hetzelfde vinkje terug. -#}
+        <form method="post" action="{{ url_for('klus_intake', klus_id=klus.id) }}"
+              {%- if klus.intake_op %} data-bevestig="Intake weer openzetten? De datum gaat dan weg."{% endif %}>
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="vink-knop"
+                  aria-pressed="{{ 'true' if klus.intake_op else 'false' }}"
+                  aria-label="{{ 'Intake weer openzetten' if klus.intake_op else 'Intake afvinken' }}">
+            <span class="vink" aria-hidden="true">{{ '✓' if klus.intake_op else '' }}</span>
+          </button>
+        </form>
         <span class="wat">Intake geweest
           {%- if klus.intake_op %}<small>{{ klus.intake_op|datum_nl }}</small>{% endif %}</span>
-        <form method="post" action="{{ url_for('klus_intake', klus_id=klus.id) }}">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button type="submit" class="btn btn-text">
-            {{ 'Toch niet' if klus.intake_op else 'Afvinken' }}</button>
-        </form>
       </li>
       <li class="{{ 'af' if offerte }}">
         <span class="vink" aria-hidden="true">{{ '✓' if offerte else '' }}</span>
@@ -542,6 +589,11 @@
         {% endif %}
       </li>
     </ol>
+    {% if dagen %}
+    <p class="hint bewaarde-dagen">Er {{ 'staat' if dagen|length == 1 else 'staan' }}
+      {{ dagen|length }} gewerkte {{ 'dag' if dagen|length == 1 else 'dagen' }} bewaard.
+      Die zie je weer als je de klus start.</p>
+    {% endif %}
     <div class="indienen" style="margin-top:16px">
       <form method="post" action="{{ url_for('klus_status', klus_id=klus.id) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

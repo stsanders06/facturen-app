@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.32.0
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **Een gestarte klus kun je weer een aanvraag maken**, ook later. Op de klus en
+  in de lijst staat daarvoor **Weer als aanvraag**. Gewerkte dagen, notities en
+  bonnen blijven staan. De dagen zie je pas weer als je de klus opnieuw start;
+  de app vraagt het eerst als die er zijn, en ook als er al dagen op een
+  rekening staan.
+- **De intake vink je aan en uit met het vinkje zelf.** De knop Toch niet is
+  weg. Het vinkje weer uitzetten vraagt even of je dat wilt, want de datum van
+  de intake gaat dan weg.
+
 ## 1.31.0
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
