@@ -135,11 +135,11 @@ def test_op_een_aanvraag_staan_geen_uren_maar_wel_de_stappen(post, db, client):
     klus_id = maak_aanvraag(post, db)
     inhoud = client.get(f"/klus/{klus_id}").data.decode()
     assert "<h2>Hoe ver staat het</h2>" in inhoud
-    assert "<h2>Dag erbij</h2>" not in inhoud
+    assert "<h2>Gewerkte dagen</h2>" not in inhoud
 
     post(f"/klus/{klus_id}/status", {"naar": "open"})
     inhoud = client.get(f"/klus/{klus_id}").data.decode()
-    assert "<h2>Dag erbij</h2>" in inhoud
+    assert "<h2>Gewerkte dagen</h2>" in inhoud
     assert "<h2>Hoe ver staat het</h2>" not in inhoud
 
 

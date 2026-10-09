@@ -11,6 +11,46 @@
 </details>
 {% endmacro %}
 
+{% macro invoerkaart(titel, id='', attributen=none) %}
+{#- Kaart waarop je iets invult, toevoegt, en de bestaande regels eronder ziet.
+    Gewerkte dagen, notities en inkopen gebruiken deze macro samen: anders
+    krijgt elke sectie weer een eigen opzet. -#}
+<section class="card invoerkaart"{% if id %} id="{{ id }}"{% endif %}
+  {%- if attributen %}{% for naam, waarde in attributen.items() %} data-{{ naam }}="{{ waarde }}"{% endfor %}{% endif %}>
+  <div class="card-head">
+    <h2>{{ titel }}</h2>
+  </div>
+  {{ caller() }}
+</section>
+{% endmacro %}
+
+{% macro invoerlijst(id='', klas='') %}
+<ul class="invoerlijst{% if klas %} {{ klas }}{% endif %}"{% if id %} id="{{ id }}"{% endif %}>
+  {{ caller() }}
+</ul>
+{% endmacro %}
+
+{% macro invoerrij(weg_actie='', weg_label='Verwijderen', bevestig='', klas='', attributen=none) %}
+{#- Eén regel: tekst links, het kruisje rechts. Zonder weg_actie blijft de
+    plek van het kruisje leeg, zodat een vastgezette dag niet verspringt. -#}
+<li class="invoerrij{% if klas %} {{ klas }}{% endif %}"
+  {%- if attributen %}{% for naam, waarde in attributen.items() %} data-{{ naam }}="{{ waarde }}"{% endfor %}{% endif %}>
+  <div class="invoerrij-inhoud">
+    {{ caller() }}
+  </div>
+  {% if weg_actie %}
+  <form method="post" class="invoerrij-weg" action="{{ weg_actie }}"
+        {%- if bevestig %} data-bevestig="{{ bevestig }}"{% endif %}>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="weg" title="{{ weg_label }}"
+            aria-label="{{ weg_label }}">&times;</button>
+  </form>
+  {% else %}
+  <span class="invoerrij-weg" aria-hidden="true"></span>
+  {% endif %}
+</li>
+{% endmacro %}
+
 {% macro zoekbalk(actie, tekst, plaatshouder, status) %}
 {#- Zoekveld dat de gekozen statusfilter vasthoudt, zodat zoeken binnen
     "openstaand" ook binnen openstaand blijft. -#}

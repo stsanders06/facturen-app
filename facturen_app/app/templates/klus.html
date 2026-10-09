@@ -1,4 +1,5 @@
 {% extends "_layout.html" %}
+{% from "_onderdelen.html" import invoerkaart, invoerlijst, invoerrij %}
 {% block title %}{{ klus.naam }}{% endblock %}
 {% block head %}
 <style>
@@ -50,66 +51,224 @@
   .bijlage-acties .btn-text { padding: 6px 12px; min-height: 0; font-size: 13px; }
   .bijlage-acties .aan { color: var(--ok); font-weight: 500; }
 
-  /* ---------- Inkopen (bonnen) ---------- */
-  /* Nieuw-formulier en bestaande bonnen elk in een eigen kader, zodat op
-     telefoon duidelijk is waar het ene blok ophoudt en het volgende begint. */
-  .inkoop-nieuw {
-    border: 1px solid var(--divider);
-    border-radius: var(--radius-sm);
-    padding: 12px 14px;
-    background: var(--bg);
+  /* ---------- Invoerkaart: dagen, notities en inkopen ----------
+     Eén patroon, zodat de drie secties niet opnieuw uit elkaar groeien:
+     titel, invulvelden, een dun lijntje, en daaronder de lijst. Elke regel
+     heeft de tekst links en hetzelfde kruisje rechts. */
+  .invoerform-actie {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 10px;
   }
-  .inkopen {
+  .invoerleeg { margin: 14px 0 0; }
+  .invoerlijst {
     list-style: none;
     margin: 16px 0 0;
     padding: 0;
+  }
+  /* De bovenrand van de eerste regel is het lijntje onder het formulier. */
+  .invoerlijst > .invoerrij {
     display: flex;
-    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 0;
+    border-top: 1px solid var(--divider);
+  }
+  .invoerrij-inhoud { flex: 1; min-width: 0; }
+  .invoerrij-hoofd {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
     gap: 12px;
   }
-  .inkoop {
-    border: 1px solid var(--divider);
+  .invoerrij-titel {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    /* Een notitie mag Enter bevatten; zonder pre-wrap wordt dat één zin. */
+    white-space: pre-wrap;
+  }
+  .invoerrij-hoofd .uitkomst,
+  .invoerrij-hoofd .bedrag {
+    flex: none;
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .invoerrij-bij {
+    margin-top: 2px;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+  .invoerrij-bij .gefactureerd { color: var(--ok); font-weight: 500; }
+  .invoerrij-bij .chip { margin-left: 6px; }
+  /* Een dag die al op een rekening staat is niet meer te wijzigen. */
+  .invoerrij.vast { color: var(--text-secondary); }
+  .invoerrij .tekst-form {
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .invoerrij .tekst-form[hidden] { display: none; }
+  .invoerrij .tekst-form textarea,
+  .invoerrij .tekst-form input { width: 100%; }
+  .invoerrij .tekst-form-knoppen,
+  .dag-formulier-onder {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    align-items: center;
+    margin-top: 8px;
+  }
+  .invoerrij-acties {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    align-items: center;
+    margin-top: 8px;
+  }
+  .invoerrij-acties form { margin: 0; }
+  .invoerrij-acties .btn-text { padding: 2px 8px; min-height: 0; font-size: 13px; }
+  .invoerrij .bijlagen { margin-top: 12px; }
+  .invoerrij .erbij-form .btn-text { padding: 4px 10px; min-height: 0; font-size: 13px; }
+
+  /* Zelfde vak als het kruisje bij een materiaalregel: grijze rand, witte
+     vulling, zodat het een knop is en geen los teken. */
+  .invoerrij-weg { margin: 0; flex: none; }
+  .invoerrij-weg .weg {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    min-width: 42px;
+    padding: 0;
+    background: var(--card);
+    border: 1px solid var(--border);
     border-radius: var(--radius-sm);
-    padding: 12px 14px;
-    background: var(--bg);
+    color: var(--danger);
+    font-family: inherit;
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
   }
-  .inkoop-kop {
-    display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: baseline;
+  .invoerrij-weg .weg:hover {
+    background: var(--danger-soft);
+    border-color: var(--danger);
   }
-  .inkoop-kop .oms { font-weight: 500; flex: 1 1 12rem; }
-  .inkoop-kop .bedrag {
-    font-variant-numeric: tabular-nums; font-weight: 500; white-space: nowrap;
+  /* Zelfde breedte als de knop, zodat de uren van een vastgezette dag
+     op één lijn blijven met de dagen die je nog weg kunt halen. */
+  span.invoerrij-weg { display: block; width: 42px; height: 42px; }
+
+  /* Met JavaScript is een gewerkte dag een samenvatting tot je op Bewerken
+     klikt. Zonder JavaScript blijft het formulier zelf de rij: anders kun
+     je de tijden niet aanpassen. */
+  html.js .dag-formulier { display: none; }
+  html.js .invoerrij.aanpassen .dag-formulier { display: block; }
+  html.js .invoerrij.aanpassen .dag-samenvatting { display: none; }
+  html:not(.js) .dag-samenvatting { display: none; }
+  html:not(.js) [data-dag-bewerk],
+  html:not(.js) [data-dag-stop] { display: none; }
+  .bewaard { font-size: 12px; color: var(--ok); margin-right: auto; }
+  .bewaard[hidden] { display: none; }
+
+  /* ---------- Invulvelden van een dag ----------
+     Alleen het formulier (een nieuwe dag, of Bewerken). De lijst eronder
+     is een gewone invoerrij, geen raster meer. */
+  .dagvelden {
+    display: grid;
+    grid-template-columns: 158px 112px 112px minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
   }
-  .inkoop-kop .wanneer { font-size: 13px; color: var(--text-secondary); }
-  .inkoop-kop .gefactureerd {
-    font-size: 12px; color: var(--ok); font-weight: 500;
+  .dagvelden .uitkomst {
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+    text-align: right;
+    white-space: nowrap;
   }
-  .inkoop .materialen {
+  /* Op een breed scherm valt het vakje om Van en Tot weg, zodat de kolommen
+     van het raster blijven werken. */
+  .dagvelden .tijd-paar { display: contents; }
+
+  /* ---------- Telefoon: van vier regels naar twee ----------
+     Geen raster met vaste kolommen hier: Safari op de iPhone geeft een datum- of
+     tijdveld een eigen minimumbreedte, en die past niet in een smalle kolom — het
+     veld stak dan buiten het blok uit. Met flexbox krijgen 'van' en 'tot' allebei
+     de helft van de volle breedte, en dat is ruim genoeg. */
+  @media (max-width: 720px) {
+    .dagvelden {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+    }
+    .dagvelden > * { order: 9; }
+    /* Niet laten meegroeien: anders wordt het datumveld zo'n 330px breed met de
+       datum eenzaam in het midden. Het neemt nu de breedte die het nodig heeft. */
+    .dagvelden .datum-veld { order: 1; flex: 0 1 auto; min-width: 0; }
+    .dagvelden .uitkomst { order: 2; flex: 0 0 auto; margin-left: auto; }
+    /* Van en Tot staan in een eigen vakje over de volle breedte, verdeeld over twee
+       kolommen van elk precies de helft. Met minmax(0, 1fr) kan een kolom nooit breder
+       worden dan die helft, hoe breed iOS de widget zelf ook wil hebben — op het toestel
+       gemeten wilde die 187px terwijl er 164px was, en dan stak hij eruit. */
+    .dagvelden .tijd-paar {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 8px;
+      order: 4;
+      flex: 0 0 100%;
+      min-width: 0;
+    }
+    .dagvelden .tijd-paar > div { min-width: 0; }
+    .dagvelden .notitie-veld { order: 5; flex: 1 1 100%; min-width: 0; }
+    .dagvelden input { padding: 10px; width: 100%; text-align: left; }
+
+    /* Alleen op iOS. Safari telt daar de marge en de rand van een datum- of tijdveld
+       bóvenop de opgegeven breedte in plaats van erin, ook al staat box-sizing op
+       border-box. Op het toestel nagemeten: bij 165px ruimte werd het veld
+       165 + 2x10 + 2 = 187px en stak het er precies 22px uit. Die 22 trekken we hier
+       vooraf af. Andere browsers rekenen wél goed en raken deze regel niet. */
+    @supports (-webkit-touch-callout: none) {
+      .dagvelden input[type="date"],
+      .dagvelden input[type="time"] { width: calc(100% - 22px); }
+    }
+  }
+  @media (pointer: coarse), (max-width: 720px) {
+    .invoerrij-weg .weg {
+      width: 44px;
+      height: 44px;
+      min-width: 44px;
+      min-height: 44px;
+    }
+    span.invoerrij-weg { width: 44px; height: 44px; }
+  }
+
+  /* ---------- Inkopen (bonnen): de velden, niet een kaart in de kaart ---------- */
+  .invoerrij .materialen {
     list-style: none; margin: 10px 0 0; padding: 0; font-size: 13px;
     color: var(--text-secondary);
   }
-  .inkoop .materialen li {
+  .invoerrij .materialen li {
     display: flex; gap: 8px; flex-wrap: wrap; padding: 2px 0;
   }
-  .inkoop .materialen .mat-weg { margin-left: auto; }
+  .invoerrij .materialen .mat-weg { margin-left: auto; }
   /* Materiaal toevoegen hoort onder de materialenlijst van díe bon, niet
-     tussen de actieknoppen — anders lijken de velden los te zweven. */
-  .inkoop .mat-toevoegen {
+     tussen de actieknoppen — anders lijken de velden los te zweven. Geen
+     eigen kader: dat werd een kaart in de kaart. */
+  .invoerrij .mat-toevoegen {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
     align-items: center;
     margin-top: 10px;
-    padding: 10px 12px;
-    border: 1px solid var(--divider);
-    border-radius: var(--radius-sm);
-    background: var(--card);
   }
-  .inkoop .mat-toevoegen input[name="omschrijving"] { width: 9rem; flex: 1 1 9rem; }
-  .inkoop .mat-toevoegen input[name="aantal"] { width: 4rem; }
-  .inkoop .mat-toevoegen input[name="prijs"] { width: 5rem; }
+  .invoerrij .mat-toevoegen input[name="omschrijving"] { width: 9rem; flex: 1 1 9rem; }
+  .invoerrij .mat-toevoegen input[name="aantal"] { width: 4rem; }
+  .invoerrij .mat-toevoegen input[name="prijs"] { width: 5rem; }
   .inkoop-form .fields-rij,
-  .inkoop .fields-rij {
+  .invoerrij .fields-rij {
     display: grid; grid-template-columns: 1fr 7rem; gap: 10px;
   }
   .inkoop-form .materiaal-rijen { margin-top: 8px; }
@@ -138,28 +297,9 @@
     background: var(--danger-soft);
     border-color: var(--danger);
   }
-  /* Compacte actiesbalk, zelfde idee als .notitie-acties. */
-  .inkoop-acties {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 2px;
-    align-items: center;
-    margin-top: 10px;
-  }
-  .inkoop-acties .btn-text { padding: 2px 8px; min-height: 0; font-size: 13px; }
-  .inkoop .tekst-form {
-    margin-top: 10px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-  .inkoop .tekst-form[hidden] { display: none; }
-  .inkoop .tekst-form-knoppen {
-    display: flex; gap: 8px; justify-content: flex-end;
-  }
   @media (max-width: 620px) {
     .inkoop-form .fields-rij,
-    .inkoop .fields-rij { grid-template-columns: 1fr; }
+    .invoerrij .fields-rij { grid-template-columns: 1fr; }
     /* Twee kolommen zette het kruisje — het vierde vak — op een eigen regel,
        midden in de lege ruimte onder aantal en prijs. Drie kolommen houden het
        naast de prijs. minmax(0, 1fr) zodat een getalveld de kolom niet breder
@@ -206,132 +346,7 @@
   .tegel b + small { margin-top: 2px; white-space: normal; }
   .tegel.geld b { color: var(--info); }
 
-  /* ---------- Kolomkoppen: één keer boven de lijst ---------- */
-  .dagkoppen {
-    display: grid;
-    grid-template-columns: 158px 112px 112px 1fr 66px 34px;
-    gap: 10px;
-    padding-bottom: 8px;
-    margin-bottom: 10px;
-    border-bottom: 1px solid var(--divider);
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text-secondary);
-  }
-  .dagkoppen .uren-kop { text-align: right; }
-
-  /* ---------- Eén rij per gewerkte dag ---------- */
-  .dag {
-    display: grid;
-    grid-template-columns: 158px 112px 112px 1fr 66px 34px;
-    gap: 10px;
-    align-items: center;
-    padding: 7px 0;
-  }
-  .dag + .dag { border-top: 1px solid var(--divider); }
-  .dag form { display: contents; }
-  .dag .uitkomst {
-    font-variant-numeric: tabular-nums;
-    font-weight: 500;
-    text-align: right;
-    white-space: nowrap;
-  }
-  .dag .weg {
-    background: transparent;
-    border: none;
-    color: var(--text-secondary);
-    font-size: 20px;
-    line-height: 1;
-    padding: 8px 0;
-    cursor: pointer;
-    border-radius: var(--radius-sm);
-    justify-self: center;
-  }
-  .dag .weg:hover { color: var(--danger); background: var(--danger-soft); }
-  @media (pointer: coarse), (max-width: 720px) {
-    .dag .weg { min-height: 44px; min-width: 44px; }
-  }
-  .bewaard {
-    font-size: 12px;
-    color: var(--ok);
-    grid-column: 1 / -1;
-    margin-top: -2px;
-  }
-  .bewaard[hidden] { display: none; }
-  .breek { display: none; }
-  /* Op een breed scherm valt het vakje om Van en Tot weg, zodat de kolommen
-     van het raster blijven werken. */
-  .tijd-paar { display: contents; }
-
-  /* Al gefactureerde dagen zijn niet meer aan te passen: het bedrag staat op een
-     rekening die de klant al heeft. */
-  .dag.vast {
-    grid-template-columns: 158px 224px 1fr 66px 34px;
-    color: var(--text-secondary);
-    font-size: 14.5px;
-  }
-  .dag.vast .tijden { font-variant-numeric: tabular-nums; }
-
-  /* ---------- Telefoon: van vier regels naar twee ----------
-     Geen raster met vaste kolommen hier: Safari op de iPhone geeft een datum- of
-     tijdveld een eigen minimumbreedte, en die past niet in een smalle kolom — het
-     veld stak dan buiten het blok uit. Met flexbox krijgen 'van' en 'tot' allebei
-     de helft van de volle breedte, en dat is ruim genoeg. */
-  @media (max-width: 720px) {
-    .dagkoppen { display: none; }
-    .dag {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 8px;
-      background: var(--bg);
-      border-radius: var(--radius-sm);
-      padding: 10px;
-      margin-bottom: 8px;
-    }
-    .dag + .dag { border-top: none; }
-    /* Alles wat hieronder geen eigen plek krijgt, komt achteraan te staan. */
-    .dag > *, .dag form > * { order: 9; }
-    /* Niet laten meegroeien: anders wordt het datumveld zo'n 330px breed met de
-       datum eenzaam in het midden. Het neemt nu de breedte die het nodig heeft. */
-    .dag .datum-veld { order: 1; flex: 0 1 auto; min-width: 0; }
-    .dag .uitkomst { order: 2; flex: 0 0 auto; margin-left: auto; }
-    .dag .weg { order: 3; flex: 0 0 44px; }
-    /* Van en Tot staan in een eigen vakje over de volle breedte, verdeeld over twee
-       kolommen van elk precies de helft. Met minmax(0, 1fr) kan een kolom nooit breder
-       worden dan die helft, hoe breed iOS de widget zelf ook wil hebben — op het toestel
-       gemeten wilde die 187px terwijl er 164px was, en dan stak hij eruit. */
-    .dag .tijd-paar {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-      gap: 8px;
-      order: 4;
-      flex: 0 0 100%;
-      min-width: 0;
-    }
-    .dag .tijd-paar > div { min-width: 0; }
-    .dag .notitie-veld { order: 5; flex: 1 1 100%; min-width: 0; }
-    .dag .bewaard { order: 10; flex: 1 1 100%; }
-
-    .dag.vast .datum-veld { flex: 0 1 auto; min-width: 0; }
-    .dag.vast .tijden { order: 4; flex: 1 1 100%; }
-    .dag.vast .notitie-veld { order: 5; }
-
-    /* Gewone opmaak: rand en marge horen bij het veld zelf. */
-    .dag input { padding: 10px; width: 100%; text-align: left; }
-
-    /* Alleen op iOS. Safari telt daar de marge en de rand van een datum- of tijdveld
-       bóvenop de opgegeven breedte in plaats van erin, ook al staat box-sizing op
-       border-box. Op het toestel nagemeten: bij 165px ruimte werd het veld
-       165 + 2x10 + 2 = 187px en stak het er precies 22px uit. Die 22 trekken we hier
-       vooraf af. Andere browsers rekenen wél goed en raken deze regel niet. */
-    @supports (-webkit-touch-callout: none) {
-      .dag input[type="date"],
-      .dag input[type="time"] { width: calc(100% - 22px); }
-    }
-  }
-
-  /* ---------- Notities ---------- */
+  /* ---------- Notities: het invulformulier bovenaan de kaart ---------- */
   .notitie-form { display: flex; flex-direction: column; gap: 10px; }
   /* De datum blijft bovenaan staan als het tekstvak uitgroeit. */
   .notitie-form .opschrijfregel { display: flex; gap: 10px; align-items: flex-start; }
@@ -349,30 +364,6 @@
   .notitie-form .fotoregel { display: flex; gap: 10px; align-items: center; }
   /* De opschrijfknop hoort rechts, aan het eind van wat je invult. */
   .notitie-form .fotoregel .btn[type=submit] { margin-left: auto; }
-
-  .notities { list-style: none; margin: 18px 0 0; padding: 0; }
-  .notities li {
-    padding: 12px 0;
-    border-top: 1px solid var(--divider);
-  }
-  .notities .regelkop {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 12px;
-  }
-  .notities .wanneer { font-size: 13px; color: var(--text-secondary); }
-  .notities .regelkop .btn-text { padding: 2px 8px; min-height: 0; font-size: 13px; }
-  .notities .tekst { margin: 4px 0 0; white-space: pre-wrap; }
-  .notities .tekst:empty { display: none; }
-  .notities .notitie-acties { display: flex; gap: 2px; flex: none; }
-  .notities .tekst-form { margin-top: 6px; display: flex; flex-direction: column; gap: 8px; }
-  .notities .tekst-form[hidden] { display: none; }
-  .notities .tekst-form textarea { width: 100%; }
-  .notities .tekst-form-knoppen { display: flex; gap: 8px; justify-content: flex-end; }
-  .notities .bijlagen { margin-top: 12px; }
-  .notities .erbij-form { margin-top: 8px; }
-  .notities .erbij-form .btn-text { padding: 4px 10px; min-height: 0; font-size: 13px; }
 
   @media (max-width: 620px) {
     /* Twee foto's naast elkaar in plaats van één: met 160px als ondergrens paste de
@@ -408,11 +399,11 @@
      knop van 20px hoog levert daar de verkeerde tik op. Op een muisscherm mogen ze
      klein blijven; daar staat de tekst rustiger. */
   @media (pointer: coarse), (max-width: 720px) {
-    .notities .regelkop .btn-text,
-    .notities .erbij-form .btn-text,
+    .invoerrij-acties .btn-text,
+    .invoerrij .erbij-form .btn-text,
     .bijlage-acties .btn-text,
-    .inkoop-acties .btn-text,
-    .inkoop .mat-toevoegen .btn-text {
+    .invoerrij .mat-toevoegen .btn-text,
+    .invoerrij .materialen .btn-text {
       min-height: 40px;
       display: inline-flex;
       align-items: center;
@@ -562,13 +553,10 @@
   {% endif %}
 
   {% if klus.status != 'aangevraagd' %}
-  <section class="card">
-    <div class="card-head">
-      <h2>Dag erbij</h2>
-    </div>
-    <form method="post" action="{{ url_for('dag_erbij', klus_id=klus.id) }}">
+  {% call invoerkaart('Gewerkte dagen', id='gewerkte-dagen', attributen={'tarief': klus.uurtarief or 0}) %}
+    <form method="post" class="invoerform" action="{{ url_for('dag_erbij', klus_id=klus.id) }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <div class="dag" id="nieuwe-dag">
+      <div class="dagvelden" id="nieuwe-dag">
         <div class="datum-veld">
           <input type="date" name="datum" value="{{ vandaag }}" aria-label="Datum">
         </div>
@@ -585,86 +573,87 @@
                  aria-label="Notitie">
         </div>
         <span class="uitkomst">0 u</span>
-        <span class="breek"></span>
       </div>
-      <div style="display:flex;justify-content:flex-end;margin-top:10px">
+      <div class="invoerform-actie">
         <button type="submit" class="btn">Dag toevoegen</button>
       </div>
     </form>
-  </section>
 
-  <section class="card">
-    <div class="card-head">
-      <h2>Gewerkte dagen</h2>
-      {% if not dagen %}<p class="lege-lijst">Nog geen uren bijgehouden voor deze klus.</p>{% endif %}
-    </div>
-
-    {% if dagen %}
-    <div class="dagkoppen">
-      <span>Datum</span><span>Van</span><span>Tot</span><span>Notitie</span>
-      <span class="uren-kop">Uren</span><span></span>
-    </div>
-    {% endif %}
-
-    <div id="dagen" data-tarief="{{ klus.uurtarief or 0 }}">
+    {% if not dagen %}
+    <p class="hint invoerleeg">Nog geen uren bijgehouden voor deze klus.</p>
+    {% else %}
+    {% call invoerlijst(id='dagen') %}
       {% for d in dagen %}
       {% if d.factuur_id %}
-      <div class="dag vast" data-uren="{{ d.uren }}" data-gefactureerd="1">
-        <span class="datum-veld">{{ d.datum|datum_nl }}</span>
-        <span class="tijden">{{ d.van }} – {{ d.tot }}</span>
-        <span class="notitie-veld">
-          {{ d.notitie }}
-          <span class="chip chip-betaald">op {{ d.factuur_nummer or 'rekening' }}</span>
-        </span>
-        <span class="uitkomst">{{ d.uren|uren }} u</span>
-        <span></span>
-      </div>
-      {% else %}
-      <div class="dag" data-uren="{{ d.uren }}">
-        <form method="post" action="{{ url_for('dag_bewerk', uur_id=d.id) }}">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <div class="datum-veld">
-            <input type="date" name="datum" value="{{ d.datum }}" aria-label="Datum">
-          </div>
-          <div class="tijd-paar">
-            <div class="van-veld">
-              <input type="time" name="van" value="{{ d.van }}" required aria-label="Begintijd">
-            </div>
-            <div class="tot-veld">
-              <input type="time" name="tot" value="{{ d.tot }}" required aria-label="Eindtijd">
-            </div>
-          </div>
-          <div class="notitie-veld">
-            <input type="text" name="notitie" value="{{ d.notitie }}" placeholder="Notitie"
-                   aria-label="Notitie">
-          </div>
+      {% call invoerrij(klas='vast', attributen={'uren': d.uren, 'gefactureerd': 1}) %}
+        <div class="invoerrij-hoofd">
+          <span class="invoerrij-titel">{{ d.datum|datum_nl }}</span>
           <span class="uitkomst">{{ d.uren|uren }} u</span>
-          <span class="breek"></span>
-          <span class="opslaan-knop"><button type="submit" class="btn btn-text">Opslaan</button></span>
-          <span class="bewaard" hidden>Opgeslagen</span>
-        </form>
-        <form method="post" action="{{ url_for('dag_verwijder', uur_id=d.id) }}"
-              data-bevestig="Deze dag verwijderen?">
+        </div>
+        <div class="invoerrij-bij">
+          <span class="tijden">{{ d.van }} – {{ d.tot }}</span>
+          {%- if d.notitie %} · {{ d.notitie }}{% endif %}
+          <span class="chip chip-betaald">op {{ d.factuur_nummer or 'rekening' }}</span>
+        </div>
+      {% endcall %}
+      {% else %}
+      {% call invoerrij(
+           weg_actie=url_for('dag_verwijder', uur_id=d.id),
+           weg_label='Dag verwijderen',
+           bevestig='Deze dag verwijderen?',
+           attributen={'uren': d.uren}) %}
+        <div class="dag-samenvatting">
+          <div class="invoerrij-hoofd">
+            <span class="invoerrij-titel samenvatting-datum">{{ d.datum|datum_nl }}</span>
+            <span class="uitkomst">{{ d.uren|uren }} u</span>
+          </div>
+          <div class="invoerrij-bij">
+            <span class="samenvatting-tijden">{{ d.van }} – {{ d.tot }}</span><span class="samenvatting-notitie">{% if d.notitie %} · {{ d.notitie }}{% endif %}</span>
+          </div>
+          <div class="invoerrij-acties">
+            <button type="button" class="btn btn-text" data-dag-bewerk>Bewerken</button>
+          </div>
+        </div>
+        <form method="post" class="dag-formulier" action="{{ url_for('dag_bewerk', uur_id=d.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button type="submit" class="weg" title="Dag verwijderen" aria-label="Dag verwijderen">&times;</button>
+          <div class="dagvelden">
+            <div class="datum-veld">
+              <input type="date" name="datum" value="{{ d.datum }}" aria-label="Datum">
+            </div>
+            <div class="tijd-paar">
+              <div class="van-veld">
+                <input type="time" name="van" value="{{ d.van }}" required aria-label="Begintijd">
+              </div>
+              <div class="tot-veld">
+                <input type="time" name="tot" value="{{ d.tot }}" required aria-label="Eindtijd">
+              </div>
+            </div>
+            <div class="notitie-veld">
+              <input type="text" name="notitie" value="{{ d.notitie }}" placeholder="Notitie"
+                     aria-label="Notitie">
+            </div>
+            <span class="uitkomst">{{ d.uren|uren }} u</span>
+          </div>
+          <div class="dag-formulier-onder">
+            <span class="bewaard" hidden>Opgeslagen</span>
+            <span class="opslaan-knop"><button type="submit" class="btn btn-text">Opslaan</button></span>
+            <button type="button" class="btn btn-text" data-dag-stop>Klaar</button>
+          </div>
         </form>
-      </div>
+      {% endcall %}
       {% endif %}
       {% endfor %}
-    </div>
-  </section>
+    {% endcall %}
+    {% endif %}
+  {% endcall %}
   {% endif %}
 
-  <section class="card">
-    <div class="card-head">
-      <h2>Notities</h2>
-    </div>
-
+  {% call invoerkaart('Notities') %}
     {#- Twee regels: eerst wat je opschrijft, dan wat je erbij wilt zetten. Alles op
         één regel werd een rij van vier dingen waarvan er twee half afgekapt waren.
         De bestandskiezer zelf is verborgen: die toont "geen bestanden geselecteerd"
         en dat is precies de tekst die je niet wilt lezen. -#}
-    <form method="post" enctype="multipart/form-data" class="notitie-form"
+    <form method="post" enctype="multipart/form-data" class="notitie-form invoerform"
           action="{{ url_for('notitie_erbij', klus_id=klus.id) }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="opschrijfregel">
@@ -691,27 +680,28 @@
     </form>
 
     {% if not notities %}
-    <p class="hint" style="margin-top:14px">Nog niets opgeschreven bij deze klus.</p>
+    <p class="hint invoerleeg">Nog niets opgeschreven bij deze klus.</p>
     {% else %}
-    <ol class="notities">
+    {% call invoerlijst(klas='notities') %}
       {% for n in notities %}
-      <li>
-        <div class="regelkop">
-          <span class="wanneer">{{ n.wanneer|datum_nl }}</span>
-          <span class="notitie-acties">
-            <button type="button" class="btn btn-text" data-bewerkt="notitie-{{ n.id }}">
-              Bewerken</button>
-            <form method="post" action="{{ url_for('notitie_verwijder', notitie_id=n.id) }}"
-                  data-bevestig="Deze notitie{% if n.fotos %} en de {{ n.fotos|length }} foto{{ 's' if n.fotos|length != 1 }}{% endif %} verwijderen?">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button type="submit" class="btn btn-text danger">Verwijderen</button>
-            </form>
-          </span>
-        </div>
-
+      {% call invoerrij(
+           weg_actie=url_for('notitie_verwijder', notitie_id=n.id),
+           weg_label='Notitie verwijderen',
+           bevestig=('Deze notitie en de ' ~ n.fotos|length ~ ' foto' ~ ('s' if n.fotos|length != 1 else '') ~ ' verwijderen?') if n.fotos else 'Deze notitie verwijderen?') %}
         {#- De tekst en het invulveld wisselen elkaar af: zonder JavaScript blijft
             de tekst gewoon leesbaar staan en is alleen de knop zinloos. -#}
-        <p class="tekst" id="notitie-{{ n.id }}-tekst">{{ n.tekst }}</p>
+        <div id="notitie-{{ n.id }}-tekst">
+          {% if n.tekst %}
+          <div class="invoerrij-hoofd">
+            <span class="invoerrij-titel">{{ n.tekst }}</span>
+          </div>
+          <div class="invoerrij-bij">{{ n.wanneer|datum_nl }}</div>
+          {% else %}
+          <div class="invoerrij-hoofd">
+            <span class="invoerrij-titel">{{ n.wanneer|datum_nl }}</span>
+          </div>
+          {% endif %}
+        </div>
         <form method="post" class="tekst-form" id="notitie-{{ n.id }}-form" hidden
               action="{{ url_for('notitie_bewerk', notitie_id=n.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -755,71 +745,73 @@
         </div>
         {% endif %}
 
-        <form method="post" enctype="multipart/form-data" class="erbij-form"
-              action="{{ url_for('notitie_foto', notitie_id=n.id) }}">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <input type="file" name="foto" multiple accept="image/*,.pdf,.heic" hidden
-                 id="foto-bij-{{ n.id }}" data-verstuurt="1"
-                 aria-label="Nog een foto bij deze notitie">
-          <button type="button" class="btn btn-text" data-kiest="foto-bij-{{ n.id }}">
-            + Foto erbij</button>
-        </form>
-      </li>
+        <div class="invoerrij-acties">
+          <button type="button" class="btn btn-text" data-bewerkt="notitie-{{ n.id }}">
+            Bewerken</button>
+          <form method="post" enctype="multipart/form-data" class="erbij-form"
+                action="{{ url_for('notitie_foto', notitie_id=n.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="file" name="foto" multiple accept="image/*,.pdf,.heic" hidden
+                   id="foto-bij-{{ n.id }}" data-verstuurt="1"
+                   aria-label="Nog een foto bij deze notitie">
+            <button type="button" class="btn btn-text" data-kiest="foto-bij-{{ n.id }}">
+              + Foto erbij</button>
+          </form>
+        </div>
+      {% endcall %}
       {% endfor %}
-    </ol>
+    {% endcall %}
     {% endif %}
-  </section>
+  {% endcall %}
 
-  <section class="card">
-    <div class="card-head">
-      <h2>Inkopen</h2>
-    </div>
-
-    {#- Nieuw-formulier in een eigen kader, los van de bestaande bonnen. -#}
-    <div class="inkoop-nieuw">
-      <form method="post" enctype="multipart/form-data" class="inkoop-form"
-            action="{{ url_for('inkoop_erbij', klus_id=klus.id) }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <div class="fields-rij">
-          <div class="field">
-            <label for="inkoop-oms">Omschrijving</label>
-            <input type="text" id="inkoop-oms" name="omschrijving"
-                   placeholder="Bijv. Gamma — tegellijm">
-          </div>
-          <div class="field">
-            <label for="inkoop-bedrag">Totaalbedrag</label>
-            <input type="number" step="any" id="inkoop-bedrag" name="bedrag"
-                   placeholder="0,00">
-          </div>
+  {% call invoerkaart('Inkopen') %}
+    <form method="post" enctype="multipart/form-data" class="inkoop-form invoerform"
+          action="{{ url_for('inkoop_erbij', klus_id=klus.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="fields-rij">
+        <div class="field">
+          <label for="inkoop-oms">Omschrijving</label>
+          <input type="text" id="inkoop-oms" name="omschrijving"
+                 placeholder="Bijv. Gamma — tegellijm">
         </div>
-        <div class="materiaal-rijen" id="inkoop-materialen">
-          {#- Lege start; rijen komen via + Materiaal. -#}
+        <div class="field">
+          <label for="inkoop-bedrag">Totaalbedrag</label>
+          <input type="number" step="any" id="inkoop-bedrag" name="bedrag"
+                 placeholder="0,00">
         </div>
-        <div class="uploadregel" style="margin-top:10px">
-          <input type="file" name="bijlage" multiple accept="image/*,.pdf,.heic" hidden
-                 id="bon-bestanden" aria-label="Bestand bij de bon">
-          <button type="button" class="btn btn-outline" data-kiest="bon-bestanden">
-            Bestand kiezen</button>
-          <span class="gekozen" data-voor="bon-bestanden"></span>
-          <button type="button" class="btn btn-text" id="materiaal-erbij">+ Materiaal</button>
-          <button type="submit" class="btn">Bon toevoegen</button>
-        </div>
-      </form>
-    </div>
+      </div>
+      <div class="materiaal-rijen" id="inkoop-materialen">
+        {#- Lege start; rijen komen via + Materiaal. -#}
+      </div>
+      <div class="uploadregel" style="margin-top:10px">
+        <input type="file" name="bijlage" multiple accept="image/*,.pdf,.heic" hidden
+               id="bon-bestanden" aria-label="Bestand bij de bon">
+        <button type="button" class="btn btn-outline" data-kiest="bon-bestanden">
+          Bestand kiezen</button>
+        <span class="gekozen" data-voor="bon-bestanden"></span>
+        <button type="button" class="btn btn-text" id="materiaal-erbij">+ Materiaal</button>
+        <button type="submit" class="btn">Bon toevoegen</button>
+      </div>
+    </form>
 
     {% if not inkopen %}
-    <p class="hint" style="margin-top:14px">Nog geen inkopen bij deze klus.</p>
+    <p class="hint invoerleeg">Nog geen inkopen bij deze klus.</p>
     {% else %}
-    <ul class="inkopen">
+    {% call invoerlijst() %}
       {% for i in inkopen %}
-      <li class="inkoop">
-        <div class="inkoop-kop" id="inkoop-{{ i.id }}-tekst">
-          <span class="oms">{{ i.omschrijving }}</span>
-          <span class="bedrag">&euro;&nbsp;{{ '%.2f'|format(i.bedrag or 0) }}</span>
-          <span class="wanneer">{{ i.toegevoegd|datum_nl }}</span>
-          {% if i.factuur_id %}
-          <span class="gefactureerd">Op rekening</span>
-          {% endif %}
+      {% call invoerrij(
+           weg_actie=url_for('inkoop_verwijder', inkoop_id=i.id),
+           weg_label='Bon verwijderen',
+           bevestig='Bon ' ~ i.omschrijving ~ ' verwijderen?') %}
+        <div id="inkoop-{{ i.id }}-tekst">
+          <div class="invoerrij-hoofd">
+            <span class="invoerrij-titel">{{ i.omschrijving }}</span>
+            <span class="bedrag">&euro;&nbsp;{{ i.bedrag|bedrag }}</span>
+          </div>
+          <div class="invoerrij-bij">
+            {{ i.toegevoegd|datum_nl }}
+            {% if i.factuur_id %}<span class="gefactureerd">Op rekening</span>{% endif %}
+          </div>
         </div>
 
         <form method="post" enctype="multipart/form-data" class="tekst-form"
@@ -908,7 +900,7 @@
           <button type="submit" class="btn btn-text">+ Materiaal</button>
         </form>
 
-        <div class="inkoop-acties">
+        <div class="invoerrij-acties">
           <button type="button" class="btn btn-text" data-bewerkt="inkoop-{{ i.id }}">
             Bewerken</button>
           <form method="post" enctype="multipart/form-data" class="erbij-form"
@@ -921,17 +913,12 @@
             <button type="button" class="btn btn-text" data-kiest="bestand-bij-{{ i.id }}">
               + Bestand</button>
           </form>
-          <form method="post" action="{{ url_for('inkoop_verwijder', inkoop_id=i.id) }}"
-                data-bevestig="Bon {{ i.omschrijving }} verwijderen?">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="btn btn-text danger">Verwijderen</button>
-          </form>
         </div>
-      </li>
+      {% endcall %}
       {% endfor %}
-    </ul>
+    {% endcall %}
     {% endif %}
-  </section>
+  {% endcall %}
 
   <section class="card">
     <div class="card-head">
@@ -951,10 +938,13 @@
   document.documentElement.className += ' js';
 
   (function () {
-    var lijst = document.getElementById('dagen');
+    var blok = document.getElementById('gewerkte-dagen');
     // Bij een aanvraag staan de urenblokken er nog niet: uren zijn de stap daarna.
-    if (!lijst) { return; }
-    var tarief = parseFloat(lijst.dataset.tarief) || 0;
+    if (!blok) return;
+    var lijst = document.getElementById('dagen');
+    var tarief = parseFloat(blok.dataset.tarief) || 0;
+    var maanden = ['jan', 'feb', 'mrt', 'apr', 'mei', 'jun',
+                   'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
 
     function urenTussen(van, tot) {
       var a = van.split(':'), b = tot.split(':');
@@ -968,19 +958,45 @@
       return waarde.toLocaleString('nl-NL', { maximumFractionDigits: 2 });
     }
 
-    // De uren van één rij bijwerken en de tegels bovenaan opnieuw optellen.
+    function datumNl(iso) {
+      var delen = (iso || '').split('-');
+      var maand = maanden[parseInt(delen[1], 10) - 1];
+      if (!maand) return iso;
+      return parseInt(delen[2], 10) + ' ' + maand + ' ' + delen[0];
+    }
+
+    // De uren van één rij bijwerken. Staat de rij in de lijst, dan gaat de
+    // samenvatting mee, zodat die klopt als je Bewerken weer dichtdoet.
     function verversRij(rij) {
       var van = rij.querySelector('[name="van"]');
       var tot = rij.querySelector('[name="tot"]');
       if (!van || !tot) return;
       var uren = (van.value && tot.value) ? urenTussen(van.value, tot.value) : 0;
       rij.dataset.uren = uren;
-      rij.querySelector('.uitkomst').textContent = toonUren(uren) + ' u';
+      rij.querySelectorAll('.uitkomst').forEach(function (el) {
+        el.textContent = toonUren(uren) + ' u';
+      });
+      var tijden = rij.querySelector('.samenvatting-tijden');
+      if (tijden && van.value && tot.value) {
+        tijden.textContent = van.value + ' – ' + tot.value;
+      }
+      var notitieVeld = rij.querySelector('[name="notitie"]');
+      var notitieTekst = rij.querySelector('.samenvatting-notitie');
+      if (notitieTekst && notitieVeld) {
+        var tekst = notitieVeld.value.trim();
+        notitieTekst.textContent = tekst ? ' · ' + tekst : '';
+      }
+      var datumVeld = rij.querySelector('[name="datum"]');
+      var datumTekst = rij.querySelector('.samenvatting-datum');
+      if (datumTekst && datumVeld && datumVeld.value) {
+        datumTekst.textContent = datumNl(datumVeld.value);
+      }
     }
 
     function verversTotalen() {
+      if (!lijst) return;
       var totaal = 0, open = 0;
-      lijst.querySelectorAll('.dag').forEach(function (rij) {
+      lijst.querySelectorAll('.invoerrij').forEach(function (rij) {
         var uren = parseFloat(rij.dataset.uren) || 0;
         totaal += uren;
         if (!rij.dataset.gefactureerd) open += uren;
@@ -1002,6 +1018,7 @@
           if (!antwoord.ok) throw new Error(antwoord.status);
           if (!melding) return;
           melding.textContent = 'Opgeslagen';
+          melding.style.color = '';
           melding.hidden = false;
           clearTimeout(melding.timer);
           melding.timer = setTimeout(function () { melding.hidden = true; }, 1600);
@@ -1011,28 +1028,44 @@
           melding.textContent = 'Niet opgeslagen — klik op Opslaan';
           melding.style.color = 'var(--danger)';
           melding.hidden = false;
-          formulier.querySelector('.opslaan-knop').style.display = 'inline';
+          var knop = formulier.querySelector('.opslaan-knop');
+          if (knop) knop.style.display = 'inline';
         });
     }
 
-    lijst.addEventListener('input', function (e) {
-      var rij = e.target.closest('.dag');
-      if (!rij) return;
-      verversRij(rij);
-      verversTotalen();
-    });
+    if (lijst) {
+      lijst.addEventListener('input', function (e) {
+        var rij = e.target.closest('.invoerrij');
+        if (!rij) return;
+        verversRij(rij);
+        verversTotalen();
+      });
 
-    lijst.addEventListener('change', function (e) {
-      var formulier = e.target.closest('form');
-      if (!formulier || !formulier.action || formulier.action.indexOf('/bewerk') === -1) return;
-      if (!formulier.querySelector('[name="van"]').value ||
-          !formulier.querySelector('[name="tot"]').value) return;
-      bewaar(formulier);
-    });
+      lijst.addEventListener('change', function (e) {
+        var formulier = e.target.closest('form');
+        if (!formulier || !formulier.action || formulier.action.indexOf('/bewerk') === -1) return;
+        if (!formulier.querySelector('[name="van"]').value ||
+            !formulier.querySelector('[name="tot"]').value) return;
+        bewaar(formulier);
+      });
 
-    // De rij "Dag erbij" telt live mee terwijl je tijden intikt.
+      lijst.addEventListener('click', function (e) {
+        var rij = e.target.closest('.invoerrij');
+        if (!rij) return;
+        if (e.target.closest('[data-dag-bewerk]')) {
+          rij.classList.add('aanpassen');
+          // Niet het datumveld: op een telefoon opent dat meteen de kiezer.
+          var veld = rij.querySelector('[name="notitie"]');
+          if (veld) veld.focus();
+        } else if (e.target.closest('[data-dag-stop]')) {
+          rij.classList.remove('aanpassen');
+        }
+      });
+    }
+
+    // Het formulier bovenaan telt live mee terwijl je tijden intikt.
     var nieuwe = document.getElementById('nieuwe-dag');
-    nieuwe.addEventListener('input', function () { verversRij(nieuwe); });
+    if (nieuwe) nieuwe.addEventListener('input', function () { verversRij(nieuwe); });
   })();
 
   (function () {
