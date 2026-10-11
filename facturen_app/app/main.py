@@ -34,7 +34,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.32.0"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.33.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -1919,7 +1919,11 @@ def klus_met_uren(conn, klus_id):
 
 def klussenlijst():
     """Alle klussen met hun opgetelde uren en de periode waarin is gewerkt.
-    Lopende klussen staan bovenaan."""
+
+    Binnen één status blijft de volgorde staan: bij een aanvraag de langst
+    wachtende bovenaan, bij lopend en afgerond de nieuwste. De pagina zet de
+    drie statussen daarna zelf in groepen.
+    """
     conn = get_db()
     klussen = conn.execute(
         """SELECT kl.*, k.naam AS klant_naam FROM klussen kl
@@ -1986,18 +1990,25 @@ def klus_uit_form(form):
 @app.route("/klussen")
 def klussen():
     lijst = klussenlijst()
-    # Aanvragen staan apart: daar valt nog niets te factureren, en ze horen juist op
-    # te vallen omdat er nog iets moet gebeuren.
+    # Drie groepen, in deze volgorde: wat nu loopt, wat nog moet beginnen, en
+    # wat af is. Een klus die je terugzette is weer status aangevraagd en hoort
+    # dus bij de aanvragen. De volgorde binnen een groep komt uit klussenlijst().
+    lopend = [k for k in lijst if k["status"] == "open"]
     aanvragen = [k for k in lijst if k["status"] == "aangevraagd"]
-    klussen_lijst = [k for k in lijst if k["status"] != "aangevraagd"]
+    afgerond = [k for k in lijst if k["status"] == "afgerond"]
+    # Uren van een aanvraag tellen nergens mee. Die van een afgeronde klus nog
+    # wel, zolang ze niet op een rekening staan.
+    meetellend = lopend + afgerond
     overzicht = {
-        "open_uren": round(sum(k["uren_open"] for k in klussen_lijst), 2),
-        "open_bedrag": round(sum(k["bedrag_open"] for k in klussen_lijst), 2),
-        "lopend": sum(1 for k in klussen_lijst if k["status"] != "afgerond"),
+        "open_uren": round(sum(k["uren_open"] for k in meetellend), 2),
+        "open_bedrag": round(sum(k["bedrag_open"] for k in meetellend), 2),
+        "lopend": len(lopend),
         "aangevraagd": len(aanvragen),
     }
-    return render_template("klussen.html", klussen=klussen_lijst, aanvragen=aanvragen,
-                           overzicht=overzicht, fases=KLUS_FASES, actief="klussen")
+    return render_template(
+        "klussen.html", lopend=lopend, aanvragen=aanvragen, afgerond=afgerond,
+        overzicht=overzicht, fases=KLUS_FASES, actief="klussen",
+    )
 
 
 @app.route("/klussen/nieuw", methods=["GET", "POST"])
