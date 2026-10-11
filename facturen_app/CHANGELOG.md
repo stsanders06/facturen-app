@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.33.0
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **De klussen staan in drie groepen.** Bovenaan wat er loopt, daaronder de
+  aanvragen — ook een klus die je weer een aanvraag maakte — en onderaan wat
+  afgerond is. Een groep zonder klussen zie je niet.
+- **Afgeronde klussen zijn lichter**, zodat ze niet om aandacht vragen. Je kunt
+  ze nog gewoon openen en heropenen.
+- **De status is duidelijker van kleur.** Lopend is groen, een aanvraag blauw
+  en afgerond grijs. Dezelfde kleuren op de klus zelf.
+
 ## 1.32.0
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet

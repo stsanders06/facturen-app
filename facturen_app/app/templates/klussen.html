@@ -64,14 +64,35 @@
     .klus .onderkant { gap: 8px; }
     .klus .onderkant .btn-text { padding-left: 10px; padding-right: 10px; }
   }
-  .klus.afgerond .naam { color: var(--text-secondary); }
-  /* Een kop boven een lijst, zodat aanvragen en klussen niet in elkaar overlopen. */
+  /* Een streep in de statuskleur, dezelfde kleur als de chip. Inset, anders
+     schuift de kaart op een telefoon een paar pixels op. */
+  .klus.lopend { box-shadow: inset 4px 0 0 var(--status-lopend), var(--shadow-card); }
+  .klus.lopend:hover { box-shadow: inset 4px 0 0 var(--status-lopend), var(--shadow-raised); }
+  .klus.aanvraag { box-shadow: inset 4px 0 0 var(--status-aanvraag), var(--shadow-card); }
+  .klus.aanvraag:hover { box-shadow: inset 4px 0 0 var(--status-aanvraag), var(--shadow-raised); }
+  .klus.afgerond { box-shadow: inset 4px 0 0 var(--neutral), var(--shadow-card); }
+  .klus.afgerond:hover { box-shadow: inset 4px 0 0 var(--neutral), var(--shadow-raised); }
+  /* Alleen de tekst dimt. De hele kaart op 0,55 zou Heropenen meenemen, en een
+     kind kan niet dekkender worden dan zijn ouder. Zwart op 0,55 blijft op de
+     witte kaart nog boven de 4,5:1; in donker thema is de gewone tekstkleur
+     licht genoeg op dezelfde dekking. */
+  .klus.afgerond .gedimd {
+    opacity: 0.55;
+    color: #000;
+  }
+  .klus.afgerond .cijfers b { color: #000; }
+  @media (prefers-color-scheme: dark) {
+    .klus.afgerond .gedimd,
+    .klus.afgerond .cijfers b { color: var(--text); }
+  }
+  /* Een kop boven een groep. Zelfde stijl als de kop die aanvragen eerst apart zette. */
   .lijstkop {
     font-size: 14px;
     font-weight: 500;
     color: var(--text-secondary);
     margin: 0 0 8px 2px;
   }
+  .klusgroep + .klusgroep { margin-top: 22px; }
   /* Hoe lang een aanvraag al ligt te wachten; dat is hier het cijfer dat telt. */
   .klus .wachttijd { font-size: 13px; }
   .klus .gefactureerd { color: var(--text-secondary); font-size: 13px; }
@@ -84,7 +105,7 @@
   <a class="btn" href="{{ url_for('klus_nieuw') }}">+ Nieuwe klus</a>
 </div>
 
-{% if klussen %}
+{% if lopend or afgerond %}
 <div class="overzicht">
   <div class="let-op">
     <small>Nog niet gefactureerd</small>
@@ -104,96 +125,116 @@
 </div>
 {% endif %}
 
-{% if aanvragen %}
-<h2 class="lijstkop">Aanvragen</h2>
-<div class="cards" style="margin-bottom:22px">
-  {% for kl in aanvragen %}
-  <article class="card klus aanvraag">
-    <a class="kaartlink" href="{{ url_for('klus', klus_id=kl.id) }}"
-       aria-label="Aanvraag {{ kl.naam }} openen"></a>
-    <div class="naam">{{ kl.naam }}</div>
-    <div class="cijfers wachttijd">{{ wachtduur(kl.aangevraagd_op) }}</div>
-    <div class="periode">
-      {% if kl.klant_naam %}{{ kl.klant_naam }}{% else %}Nog geen klant{% endif %}
-      · binnengekomen {{ kl.aangevraagd_op|datum_nl }}
+{% macro kluskaart(kl) %}
+<article class="card klus {{ 'afgerond' if kl.status == 'afgerond' else 'lopend' }}">
+  <a class="kaartlink" href="{{ url_for('klus', klus_id=kl.id) }}"
+     aria-label="Klus {{ kl.naam }} openen"></a>
+  <div class="naam{% if kl.status == 'afgerond' %} gedimd{% endif %}">{{ kl.naam }}</div>
+  <div class="cijfers{% if kl.status == 'afgerond' %} gedimd{% endif %}">
+    <b>{{ kl.uren|uren }} u</b>
+    {% if kl.uurtarief %}&euro; {{ kl.bedrag|bedrag }}{% else %}geen tarief{% endif %}
+  </div>
+  <div class="periode{% if kl.status == 'afgerond' %} gedimd{% endif %}">
+    {% if kl.klant_naam %}{{ kl.klant_naam }}{% else %}Geen klant{% endif %}
+    {%- if kl.eerste_datum %} · {{ periode_nl(kl.eerste_datum, kl.laatste_datum) }}{% endif %}
+  </div>
+  <div class="onderkant">
+    {# Het aantal dagen stond hier ook in, maar dan paste de chip met de knoppen
+       ernaast niet meer op één regel op een telefoon. De periode staat al boven de
+       chip en het aantal dagen staat op de klus zelf. #}
+    <span class="chip chip-{{ kl.status }}">{{ fases[kl.status].label }}</span>
+    {% if kl.uren_gefactureerd %}
+    <span class="gefactureerd{% if kl.status == 'afgerond' %} gedimd{% endif %}">{{ kl.uren_gefactureerd|uren }} u gefactureerd</span>
+    {% endif %}
+    <div class="acties">
+      {% if kl.uren_open %}
+      <a class="btn btn-text" href="{{ url_for('nieuw') }}?klus={{ kl.id }}{% if kl.klant_id %}&klant={{ kl.klant_id }}{% endif %}">
+        Op rekening zetten</a>
+      {% endif %}
+      <form method="post" action="{{ url_for('klus_status', klus_id=kl.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-text">
+          {% if kl.status == 'afgerond' %}Heropenen{% else %}Afronden{% endif %}
+        </button>
+      </form>
+      {# Na Afronden, zodat die knop op zijn plek blijft. De vraag legt uit
+         dat dagen bewaard blijven maar even uit beeld gaan. #}
+      {% if kl.status == 'open' %}
+      <form method="post" action="{{ url_for('klus_status', klus_id=kl.id) }}"
+            data-bevestig="{{ vraag_weer_als_aanvraag(kl.dagen, kl.uren_gefactureerd) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="naar" value="aangevraagd">
+        <button type="submit" class="btn btn-text">Weer als aanvraag</button>
+      </form>
+      {% endif %}
     </div>
-    <div class="onderkant">
-      <span class="chips">
-        <span class="chip {{ 'chip-betaald' if kl.intake_op else 'chip-concept' }}">
-          {{ 'Intake geweest' if kl.intake_op else 'Nog geen intake' }}</span>
-        {% if kl.offerte_id %}
-        <span class="chip chip-verzonden">Offerte gestuurd</span>
-        {% endif %}
-      </span>
-      <div class="acties">
-        <form method="post" action="{{ url_for('klus_status', klus_id=kl.id) }}">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <input type="hidden" name="naar" value="open">
-          <button type="submit" class="btn btn-text">Klus starten</button>
-        </form>
-      </div>
-    </div>
-  </article>
-  {% endfor %}
-</div>
+  </div>
+</article>
+{% endmacro %}
+
+{% if lopend %}
+<section class="klusgroep">
+  <h2 class="lijstkop">Lopend</h2>
+  <div class="cards">
+    {% for kl in lopend %}{{ kluskaart(kl) }}{% endfor %}
+  </div>
+</section>
 {% endif %}
 
-{% if not klussen %}
-{% if aanvragen %}<h2 class="lijstkop">Klussen</h2>{% endif %}
+{% if aanvragen %}
+<section class="klusgroep">
+  <h2 class="lijstkop">Aanvragen</h2>
+  <div class="cards">
+    {% for kl in aanvragen %}
+    <article class="card klus aanvraag">
+      <a class="kaartlink" href="{{ url_for('klus', klus_id=kl.id) }}"
+         aria-label="Aanvraag {{ kl.naam }} openen"></a>
+      <div class="naam">{{ kl.naam }}</div>
+      <div class="cijfers wachttijd">{{ wachtduur(kl.aangevraagd_op) }}</div>
+      <div class="periode">
+        {% if kl.klant_naam %}{{ kl.klant_naam }}{% else %}Nog geen klant{% endif %}
+        · binnengekomen {{ kl.aangevraagd_op|datum_nl }}
+      </div>
+      <div class="onderkant">
+        <span class="chips">
+          {# Dezelfde chip als op de klus en bij de klant, anders is een aanvraag
+             in de lijst alleen grijs (intake) terwijl lopend en afgerond hun
+             status wel tonen. #}
+          <span class="chip chip-aangevraagd">{{ fases['aangevraagd'].label }}</span>
+          <span class="chip {{ 'chip-betaald' if kl.intake_op else 'chip-concept' }}">
+            {{ 'Intake geweest' if kl.intake_op else 'Nog geen intake' }}</span>
+          {% if kl.offerte_id %}
+          <span class="chip chip-verzonden">Offerte gestuurd</span>
+          {% endif %}
+        </span>
+        <div class="acties">
+          <form method="post" action="{{ url_for('klus_status', klus_id=kl.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="naar" value="open">
+            <button type="submit" class="btn btn-text">Klus starten</button>
+          </form>
+        </div>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if afgerond %}
+<section class="klusgroep">
+  <h2 class="lijstkop">Afgerond</h2>
+  <div class="cards">
+    {% for kl in afgerond %}{{ kluskaart(kl) }}{% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if not lopend and not aanvragen and not afgerond %}
 <div class="card empty">
   <p>Nog geen klussen. Maak er een aan en houd per dag bij hoelang je hebt gewerkt;
     later zet je het totaal in één keer op een rekening.</p>
   <a class="btn" href="{{ url_for('klus_nieuw') }}">Klus aanmaken</a>
-</div>
-{% else %}
-{% if aanvragen %}<h2 class="lijstkop">Klussen</h2>{% endif %}
-<div class="cards">
-  {% for kl in klussen %}
-  <article class="card klus {{ 'afgerond' if kl.status == 'afgerond' }}">
-    <a class="kaartlink" href="{{ url_for('klus', klus_id=kl.id) }}"
-       aria-label="Klus {{ kl.naam }} openen"></a>
-    <div class="naam">{{ kl.naam }}</div>
-    <div class="cijfers">
-      <b>{{ kl.uren|uren }} u</b>
-      {% if kl.uurtarief %}&euro; {{ kl.bedrag|bedrag }}{% else %}geen tarief{% endif %}
-    </div>
-    <div class="periode">
-      {% if kl.klant_naam %}{{ kl.klant_naam }}{% else %}Geen klant{% endif %}
-      {%- if kl.eerste_datum %} · {{ periode_nl(kl.eerste_datum, kl.laatste_datum) }}{% endif %}
-    </div>
-    <div class="onderkant">
-      {# Het aantal dagen stond hier ook in, maar dan paste de chip met de knoppen
-         ernaast niet meer op één regel op een telefoon. De periode staat al boven de
-         chip en het aantal dagen staat op de klus zelf. #}
-      <span class="chip chip-{{ kl.status }}">{{ fases[kl.status].label }}</span>
-      {% if kl.uren_gefactureerd %}
-      <span class="gefactureerd">{{ kl.uren_gefactureerd|uren }} u gefactureerd</span>
-      {% endif %}
-      <div class="acties">
-        {% if kl.uren_open %}
-        <a class="btn btn-text" href="{{ url_for('nieuw') }}?klus={{ kl.id }}{% if kl.klant_id %}&klant={{ kl.klant_id }}{% endif %}">
-          Op rekening zetten</a>
-        {% endif %}
-        <form method="post" action="{{ url_for('klus_status', klus_id=kl.id) }}">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button type="submit" class="btn btn-text">
-            {% if kl.status == 'afgerond' %}Heropenen{% else %}Afronden{% endif %}
-          </button>
-        </form>
-        {# Na Afronden, zodat die knop op zijn plek blijft. De vraag legt uit
-           dat dagen bewaard blijven maar even uit beeld gaan. #}
-        {% if kl.status == 'open' %}
-        <form method="post" action="{{ url_for('klus_status', klus_id=kl.id) }}"
-              data-bevestig="{{ vraag_weer_als_aanvraag(kl.dagen, kl.uren_gefactureerd) }}">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <input type="hidden" name="naar" value="aangevraagd">
-          <button type="submit" class="btn btn-text">Weer als aanvraag</button>
-        </form>
-        {% endif %}
-      </div>
-    </div>
-  </article>
-  {% endfor %}
 </div>
 {% endif %}
 

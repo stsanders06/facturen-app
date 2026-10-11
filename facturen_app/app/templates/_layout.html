@@ -32,6 +32,13 @@
     --info-soft: #e1f3fb;
     --neutral: #5d636d;
     --neutral-soft: #eceef1;
+    /* Status van een klus. Het accent van de app is lichtblauw; een aanvraag
+       krijgt daarom een dieper blauw, anders lijkt de chip op de knoppen en
+       op "verzonden". Lopend is groen, afgerond blijft het grijze neutral. */
+    --status-lopend: #146c34;
+    --status-lopend-soft: #e3f6ea;
+    --status-aanvraag: #1e40af;
+    --status-aanvraag-soft: #e0e7ff;
     --danger: #c62828;
     --danger-soft: #fdeaea;
     --warn-bg: #fff8e1;
@@ -70,6 +77,11 @@
       --info-soft: #10242e;
       --neutral: #9aa1ab;
       --neutral-soft: #262a32;
+      --status-lopend: #7dcea0;
+      --status-lopend-soft: #14301f;
+      /* Lichter indigo, niet het cyaan van --primary en --info. */
+      --status-aanvraag: #b4c2ff;
+      --status-aanvraag-soft: #1c2448;
       --danger: #ef6c6c;
       --danger-soft: #2d1a1a;
       --warn-bg: #2a2311;
@@ -319,10 +331,10 @@
     white-space: nowrap;
   }
   .chip-concept { background: var(--neutral-soft); color: var(--neutral); }
-  .chip-aangevraagd { background: var(--warn-bg); color: var(--warn-text); }
+  .chip-aangevraagd { background: var(--status-aanvraag-soft); color: var(--status-aanvraag); }
   .chip-verzonden { background: var(--info-soft); color: var(--info); }
   .chip-betaald { background: var(--ok-soft); color: var(--ok); }
-  .chip-open { background: var(--info-soft); color: var(--info); }
+  .chip-open { background: var(--status-lopend-soft); color: var(--status-lopend); }
   .chip-afgerond { background: var(--neutral-soft); color: var(--neutral); }
   .chip-geaccepteerd { background: var(--ok-soft); color: var(--ok); }
   .chip-afgewezen { background: var(--danger-soft); color: var(--danger); }
