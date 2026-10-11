@@ -64,8 +64,8 @@
     .klus .onderkant { gap: 8px; }
     .klus .onderkant .btn-text { padding-left: 10px; padding-right: 10px; }
   }
-  /* Een streep in de statuskleur, zodat een aanvraag ook in de lijst blauw is
-     zonder een extra chip naast "Klus starten". Inset, anders schuift de kaart. */
+  /* Een streep in de statuskleur, dezelfde kleur als de chip. Inset, anders
+     schuift de kaart op een telefoon een paar pixels op. */
   .klus.lopend { box-shadow: inset 4px 0 0 var(--status-lopend), var(--shadow-card); }
   .klus.lopend:hover { box-shadow: inset 4px 0 0 var(--status-lopend), var(--shadow-raised); }
   .klus.aanvraag { box-shadow: inset 4px 0 0 var(--status-aanvraag), var(--shadow-card); }
@@ -197,6 +197,10 @@
       </div>
       <div class="onderkant">
         <span class="chips">
+          {# Dezelfde chip als op de klus en bij de klant, anders is een aanvraag
+             in de lijst alleen grijs (intake) terwijl lopend en afgerond hun
+             status wel tonen. #}
+          <span class="chip chip-aangevraagd">{{ fases['aangevraagd'].label }}</span>
           <span class="chip {{ 'chip-betaald' if kl.intake_op else 'chip-concept' }}">
             {{ 'Intake geweest' if kl.intake_op else 'Nog geen intake' }}</span>
           {% if kl.offerte_id %}

@@ -133,6 +133,15 @@ def test_de_lijst_zet_lopend_boven_aanvragen_en_afgerond_onderaan(post, db, clie
     assert inhoud.index(">Afgerond</h2>") < inhoud.index(">Nieuw af<")
 
 
+def test_een_aanvraag_in_de_lijst_toont_dezelfde_statuschip(post, client):
+    """Op de klus heet de chip Aanvraag. In de lijst hoort diezelfde chip,
+    anders blijft daar alleen het grijze intake-label staan."""
+    post("/klussen/nieuw", {"naam": "Belletje", "aanvraag": "ja"})
+    inhoud = client.get("/klussen").data.decode()
+    assert 'class="chip chip-aangevraagd"' in inhoud
+    assert ">Aanvraag<" in inhoud
+
+
 def test_een_lege_groep_krijgt_geen_kop(post, client):
     post("/klussen/nieuw", {"naam": "Alleen deze"})
     inhoud = client.get("/klussen").data.decode()
