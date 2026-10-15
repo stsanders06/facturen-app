@@ -146,20 +146,48 @@ def test_een_webadres_in_een_notitie_mag_afbreken(client, db):
     assert "anywhere" in regel_met(css, ".gegevens dd")
 
 
-def test_het_routemenu_hangt_aan_het_adres_en_niet_aan_de_rij(client, db):
-    """Op WebKit werden de witregels in de template lege regels, door pre-line
-    op de hele dd. De adresrij werd een hoog vlak en het menu — dat aan die rij
-    hing — opende onderaan, over telefoon en de volgende kaart."""
+def test_een_oud_adres_met_lege_regels_komt_netjes_op_de_pagina(client, db):
+    """pre-line tekent witregels in het adres als lege ruimte. Op WebKit werd
+    de adresrij daardoor een hoog vlak. De pagina toont alleen gevulde regels,
+    bijgesneden; wat er is opgeslagen blijft zoals het was."""
+    ruw = "\n  Willem van Gulikstraat 11 \n\n\n  5991 CW Baarlo  \n"
+    klant_id = db.execute(
+        "INSERT INTO klanten (naam, adres) VALUES ('Fons Peeters', ?)", (ruw,)
+    ).lastrowid
+    db.commit()
+    inhoud = client.get(f"/klant/{klant_id}").data.decode()
+    blok = re.search(r'<details class="menu navigatie">(.*?)</details>', inhoud, re.S).group(1)
+    summary = re.search(r"<summary[^>]*>(.*?)</summary>", blok, re.S).group(1)
+    assert summary == "Willem van Gulikstraat 11\n5991 CW Baarlo"
+    assert 'aria-label="Route naar Willem van Gulikstraat 11, 5991 CW Baarlo"' in blok
+    assert db.execute("SELECT adres FROM klanten").fetchone()[0] == ruw
+
+
+def test_het_adres_blijft_tikbaar_zonder_de_rij_hoger_te_maken(client, db):
+    """Een min-height van 44px op de summary trok de adresrij uit elkaar, naast
+    e-mail en telefoon. Het tikvlak zit daarom in ::after en telt niet mee,
+    zoals bij het intake-vinkje."""
     klant_id = db.execute(
         "INSERT INTO klanten (naam, adres) VALUES ('Jan Jansen', 'Kerkstraat 1')"
     ).lastrowid
     db.commit()
     css = css_van(client.get(f"/klant/{klant_id}").data.decode())
-    assert "white-space: normal" in regel_met(css, ".gegevens dd:has(.navigatie)")
-    assert "position: relative" in regel_met(css, ".navigatie")
-    assert "position: static" not in css[css.index(".navigatie"):css.index(".navigatie") + 800]
-    assert "max-width: calc(100vw - 32px)" in regel_met(css, ".navigatie .menu-lijst")
-    assert "display: none" in regel_met(css, "details.menu:not([open]) > .menu-lijst")
+    summary = regel_met(css, ".navigatie > summary")
+    assert "padding: 0" in summary
+    assert "min-height" not in summary
+    tik = regel_met(css, ".navigatie > summary::after")
+    assert "position: absolute" in tik
+    assert "width: max(100%, 44px)" in tik
+    assert "height: max(100%, 44px)" in tik
+    # Links onder het adres, nooit breder dan de kolom. Rechts uitlijnen schoof
+    # de lijst over het label.
+    lijst = regel_met(css, ".navigatie .menu-lijst")
+    assert "left: 0" in lijst
+    assert "min-width: 0" in lijst
+    assert "max-width: 100%" in lijst
+    assert "left: auto" not in lijst
+    # Eén regel: een tweede die hem rechts uitlijnt schoof de lijst over het label.
+    assert css.count(".navigatie .menu-lijst") == 1
 
 
 def test_de_klantenlijst_heeft_een_nieuw_knop_in_plaats_van_twee_losse(client, db):

@@ -8,7 +8,8 @@ genoeg; anders blijft de vorige versie draaien.
 - **Het adres staat weer naast Adres.** Op een iPhone stond er een groot leeg
   vlak omheen, en de keuze voor Google Maps, Apple Kaarten of Waze verscheen
   onderaan over de telefoon en de kaart eronder. Die keuze staat nu direct
-  onder het adres.
+  onder het adres, ook op een smalle telefoon. Het adres blijft aantikbaar.
+  Een oud adres met lege regels of spaties ervoor komt netjes op de regels.
 
 ## 1.34.0
 

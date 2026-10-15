@@ -85,16 +85,17 @@
     color: var(--on-primary);
   }
   /* Het adres zelf is de knop. Een losse "route"-tekst ernaast past niet
-     naast de gegevens op een telefoon. Het menu hangt aan dit blok, niet aan
-     de hele gegevenslijst: anders opent het onderaan, over telefoon en de
-     kaart eronder. */
+     naast de gegevens op een telefoon. Het blok vult de kolom, zodat het menu
+     er links onder hangt en niet breder wordt dan die kolom. Aan de hele
+     gegevenslijst hangen opent het onderaan; rechts uitlijnen schuift het over
+     het label "Adres". */
   .navigatie {
     position: relative;
-    display: inline-block;
+    display: block;
     max-width: 100%;
-    vertical-align: top;
   }
   .navigatie > summary {
+    position: relative;
     display: inline-block;
     max-width: 100%;
     cursor: pointer;
@@ -114,16 +115,27 @@
     left: 0;
     right: auto;
     top: calc(100% + 4px);
-    min-width: 11em;
-    max-width: calc(100vw - 32px);
-  }
-  /* Op een heel smal scherm is de adreskolom smaller dan de lijst. Rechts
-     uitlijnen op het adres houdt hem in beeld; hij blijft tegen het adres aan. */
-  @media (max-width: 360px) {
-    .navigatie .menu-lijst { left: auto; right: 0; }
+    width: max-content;
+    /* De gedeelde lijst is minstens 210px. Dat is breder dan de adreskolom op
+       320px, en min-width wint dan van max-width: de lijst stak uit of schoof
+       over het label. Hier mag hij krimpen tot de kolom. */
+    min-width: 0;
+    max-width: 100%;
   }
   @media (pointer: coarse), (max-width: 620px) {
     .kop-acties .menu.met-opschrift > summary { padding: 12px 20px; min-height: 44px; }
+    /* De tekst blijft zo hoog als de regel, net als e-mail en telefoon. Een
+       min-height op de summary zelf trok de rij uit elkaar. Het tikvlak zit in
+       ::after en telt niet mee, zoals bij het intake-vinkje. */
+    .navigatie > summary::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: max(100%, 44px);
+      height: max(100%, 44px);
+      transform: translate(-50%, -50%);
+    }
   }
 </style>
 {% endblock %}
@@ -189,8 +201,15 @@
       <dd>
         {% set routes = navigatie_voor(klant.adres) %}
         {% if routes %}
+        {#- Oude adressen hebben soms lege regels of spaties aan het begin.
+            pre-line zou die als lege ruimte tekenen. Alleen de gevulde regels
+            komen op de pagina; wat er is opgeslagen blijft staan. -#}
+        {%- set regels = [] -%}
+        {%- for regel in (klant.adres or '').splitlines() if regel.strip() -%}
+          {%- set _ = regels.append(regel.strip()) -%}
+        {%- endfor -%}
         <details class="menu navigatie">
-          <summary>{{ klant.adres }}</summary>
+          <summary aria-label="Route naar {{ regels|join(', ') }}">{{ regels|join('\n') }}</summary>
           <div class="menu-lijst">
             {% for naam, url in routes %}
             <a class="menu-item" href="{{ url }}" target="_blank" rel="noopener">{{ naam }}</a>
