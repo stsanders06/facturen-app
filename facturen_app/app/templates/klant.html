@@ -27,11 +27,24 @@
   .tegel.laat b { color: var(--warn-text); }
   /* De onderregel van een tegel: kleiner en grijs, zodat het cijfer blijft opvallen. */
   .tegel b + small { margin-top: 2px; }
-  .gegevens { display: grid; grid-template-columns: 110px 1fr; gap: 8px 16px; font-size: 15px; }
+  .gegevens {
+    display: grid;
+    grid-template-columns: 110px 1fr;
+    gap: 8px 16px;
+    font-size: 15px;
+    /* start, niet stretch: het label hoort bij de eerste regel van een adres
+       dat over twee regels loopt, net als bij e-mail en telefoon. */
+    align-items: start;
+  }
   .gegevens dt { color: var(--text-secondary); font-size: 13.5px; }
   /* Een e-mailadres is één lang woord; zonder dit rekt het de kolom voorbij de
      schermrand op een smal toestel. */
   .gegevens dd { margin: 0; white-space: pre-line; overflow-wrap: anywhere; }
+  /* pre-line op de hele dd maakt van de witregels in de template lege regels.
+     WebKit laat die staan; de adresrij werd daardoor een hoog leeg vlak en het
+     menu opende onderaan die rij. De regelovergang in het adres zelf zit op de
+     summary, dus hier mag de witruimte uit de template weer weg. */
+  .gegevens dd:has(.navigatie) { white-space: normal; }
   .rekening {
     display: flex;
     align-items: baseline;
@@ -72,9 +85,17 @@
     color: var(--on-primary);
   }
   /* Het adres zelf is de knop. Een losse "route"-tekst ernaast past niet
-     naast de gegevens op een telefoon. */
-  .navigatie { max-width: 100%; }
+     naast de gegevens op een telefoon. Het blok vult de kolom, zodat het menu
+     er links onder hangt en niet breder wordt dan die kolom. Aan de hele
+     gegevenslijst hangen opent het onderaan; rechts uitlijnen schuift het over
+     het label "Adres". */
+  .navigatie {
+    position: relative;
+    display: block;
+    max-width: 100%;
+  }
   .navigatie > summary {
+    position: relative;
     display: inline-block;
     max-width: 100%;
     cursor: pointer;
@@ -93,16 +114,28 @@
   .navigatie .menu-lijst {
     left: 0;
     right: auto;
-    min-width: 11em;
-    max-width: calc(100vw - 48px);
+    top: calc(100% + 4px);
+    width: max-content;
+    /* De gedeelde lijst is minstens 210px. Dat is breder dan de adreskolom op
+       320px, en min-width wint dan van max-width: de lijst stak uit of schoof
+       over het label. Hier mag hij krimpen tot de kolom. */
+    min-width: 0;
+    max-width: 100%;
   }
   @media (pointer: coarse), (max-width: 620px) {
     .kop-acties .menu.met-opschrift > summary { padding: 12px 20px; min-height: 44px; }
-    .navigatie > summary { padding: 8px 0; min-height: 44px; }
-    /* De adreskolom is smal. Het menu hangt aan de hele gegevensrij, anders
-       steekt de lijst rechts het scherm uit. */
-    .gegevens { position: relative; }
-    .gegevens .navigatie { position: static; }
+    /* De tekst blijft zo hoog als de regel, net als e-mail en telefoon. Een
+       min-height op de summary zelf trok de rij uit elkaar. Het tikvlak zit in
+       ::after en telt niet mee, zoals bij het intake-vinkje. */
+    .navigatie > summary::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: max(100%, 44px);
+      height: max(100%, 44px);
+      transform: translate(-50%, -50%);
+    }
   }
 </style>
 {% endblock %}
@@ -168,8 +201,15 @@
       <dd>
         {% set routes = navigatie_voor(klant.adres) %}
         {% if routes %}
+        {#- Oude adressen hebben soms lege regels of spaties aan het begin.
+            pre-line zou die als lege ruimte tekenen. Alleen de gevulde regels
+            komen op de pagina; wat er is opgeslagen blijft staan. -#}
+        {%- set regels = [] -%}
+        {%- for regel in (klant.adres or '').splitlines() if regel.strip() -%}
+          {%- set _ = regels.append(regel.strip()) -%}
+        {%- endfor -%}
         <details class="menu navigatie">
-          <summary>{{ klant.adres }}</summary>
+          <summary aria-label="Route naar {{ regels|join(', ') }}">{{ regels|join('\n') }}</summary>
           <div class="menu-lijst">
             {% for naam, url in routes %}
             <a class="menu-item" href="{{ url }}" target="_blank" rel="noopener">{{ naam }}</a>
