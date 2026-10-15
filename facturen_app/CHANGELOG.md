@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.34.1
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **Het adres staat weer naast Adres.** Op een iPhone stond er een groot leeg
+  vlak omheen, en de keuze voor Google Maps, Apple Kaarten of Waze verscheen
+  onderaan over de telefoon en de kaart eronder. Die keuze staat nu direct
+  onder het adres.
+
 ## 1.34.0
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet

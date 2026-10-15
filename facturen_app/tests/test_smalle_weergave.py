@@ -146,18 +146,20 @@ def test_een_webadres_in_een_notitie_mag_afbreken(client, db):
     assert "anywhere" in regel_met(css, ".gegevens dd")
 
 
-def test_het_routemenu_blijft_binnen_het_scherm(client, db):
-    """De lijst hangt links aan het adres. Op een telefoon is die kolom smal,
-    dus het menu hangt dan aan de hele gegevensrij en wordt nooit breder dan
-    het scherm."""
+def test_het_routemenu_hangt_aan_het_adres_en_niet_aan_de_rij(client, db):
+    """Op WebKit werden de witregels in de template lege regels, door pre-line
+    op de hele dd. De adresrij werd een hoog vlak en het menu — dat aan die rij
+    hing — opende onderaan, over telefoon en de volgende kaart."""
     klant_id = db.execute(
         "INSERT INTO klanten (naam, adres) VALUES ('Jan Jansen', 'Kerkstraat 1')"
     ).lastrowid
     db.commit()
     css = css_van(client.get(f"/klant/{klant_id}").data.decode())
-    assert "max-width: calc(100vw - 48px)" in regel_met(css, ".navigatie .menu-lijst")
-    smal = css[css.index("@media (pointer: coarse), (max-width: 620px)"):]
-    assert "position: static" in regel_met(smal, ".gegevens .navigatie")
+    assert "white-space: normal" in regel_met(css, ".gegevens dd:has(.navigatie)")
+    assert "position: relative" in regel_met(css, ".navigatie")
+    assert "position: static" not in css[css.index(".navigatie"):css.index(".navigatie") + 800]
+    assert "max-width: calc(100vw - 32px)" in regel_met(css, ".navigatie .menu-lijst")
+    assert "display: none" in regel_met(css, "details.menu:not([open]) > .menu-lijst")
 
 
 def test_de_klantenlijst_heeft_een_nieuw_knop_in_plaats_van_twee_losse(client, db):

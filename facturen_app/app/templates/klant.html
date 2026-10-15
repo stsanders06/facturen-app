@@ -27,11 +27,24 @@
   .tegel.laat b { color: var(--warn-text); }
   /* De onderregel van een tegel: kleiner en grijs, zodat het cijfer blijft opvallen. */
   .tegel b + small { margin-top: 2px; }
-  .gegevens { display: grid; grid-template-columns: 110px 1fr; gap: 8px 16px; font-size: 15px; }
+  .gegevens {
+    display: grid;
+    grid-template-columns: 110px 1fr;
+    gap: 8px 16px;
+    font-size: 15px;
+    /* start, niet stretch: het label hoort bij de eerste regel van een adres
+       dat over twee regels loopt, net als bij e-mail en telefoon. */
+    align-items: start;
+  }
   .gegevens dt { color: var(--text-secondary); font-size: 13.5px; }
   /* Een e-mailadres is één lang woord; zonder dit rekt het de kolom voorbij de
      schermrand op een smal toestel. */
   .gegevens dd { margin: 0; white-space: pre-line; overflow-wrap: anywhere; }
+  /* pre-line op de hele dd maakt van de witregels in de template lege regels.
+     WebKit laat die staan; de adresrij werd daardoor een hoog leeg vlak en het
+     menu opende onderaan die rij. De regelovergang in het adres zelf zit op de
+     summary, dus hier mag de witruimte uit de template weer weg. */
+  .gegevens dd:has(.navigatie) { white-space: normal; }
   .rekening {
     display: flex;
     align-items: baseline;
@@ -72,8 +85,15 @@
     color: var(--on-primary);
   }
   /* Het adres zelf is de knop. Een losse "route"-tekst ernaast past niet
-     naast de gegevens op een telefoon. */
-  .navigatie { max-width: 100%; }
+     naast de gegevens op een telefoon. Het menu hangt aan dit blok, niet aan
+     de hele gegevenslijst: anders opent het onderaan, over telefoon en de
+     kaart eronder. */
+  .navigatie {
+    position: relative;
+    display: inline-block;
+    max-width: 100%;
+    vertical-align: top;
+  }
   .navigatie > summary {
     display: inline-block;
     max-width: 100%;
@@ -93,16 +113,17 @@
   .navigatie .menu-lijst {
     left: 0;
     right: auto;
+    top: calc(100% + 4px);
     min-width: 11em;
-    max-width: calc(100vw - 48px);
+    max-width: calc(100vw - 32px);
+  }
+  /* Op een heel smal scherm is de adreskolom smaller dan de lijst. Rechts
+     uitlijnen op het adres houdt hem in beeld; hij blijft tegen het adres aan. */
+  @media (max-width: 360px) {
+    .navigatie .menu-lijst { left: auto; right: 0; }
   }
   @media (pointer: coarse), (max-width: 620px) {
     .kop-acties .menu.met-opschrift > summary { padding: 12px 20px; min-height: 44px; }
-    .navigatie > summary { padding: 8px 0; min-height: 44px; }
-    /* De adreskolom is smal. Het menu hangt aan de hele gegevensrij, anders
-       steekt de lijst rechts het scherm uit. */
-    .gegevens { position: relative; }
-    .gegevens .navigatie { position: static; }
   }
 </style>
 {% endblock %}

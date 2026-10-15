@@ -586,6 +586,10 @@
   /* + Nieuw staat in de paginakop, niet in een kaart. Zonder eigen laag
      verdwijnt de lijst achter de kaart eronder. */
   .page-head:has(.menu[open]) { position: relative; z-index: 30; }
+  /* WebKit verbergt de rest van een dicht details niet zodra je zelf display
+     op die rest zet. Chrome doet dat met !important in zijn eigen stijl.
+     Zonder deze regel blijft een dicht menu meedoen in de hoogte van de rij. */
+  details.menu:not([open]) > .menu-lijst { display: none; }
   .menu-lijst {
     position: absolute;
     top: calc(100% + 4px);
