@@ -19,7 +19,10 @@
   }
   .boeking:last-child { border-bottom: none; }
   .boeking .wanneer { font-size: 14px; }
-  .boeking .notitie { font-size: 13px; color: var(--text-secondary); }
+  .boeking .notitie { font-size: 13px; color: var(--text-secondary); overflow-wrap: anywhere; }
+  /* De notitie zit in de linkerhelft van een flexrij. Zonder min-width duwt
+     een lang webadres de bedragen het scherm uit. */
+  .boeking-tekst { min-width: 0; overflow-wrap: anywhere; }
   .boeking .bedrag { font-variant-numeric: tabular-nums; font-weight: 500; }
   .boekregel { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
   .boekregel > div { flex: 1 1 140px; }
@@ -88,9 +91,9 @@
   {% else %}
   {% for b in betalingen %}
   <div class="boeking">
-    <span>
+    <span class="boeking-tekst">
       <span class="wanneer">{{ b.datum|datum_nl }}</span>
-      {% if b.notitie %}<span class="notitie">&middot; {{ b.notitie }}</span>
+      {% if b.notitie %}<span class="notitie">&middot; {{ b.notitie|met_links }}</span>
       {% elif b.automatisch %}<span class="notitie">&middot; geboekt met de knop Betaald</span>{% endif %}
     </span>
     <span style="display:flex;align-items:center;gap:8px">

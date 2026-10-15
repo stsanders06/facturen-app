@@ -1,11 +1,12 @@
 {# Stukjes die op meerdere pagina's terugkomen. #}
 
-{% macro menu(label, opschrift='⋯') %}
+{% macro menu(label, opschrift='⋯', knop='btn-text') %}
 {#- De drie puntjes met alles wat je niet elke dag nodig hebt. Gebruik met
     {% call menu('Meer voor rekening 2026-001') %}...{% endcall %}
-    Met een eigen opschrift wordt het een gewone keuzeknop, zoals "+ Nieuw". -#}
+    Met een eigen opschrift wordt het een gewone keuzeknop, zoals "+ Nieuw".
+    Zonder knop-klasse is het een gewone primaire knop. -#}
 <details class="menu{{ ' met-opschrift' if opschrift != '⋯' }}">
-  <summary class="btn btn-text menu-knop" role="button" title="{{ label }}"
+  <summary class="btn{% if knop %} {{ knop }}{% endif %} menu-knop" role="button" title="{{ label }}"
            aria-label="{{ label }}">{{ opschrift }}</summary>
   <div class="menu-lijst">{{ caller() }}</div>
 </details>

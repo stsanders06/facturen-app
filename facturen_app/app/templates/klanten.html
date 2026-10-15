@@ -124,6 +124,7 @@
         {% call menu('Nieuw voor ' ~ k.naam, '+ Nieuw') %}
         <a class="menu-item" href="{{ url_for('nieuw') }}?klant={{ k.id }}">Rekening</a>
         <a class="menu-item" href="{{ url_for('offerte_nieuw') }}?klant={{ k.id }}">Offerte</a>
+        <a class="menu-item" href="{{ url_for('klus_nieuw') }}?klant={{ k.id }}">Klus</a>
         {% endcall %}
         <a class="btn btn-text" href="{{ url_for('klant_bewerk', klant_id=k.id) }}">Bewerken</a>
       </div>

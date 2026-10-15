@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.34.0
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **Vanaf een klant begin je een rekening, een offerte of een klus.** Op de
+  klant staat daarvoor + Nieuw. De klant is dan al gekozen. In de klantenlijst
+  zit Klus bij diezelfde knop.
+- **Een adres is aantikbaar.** Je kiest Google Maps, Apple Kaarten of Waze, en
+  de route gaat naar dat adres. Zonder adres is er niets om aan te tikken.
+- **Een webadres in een notitie is aanklikbaar.** Bij een klant, een klus, een
+  gewerkte dag en een betaling. Het opent in een nieuw venster. Wat je hebt
+  opgeschreven blijft zoals het was.
+
 ## 1.33.0
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet

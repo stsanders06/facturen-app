@@ -1,4 +1,5 @@
 {% extends "_layout.html" %}
+{% from "_onderdelen.html" import menu %}
 {% block title %}{{ klant.naam }}{% endblock %}
 {% block head %}
 <style>
@@ -63,16 +64,59 @@
   }
   .rekening .bedrag { font-variant-numeric: tabular-nums; font-weight: 500; white-space: nowrap; }
   .kop-acties { display: flex; gap: 8px; flex-wrap: wrap; }
+  /* + Nieuw is de primaire knop. De gedeelde menu-opmaak maakt er anders een
+     tekstknop van, kleiner dan Bewerken ernaast. */
+  .kop-acties .menu.met-opschrift > summary { font-size: 14px; padding: 10px 20px; }
+  .kop-acties .menu[open] > summary {
+    background: var(--primary-hover);
+    color: var(--on-primary);
+  }
+  /* Het adres zelf is de knop. Een losse "route"-tekst ernaast past niet
+     naast de gegevens op een telefoon. */
+  .navigatie { max-width: 100%; }
+  .navigatie > summary {
+    display: inline-block;
+    max-width: 100%;
+    cursor: pointer;
+    color: var(--primary);
+    font-size: 15px;
+    font-weight: 400;
+    letter-spacing: normal;
+    line-height: 1.35;
+    padding: 0;
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+    text-align: left;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .navigatie .menu-lijst {
+    left: 0;
+    right: auto;
+    min-width: 11em;
+    max-width: calc(100vw - 48px);
+  }
+  @media (pointer: coarse), (max-width: 620px) {
+    .kop-acties .menu.met-opschrift > summary { padding: 12px 20px; min-height: 44px; }
+    .navigatie > summary { padding: 8px 0; min-height: 44px; }
+    /* De adreskolom is smal. Het menu hangt aan de hele gegevensrij, anders
+       steekt de lijst rechts het scherm uit. */
+    .gegevens { position: relative; }
+    .gegevens .navigatie { position: static; }
+  }
 </style>
 {% endblock %}
 {% block content %}
 
 <div class="page-head">
   <h1>{{ klant.naam }}</h1>
-  <div class="kop-acties">
+  <div class="kop-acties acties">
     <a class="btn btn-outline" href="{{ url_for('klant_bewerk', klant_id=klant.id) }}">Bewerken</a>
-    <a class="btn btn-outline" href="{{ url_for('offerte_nieuw') }}?klant={{ klant.id }}">+ Offerte</a>
-    <a class="btn" href="{{ url_for('nieuw') }}?klant={{ klant.id }}">+ Nieuwe rekening</a>
+    {% call menu('Nieuw voor ' ~ klant.naam, '+ Nieuw', '') %}
+    <a class="menu-item" href="{{ url_for('nieuw') }}?klant={{ klant.id }}">Rekening</a>
+    <a class="menu-item" href="{{ url_for('offerte_nieuw') }}?klant={{ klant.id }}">Offerte</a>
+    <a class="menu-item" href="{{ url_for('klus_nieuw') }}?klant={{ klant.id }}">Klus</a>
+    {% endcall %}
   </div>
 </div>
 
@@ -120,10 +164,23 @@
   <section class="card">
     <div class="card-head"><h2>Gegevens</h2></div>
     <dl class="gegevens">
-      <dt>Adres</dt><dd>{{ klant.adres or '—' }}</dd>
+      <dt>Adres</dt>
+      <dd>
+        {% set routes = navigatie_voor(klant.adres) %}
+        {% if routes %}
+        <details class="menu navigatie">
+          <summary>{{ klant.adres }}</summary>
+          <div class="menu-lijst">
+            {% for naam, url in routes %}
+            <a class="menu-item" href="{{ url }}" target="_blank" rel="noopener">{{ naam }}</a>
+            {% endfor %}
+          </div>
+        </details>
+        {% else %}—{% endif %}
+      </dd>
       <dt>E-mail</dt><dd>{{ klant.email or '—' }}</dd>
       <dt>Telefoon</dt><dd>{{ klant.telefoon or '—' }}</dd>
-      {% if klant.notitie %}<dt>Notitie</dt><dd>{{ klant.notitie }}</dd>{% endif %}
+      {% if klant.notitie %}<dt>Notitie</dt><dd>{{ klant.notitie|met_links }}</dd>{% endif %}
     </dl>
   </section>
 

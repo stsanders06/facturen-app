@@ -15,7 +15,7 @@ import time
 from datetime import date, datetime, timedelta
 from email.message import EmailMessage
 from itertools import zip_longest
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import Request, urlopen
 from urllib.error import URLError
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -27,14 +27,14 @@ from reportlab.lib.units import mm
 from reportlab.lib import colors
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
-from markupsafe import Markup
+from markupsafe import Markup, escape
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.33.0"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.34.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -748,6 +748,58 @@ def duur_in_uren(van, tot):
 def filter_uren(waarde):
     """8.5 wordt '8,5' en 8.0 wordt '8'."""
     return f"{float(waarde or 0):g}".replace(".", ",")
+
+
+# Alleen een adres dat als link bedoeld is. Een www. midden in een woord
+# ("notwww.example.com") of achter een @ hoort er niet bij.
+# Aanhalingstekens blijven in het adres zitten; die worden bij het tonen
+# geëscaped. Ze hier afkappen brak een adres als https://example.com/foto's.
+_LINK_IN_TEKST = re.compile(r"(?<![\w@./])(?:https?://|www\.)[^\s<>]+", re.IGNORECASE)
+_LEESTEKEN_ACHTER_LINK = ".,;:!?"
+
+
+def _url_zonder_leesteken(ruw):
+    """Haal de punt of haakje van de zin van het adres af.
+
+    Anders wordt "kijk op https://example.com." een link die op een punt
+    eindigt, en die pagina bestaat niet."""
+    kern = ruw
+    staart = ""
+    while kern and kern[-1] in _LEESTEKEN_ACHTER_LINK:
+        staart = kern[-1] + staart
+        kern = kern[:-1]
+    while kern.endswith(")") and kern.count("(") < kern.count(")"):
+        staart = ")" + staart
+        kern = kern[:-1]
+    return kern, staart
+
+
+@app.template_filter("met_links")
+def met_links(tekst):
+    """Maak http(s) en www. in een notitie aanklikbaar, alleen bij het tonen.
+
+    De opgeslagen tekst blijft zoals hij is. Alles buiten het adres wordt
+    geëscaped, inclusief de regelovergangen, zodat een notitie geen eigen
+    code in de pagina kan zetten."""
+    if not tekst:
+        return Markup("")
+    tekst = str(tekst)
+    delen = []
+    cursor = 0
+    for treffer in _LINK_IN_TEKST.finditer(tekst):
+        delen.append(escape(tekst[cursor:treffer.start()]))
+        kern, staart = _url_zonder_leesteken(treffer.group(0))
+        if not kern:
+            delen.append(escape(treffer.group(0)))
+        else:
+            href = kern if kern.lower().startswith(("http://", "https://")) else "https://" + kern
+            delen.append(Markup(
+                '<a class="externe-link" href="{}" target="_blank" rel="noopener">{}</a>'
+            ).format(escape(href), escape(kern)))
+            delen.append(escape(staart))
+        cursor = treffer.end()
+    delen.append(escape(tekst[cursor:]))
+    return Markup("").join(delen)
 
 
 @app.template_global()
@@ -2038,8 +2090,17 @@ def klus_nieuw():
             melding(f"Klus {naam} aangemaakt. Zet hieronder je eerste dag erbij.")
         return redirect(url_for("klus", klus_id=klus_id))
 
+    # Vanuit een klantpagina kun je meteen een klus voor die klant beginnen.
+    gekozen = None
+    vooraf = (request.args.get("klant") or "").strip()
+    if vooraf.isdigit():
+        conn = get_db()
+        rij = conn.execute("SELECT id FROM klanten WHERE id=?", (int(vooraf),)).fetchone()
+        conn.close()
+        gekozen = rij["id"] if rij else None
+
     return render_template("klus_form.html", klus=None, klanten=klantenlijst(),
-                           actief="klussen")
+                           actief="klussen", gekozen_klant_id=gekozen)
 
 
 @app.route("/klus/<int:klus_id>")
@@ -2879,6 +2940,27 @@ def net_adres(tekst):
 
     tweede = f"{postcode} {plaats}".strip()
     return f"{straat}\n{tweede}".strip() if straat else tweede
+
+
+def navigatie_voor(adres):
+    """Routeplanners voor een adres, of niets als er geen adres is.
+
+    Het adres staat opgeslagen met de straat op de eerste regel en de postcode
+    en plaats op de tweede. Een routeplanner wil één bestemming, dus die regels
+    komen achter elkaar. Ontbreekt een deel, dan gaat alleen wat er is mee."""
+    regels = [regel.strip() for regel in str(adres or "").splitlines() if regel.strip()]
+    if not regels:
+        return []
+    bestemming = quote(", ".join(regels), safe="")
+    return [
+        ("Google Maps",
+         f"https://www.google.com/maps/dir/?api=1&destination={bestemming}"),
+        ("Apple Kaarten", f"https://maps.apple.com/?daddr={bestemming}"),
+        ("Waze", f"https://waze.com/ul?q={bestemming}&navigate=yes"),
+    ]
+
+
+app.jinja_env.globals["navigatie_voor"] = navigatie_voor
 
 
 # Netnummers van drie cijfers; al het andere vaste nummer heeft er vier. Zonder deze

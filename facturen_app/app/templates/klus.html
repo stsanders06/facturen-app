@@ -99,6 +99,8 @@
     margin-top: 2px;
     font-size: 13px;
     color: var(--text-secondary);
+    /* Een webadres in de notitie bij een dag is één lang woord. */
+    overflow-wrap: anywhere;
   }
   .invoerrij-bij .gefactureerd { color: var(--ok); font-weight: 500; }
   .invoerrij-bij .chip { margin-left: 6px; }
@@ -482,7 +484,15 @@
   .weer-aanvraag { margin: 12px 0 0; }
   .bewaarde-dagen { margin-top: 12px; }
   .lege-lijst { color: var(--text-secondary); font-size: 14px; margin: 0; }
-  .opsomming { margin: 14px 0 0; color: var(--text-secondary); font-size: 14px; }
+  .opsomming {
+    margin: 14px 0 0;
+    color: var(--text-secondary);
+    font-size: 14px;
+    overflow-wrap: anywhere;
+  }
+  /* De notitie bij de klus is een tekstvak met Enter. pre-line op de hele
+     opsomming zou ook de lege regels uit de template meetellen. */
+  .klus-notitie { white-space: pre-line; overflow-wrap: anywhere; }
   .opsomming a { color: var(--primary); }
   html.js .opslaan-knop { display: none; }
 </style>
@@ -544,7 +554,7 @@
       {% if klus.klant_naam %}Klant: <a href="{{ url_for('klant', klant_id=klus.klant_id) }}">{{ klus.klant_naam }}</a> ·
       {% endif %}
       <span class="chip chip-{{ klus.status }}">{{ fases[klus.status].label }}</span>
-      {% if klus.notitie %}<br>{{ klus.notitie }}{% endif %}
+      {% if klus.notitie %}<br><span class="klus-notitie">{{ klus.notitie|met_links }}</span>{% endif %}
     </p>
     {#- Alleen zolang de klus loopt. Afgerond heropen je eerst; daarna kun je
         de start alsnog terugdraaien. De vraag noemt de dagen, omdat die op
@@ -657,7 +667,7 @@
         </div>
         <div class="invoerrij-bij">
           <span class="tijden">{{ d.van }} – {{ d.tot }}</span>
-          {%- if d.notitie %} · {{ d.notitie }}{% endif %}
+          {%- if d.notitie %} · {{ d.notitie|met_links }}{% endif %}
           <span class="chip chip-betaald">op {{ d.factuur_nummer or 'rekening' }}</span>
         </div>
       {% endcall %}
@@ -673,7 +683,7 @@
             <span class="uitkomst">{{ d.uren|uren }} u</span>
           </div>
           <div class="invoerrij-bij">
-            <span class="samenvatting-tijden">{{ d.van }} – {{ d.tot }}</span><span class="samenvatting-notitie">{% if d.notitie %} · {{ d.notitie }}{% endif %}</span>
+            <span class="samenvatting-tijden">{{ d.van }} – {{ d.tot }}</span><span class="samenvatting-notitie">{% if d.notitie %} · {{ d.notitie|met_links }}{% endif %}</span>
           </div>
           <div class="invoerrij-acties">
             <button type="button" class="btn btn-text" data-dag-bewerk>Bewerken</button>
@@ -758,7 +768,7 @@
         <div id="notitie-{{ n.id }}-tekst">
           {% if n.tekst %}
           <div class="invoerrij-hoofd">
-            <span class="invoerrij-titel">{{ n.tekst }}</span>
+            <span class="invoerrij-titel">{{ n.tekst|met_links }}</span>
           </div>
           <div class="invoerrij-bij">{{ n.wanneer|datum_nl }}</div>
           {% else %}
@@ -1011,6 +1021,56 @@
     var maanden = ['jan', 'feb', 'mrt', 'apr', 'mei', 'jun',
                    'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
 
+    // Zelfde regels als met_links op de server: alleen http(s) en www., de rest
+    // blijft tekst. Met textContent in plaats van HTML kan een notitie geen
+    // code in de pagina zetten.
+    function vulMetLinks(el, tekst) {
+      el.textContent = '';
+      if (!tekst) return;
+      el.appendChild(document.createTextNode(' · '));
+      // Geen lookbehind: oudere iOS-Safari kent die niet, en dan zou dit hele
+      // blok met de dagen stuk gaan. Het teken ervóór doet hetzelfde.
+      var re = /(?:https?:\/\/|www\.)[^\s<>]+/gi;
+      var laatste = 0;
+      var match;
+      while ((match = re.exec(tekst)) !== null) {
+        var ervoor = match.index > 0 ? tekst.charAt(match.index - 1) : '';
+        if (ervoor && /[\w@./]/.test(ervoor)) continue;
+        if (match.index > laatste) {
+          el.appendChild(document.createTextNode(tekst.slice(laatste, match.index)));
+        }
+        var ruw = match[0];
+        var kern = ruw;
+        var staart = '';
+        while (kern && '.,;:!?'.indexOf(kern.slice(-1)) !== -1) {
+          staart = kern.slice(-1) + staart;
+          kern = kern.slice(0, -1);
+        }
+        while (kern.slice(-1) === ')' &&
+               (kern.split('(').length - 1) < (kern.split(')').length - 1)) {
+          staart = ')' + staart;
+          kern = kern.slice(0, -1);
+        }
+        var href = /^(https?:\/\/)/i.test(kern) ? kern : (kern ? 'https://' + kern : '');
+        if (kern && /^(https?:\/\/)/i.test(href)) {
+          var link = document.createElement('a');
+          link.className = 'externe-link';
+          link.href = href;
+          link.target = '_blank';
+          link.rel = 'noopener';
+          link.textContent = kern;
+          el.appendChild(link);
+          if (staart) el.appendChild(document.createTextNode(staart));
+        } else {
+          el.appendChild(document.createTextNode(ruw));
+        }
+        laatste = match.index + ruw.length;
+      }
+      if (laatste < tekst.length) {
+        el.appendChild(document.createTextNode(tekst.slice(laatste)));
+      }
+    }
+
     function urenTussen(van, tot) {
       var a = van.split(':'), b = tot.split(':');
       if (a.length < 2 || b.length < 2) return 0;
@@ -1048,8 +1108,7 @@
       var notitieVeld = rij.querySelector('[name="notitie"]');
       var notitieTekst = rij.querySelector('.samenvatting-notitie');
       if (notitieTekst && notitieVeld) {
-        var tekst = notitieVeld.value.trim();
-        notitieTekst.textContent = tekst ? ' · ' + tekst : '';
+        vulMetLinks(notitieTekst, notitieVeld.value.trim());
       }
       var datumVeld = rij.querySelector('[name="datum"]');
       var datumTekst = rij.querySelector('.samenvatting-datum');

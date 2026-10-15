@@ -152,3 +152,16 @@ def test_onmogelijk_percentage_wordt_geweigerd(post, db, maak_offerte):
 def test_aanbetalingspagina_laadt(client, db, maak_offerte):
     offerte_id = maak_offerte(totaal=1000.0)
     assert client.get(f"/offerte/{offerte_id}/aanbetaling").status_code == 200
+
+
+def test_een_webadres_in_een_betalingsnotitie_is_aanklikbaar(post, client, db, maak_factuur):
+    factuur_id = maak_factuur(totaal=121.0, status="verzonden")
+    post(f"/factuur/{factuur_id}/betalingen", {
+        "datum": "2026-08-20", "bedrag": "50,00",
+        "notitie": "Via https://example.com/betaald",
+    })
+    inhoud = client.get(f"/factuur/{factuur_id}/betalingen").data.decode()
+    assert 'href="https://example.com/betaald"' in inhoud
+    assert 'target="_blank" rel="noopener"' in inhoud
+    assert db.execute("SELECT notitie FROM betalingen").fetchone()[0] == \
+        "Via https://example.com/betaald"
