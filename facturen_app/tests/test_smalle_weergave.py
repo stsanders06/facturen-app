@@ -137,6 +137,29 @@ def test_een_lang_e_mailadres_rekt_de_klantgegevens_niet_op(db, client):
     assert "anywhere" in regel_met(css, ".gegevens dd")
 
 
+def test_een_webadres_in_een_notitie_mag_afbreken(client, db):
+    """Een lang adres is één woord. Zonder anywhere duwt het de pagina opzij."""
+    klant_id = db.execute("INSERT INTO klanten (naam) VALUES ('Jan Jansen')").lastrowid
+    db.commit()
+    css = css_van(client.get(f"/klant/{klant_id}").data.decode())
+    assert "anywhere" in regel_met(css, ".externe-link")
+    assert "anywhere" in regel_met(css, ".gegevens dd")
+
+
+def test_het_routemenu_blijft_binnen_het_scherm(client, db):
+    """De lijst hangt links aan het adres. Op een telefoon is die kolom smal,
+    dus het menu hangt dan aan de hele gegevensrij en wordt nooit breder dan
+    het scherm."""
+    klant_id = db.execute(
+        "INSERT INTO klanten (naam, adres) VALUES ('Jan Jansen', 'Kerkstraat 1')"
+    ).lastrowid
+    db.commit()
+    css = css_van(client.get(f"/klant/{klant_id}").data.decode())
+    assert "max-width: calc(100vw - 48px)" in regel_met(css, ".navigatie .menu-lijst")
+    smal = css[css.index("@media (pointer: coarse), (max-width: 620px)"):]
+    assert "position: static" in regel_met(smal, ".gegevens .navigatie")
+
+
 def test_de_klantenlijst_heeft_een_nieuw_knop_in_plaats_van_twee_losse(client, db):
     """"Nieuwe rekening", "Nieuwe offerte" en "Bewerken" pasten net niet op één
     regel. Nu zit de keuze achter één knop."""

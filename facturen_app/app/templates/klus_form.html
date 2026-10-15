@@ -25,9 +25,11 @@
         <div class="field">
           <label for="klant_id">Klant</label>
           <select id="klant_id" name="klant_id">
+            {#- Bij een nieuwe klus komt de klant uit ?klant=, bij bewerken uit de klus. -#}
+            {% set gekozen = klus.klant_id if klus else gekozen_klant_id %}
             <option value="">— Nog geen klant —</option>
             {% for k in klanten %}
-            <option value="{{ k.id }}" {% if klus and klus.klant_id == k.id %}selected{% endif %}>{{ k.naam }}</option>
+            <option value="{{ k.id }}" {% if gekozen == k.id %}selected{% endif %}>{{ k.naam }}</option>
             {% endfor %}
           </select>
         </div>

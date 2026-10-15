@@ -320,6 +320,9 @@
   }
   .btn-outline:hover { background: var(--primary-soft); }
   .link { color: var(--primary); }
+  /* Een webadres in een notitie is één lang woord. Zonder dit rekt het de
+     pagina op een telefoon breder dan het scherm. */
+  .externe-link { color: var(--primary); overflow-wrap: anywhere; }
 
   /* ---------- Statuschip ---------- */
   .chip {
@@ -580,6 +583,9 @@
      z-index van het menu telt alleen binnen zijn eigen kaart. Zonder deze regel
      prikken de knoppen van de volgende kaart dwars door het menu heen. */
   .card:has(.menu[open]) { position: relative; z-index: 30; }
+  /* + Nieuw staat in de paginakop, niet in een kaart. Zonder eigen laag
+     verdwijnt de lijst achter de kaart eronder. */
+  .page-head:has(.menu[open]) { position: relative; z-index: 30; }
   .menu-lijst {
     position: absolute;
     top: calc(100% + 4px);

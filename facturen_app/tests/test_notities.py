@@ -265,3 +265,52 @@ def test_ook_het_bewerkveld_groeit_mee(post, client, db, klus_id):
     schrijf_op(post, klus_id, "Eerste regel")
     pagina = client.get(f"/klus/{klus_id}").data.decode()
     assert 'rows="2" class="groeit"' in pagina
+
+
+def test_een_webadres_in_een_notitie_wordt_een_link(post, client, db, klus_id):
+    """Alleen bij het tonen. Het veld om te bewerken houdt de platte tekst."""
+    from conftest import facturen
+
+    tekst = 'Kijk op https://example.com/foto\'s?x=1&y=2.\nEn www.voorbeeld.nl'
+    uit = facturen.met_links(tekst)
+    assert 'href="https://example.com/foto&#39;s?x=1&amp;y=2"' in uit
+    assert ">https://example.com/foto&#39;s?x=1&amp;y=2</a>." in uit
+    assert 'href="https://www.voorbeeld.nl"' in uit
+    assert "\nEn " in uit
+    assert "<script>" not in facturen.met_links('<img src=x onerror="alert(1)">')
+    assert "&lt;img" in facturen.met_links('<img src=x onerror="alert(1)">')
+    assert "<a " not in facturen.met_links("javascript:alert(1)")
+    assert "<a " not in facturen.met_links("notwww.example.com")
+    assert "<a " not in facturen.met_links("jan@example.com")
+
+    schrijf_op(post, klus_id, tekst)
+    assert db.execute("SELECT tekst FROM notities").fetchone()[0] == tekst
+    notitie_id = db.execute("SELECT id FROM notities").fetchone()[0]
+    pagina = client.get(f"/klus/{klus_id}").data.decode()
+    assert 'href="https://www.voorbeeld.nl"' in pagina
+    assert 'target="_blank" rel="noopener"' in pagina
+    formulier = pagina.split(f'id="notitie-{notitie_id}-form"')[1].split("</form>")[0]
+    assert "<a " not in formulier
+    assert "www.voorbeeld.nl" in formulier
+    assert db.execute("SELECT tekst FROM notities").fetchone()[0] == tekst
+
+
+def test_de_notitie_bij_de_klus_zelf_krijgt_ook_een_link(post, client, db, klus_id):
+    db.execute("UPDATE klussen SET notitie=? WHERE id=?",
+               ("Plan: https://example.com/klus", klus_id))
+    db.commit()
+    inhoud = client.get(f"/klus/{klus_id}").data.decode()
+    assert 'class="klus-notitie"' in inhoud
+    assert 'href="https://example.com/klus"' in inhoud
+    assert db.execute("SELECT notitie FROM klussen").fetchone()[0] == \
+        "Plan: https://example.com/klus"
+
+
+def test_een_webadres_bij_een_gewerkte_dag_is_aanklikbaar(post, client, db, klus_id):
+    post(f"/klus/{klus_id}/dag", {
+        "datum": "2026-08-14", "van": "09:00", "tot": "12:00",
+        "notitie": "Zie https://example.com/dag",
+    })
+    inhoud = client.get(f"/klus/{klus_id}").data.decode()
+    assert 'href="https://example.com/dag"' in inhoud
+    assert 'value="Zie https://example.com/dag"' in inhoud
