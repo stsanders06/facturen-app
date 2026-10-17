@@ -26,7 +26,19 @@ genoeg; anders blijft de vorige versie draaien.
 - **Een dag op een rekening verwijder of verschuif je niet zomaar.** Eerst van
   de rekening af, of pas de tijden daar. De melding linkt naar die rekening.
 - **Op de PDF staat het paginanummer**, bijvoorbeeld "Pagina 1 van 5". Een
-  lange omschrijving loopt niet meer in de kolom met het aantal.
+  lange omschrijving loopt niet meer in de kolom met het aantal. De eerste
+  pagina is wat krapper, zodat er meer dagen op passen.
+- **Een oude rekening houdt zijn bedrag.** Ook als dat niet mooi op centen
+  uitkomt. Wijzig je het aantal, de prijs of de soort, dan rekent de app
+  dat opnieuw uit.
+- **Een klus met dagen op een rekening kun je niet verwijderen.** De melding
+  linkt naar die rekening. Een concept heet daar een conceptrekening, met de
+  klant en de datum, en de link staat onder de tekst zodat je hem op een
+  telefoon kunt lezen.
+- **Een verwijderde rekening komt niet terug als de dagen al op een andere
+  rekening staan.** Je ziet op welke. De regels verdwijnen daarbij niet stil.
+- **Bij een dagregel zie je de duur**, bijvoorbeeld "7,33 u (7 u 20 min)",
+  zodat het bedrag te volgen is.
 
 ## 1.35.0
 

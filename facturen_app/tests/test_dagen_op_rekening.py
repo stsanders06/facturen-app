@@ -3,8 +3,10 @@
 Vroeger werd het één regel met het totaal aantal uren. Datum, begin, eind en
 pauze waren daarna weg. Een oude rekening die zo is opgeslagen blijft zo.
 """
+import logging
 import sqlite3
 from datetime import date, timedelta
+from html.parser import HTMLParser
 
 import pytest
 
@@ -668,3 +670,534 @@ def test_een_lange_dagregel_breekt_op_een_smal_scherm(client):
     blok = regel_met(smal, ".regel-tekst")
     assert "normal" in blok
     assert "calc(100% - 52px)" in blok
+
+
+def _oude_regeltabel(db):
+    """regels van voor de unieke dagkoppeling, met één bewaard bedrag."""
+    db.execute("PRAGMA foreign_keys=OFF")
+    db.execute("ALTER TABLE regels RENAME TO regels_los")
+    db.execute(
+        """CREATE TABLE regels (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            factuur_id INTEGER NOT NULL,
+            omschrijving TEXT NOT NULL,
+            type TEXT NOT NULL,
+            aantal REAL NOT NULL,
+            prijs REAL NOT NULL,
+            subtotaal REAL NOT NULL,
+            klus_id INTEGER,
+            inkoop_id INTEGER,
+            uur_id INTEGER,
+            FOREIGN KEY (factuur_id) REFERENCES facturen (id)
+        )"""
+    )
+    db.execute("DROP TABLE regels_los")
+    factuur_id = db.execute(
+        """INSERT INTO facturen (nummer, datum, klant_naam, status, totaal)
+           VALUES ('2026-040', '2026-10-16', 'Stone', 'definitief', 111)"""
+    ).lastrowid
+    db.execute(
+        """INSERT INTO regels
+           (factuur_id, omschrijving, type, aantal, prijs, subtotaal)
+           VALUES (?, 'oude regel', 'materiaal', 1, 111, 111)""",
+        (factuur_id,),
+    )
+    db.commit()
+    db.execute("PRAGMA foreign_keys=ON")
+    return factuur_id
+
+
+@pytest.mark.parametrize("stap", ["insert", "drop", "rename"])
+def test_crash_tijdens_de_migratie_rolt_terug(db, stap):
+    """CREATE, de kopie, DROP en RENAME zitten in één transactie.
+
+    Valt het proces op een van die punten weg, dan is de volgende start niet
+    een fout 'table regels_nieuw already exists' en blijft het bedrag staan."""
+    _oude_regeltabel(db)
+    facturen._MIGRATIE_STAP = stap
+    try:
+        with pytest.raises(facturen.MigratieAfgebroken):
+            facturen._uur_koppeling_uniek(db)
+    finally:
+        facturen._MIGRATIE_STAP = None
+
+    assert "regels_nieuw" not in facturen._tabelnamen(db)
+    assert db.execute("SELECT subtotaal FROM regels").fetchone()[0] == 111
+    facturen._uur_koppeling_uniek(db)
+    assert facturen._uur_koppeling_al_uniek(db)
+    assert "regels_nieuw" not in facturen._tabelnamen(db)
+    assert db.execute("SELECT subtotaal FROM regels").fetchone()[0] == 111
+
+
+def test_volgende_start_na_een_vastgelegde_kopie(db):
+    """De tabel regels_nieuw was al vastgelegd, de oude tabel nog niet weg.
+
+    Dat is de crash ná INSERT en vóór DROP bij een start die elke opdracht
+    meteen vastlegde."""
+    _oude_regeltabel(db)
+    db.execute("PRAGMA foreign_keys=OFF")
+    db.execute(facturen._REGELS_NIEUW)
+    db.execute(
+        """INSERT INTO regels_nieuw
+           (id, factuur_id, omschrijving, type, aantal, prijs, subtotaal,
+            klus_id, inkoop_id, uur_id)
+           SELECT id, factuur_id, omschrijving, type, aantal, prijs, subtotaal,
+                  klus_id, inkoop_id, uur_id FROM regels"""
+    )
+    db.commit()
+    facturen._uur_koppeling_uniek(db)
+    assert "regels_nieuw" not in facturen._tabelnamen(db)
+    assert facturen._uur_koppeling_al_uniek(db)
+    assert db.execute("SELECT subtotaal FROM regels").fetchone()[0] == 111
+
+
+def test_volgende_start_nadat_de_oude_tabel_weg_is(db):
+    """Crash ná DROP, vóór RENAME. De start maakt anders een lege regels aan
+    en weigert dan omdat regels_nieuw er al is. De kopie ís de data."""
+    _oude_regeltabel(db)
+    db.execute("PRAGMA foreign_keys=OFF")
+    db.execute(facturen._REGELS_NIEUW)
+    db.execute(
+        """INSERT INTO regels_nieuw
+           (id, factuur_id, omschrijving, type, aantal, prijs, subtotaal,
+            klus_id, inkoop_id, uur_id)
+           SELECT id, factuur_id, omschrijving, type, aantal, prijs, subtotaal,
+                  klus_id, inkoop_id, uur_id FROM regels"""
+    )
+    db.execute("DROP TABLE regels")
+    db.commit()
+    facturen.init_db()
+    conn = facturen.get_db()
+    try:
+        assert "regels_nieuw" not in facturen._tabelnamen(conn)
+        assert facturen._uur_koppeling_al_uniek(conn)
+        assert conn.execute("SELECT subtotaal FROM regels").fetchone()[0] == 111
+    finally:
+        conn.close()
+
+
+def test_migratie_laat_alleen_de_regel_van_de_dag_gekoppeld(db, client, caplog):
+    """Twee rekeningen met dezelfde dagen. uren.factuur_id is leidend.
+
+    Rekening 2 houdt het bedrag, maar niet de dag. Een regel naar een vrije
+    dag verliest de koppeling ook. Bij het openen staat er een waarschuwing."""
+    db.execute("PRAGMA foreign_keys=OFF")
+    db.execute("ALTER TABLE regels RENAME TO regels_los")
+    db.execute(
+        """CREATE TABLE regels (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            factuur_id INTEGER NOT NULL,
+            omschrijving TEXT NOT NULL,
+            type TEXT NOT NULL,
+            aantal REAL NOT NULL,
+            prijs REAL NOT NULL,
+            subtotaal REAL NOT NULL,
+            klus_id INTEGER,
+            inkoop_id INTEGER,
+            uur_id INTEGER
+        )"""
+    )
+    db.execute("DROP TABLE regels_los")
+    klus_id = db.execute(
+        "INSERT INTO klussen (naam, uurtarief, gestart) VALUES ('Gevel', 45, '2026-10-01')"
+    ).lastrowid
+    eerste = db.execute(
+        """INSERT INTO facturen (nummer, datum, klant_naam, status, totaal)
+           VALUES ('2026-001', '2026-10-16', 'Stone', 'definitief', 400)"""
+    ).lastrowid
+    tweede = db.execute(
+        """INSERT INTO facturen (nummer, datum, klant_naam, status, totaal)
+           VALUES ('2026-002', '2026-10-17', 'Stone', 'definitief', 795.63)"""
+    ).lastrowid
+    dag1 = db.execute(
+        """INSERT INTO uren (klus_id, datum, van, tot, factuur_id)
+           VALUES (?, '2026-10-12', '08:00', '12:00', ?)""",
+        (klus_id, eerste),
+    ).lastrowid
+    dag2 = db.execute(
+        """INSERT INTO uren (klus_id, datum, van, tot, factuur_id)
+           VALUES (?, '2026-10-13', '08:00', '12:00', NULL)""",
+        (klus_id,),
+    ).lastrowid
+    for factuur_id, bedragen in (
+        (eerste, (200, 200)),
+        (tweede, (400, 395.63)),
+    ):
+        for uur_id, bedrag in ((dag1, bedragen[0]), (dag2, bedragen[1])):
+            db.execute(
+                """INSERT INTO regels
+                   (factuur_id, omschrijving, type, aantal, prijs, subtotaal, uur_id)
+                   VALUES (?, 'dag', 'arbeid_uur', 4, 45, ?, ?)""",
+                (factuur_id, bedrag, uur_id),
+            )
+    db.commit()
+
+    with caplog.at_level(logging.WARNING):
+        facturen._uur_koppeling_uniek(db)
+    db.execute("PRAGMA foreign_keys=ON")
+    db.commit()
+
+    assert "Dagkoppeling losgelaten" in caplog.text
+    assert db.execute(
+        "SELECT totaal FROM facturen WHERE id=?", (tweede,)
+    ).fetchone()[0] == 795.63
+    assert [
+        rij["subtotaal"] for rij in db.execute(
+            "SELECT subtotaal FROM regels WHERE factuur_id=? ORDER BY id", (tweede,)
+        )
+    ] == [400, 395.63]
+    assert db.execute(
+        "SELECT uur_id FROM regels WHERE factuur_id=? AND subtotaal=200", (eerste,)
+    ).fetchone()[0] == dag1
+    # De vrije dag blijft vrij, en geen regel wijst er nog naar.
+    assert db.execute(
+        "SELECT factuur_id FROM uren WHERE id=?", (dag2,)
+    ).fetchone()[0] is None
+    assert db.execute(
+        "SELECT COUNT(*) FROM regels WHERE uur_id=?", (dag2,)
+    ).fetchone()[0] == 0
+    los = db.execute(
+        """SELECT COUNT(*) FROM regels r
+           LEFT JOIN uren u ON u.id = r.uur_id
+           WHERE r.uur_id IS NOT NULL
+             AND (u.id IS NULL OR u.factuur_id IS NULL OR u.factuur_id <> r.factuur_id)"""
+    ).fetchone()[0]
+    assert los == 0
+
+    pagina = client.get(f"/factuur/{tweede}/bewerk").data.decode()
+    assert "795,63" in pagina
+    assert "hoort bij rekening 2026-001" in pagina
+    assert "niet twee keer" in pagina
+
+
+class _Formulier(HTMLParser):
+    """De velden zoals de browser ze bij een ongewijzigde opslag zou sturen."""
+
+    def __init__(self):
+        super().__init__()
+        self.velden = []
+        self._select = None
+        self._gekozen = None
+        self._eerste = None
+        self._textarea = None
+        self._buf = []
+
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        if "disabled" in a:
+            return
+        if tag == "input":
+            soort = (a.get("type") or "text").lower()
+            if soort in ("submit", "button", "file", "reset"):
+                return
+            if soort in ("checkbox", "radio") and "checked" not in a:
+                return
+            naam = a.get("name")
+            if not naam:
+                return
+            waarde = a.get("value", "")
+            if soort == "checkbox" and "value" not in a:
+                waarde = "on"
+            self.velden.append((naam, waarde))
+        elif tag == "select":
+            self._select = a.get("name")
+            self._gekozen = None
+            self._eerste = None
+        elif tag == "option" and self._select:
+            waarde = a.get("value", "")
+            if self._eerste is None:
+                self._eerste = waarde
+            if "selected" in a:
+                self._gekozen = waarde
+        elif tag == "textarea" and a.get("name"):
+            self._textarea = a["name"]
+            self._buf = []
+
+    def handle_endtag(self, tag):
+        if tag == "select" and self._select:
+            gekozen = self._gekozen if self._gekozen is not None else (self._eerste or "")
+            self.velden.append((self._select, gekozen))
+            self._select = None
+        elif tag == "textarea" and self._textarea:
+            self.velden.append((self._textarea, "".join(self._buf)))
+            self._textarea = None
+
+    def handle_data(self, data):
+        if self._textarea is not None:
+            self._buf.append(data)
+
+
+def _formulier(html):
+    parser = _Formulier()
+    parser.feed(html)
+    gegevens = {}
+    for naam, waarde in parser.velden:
+        if naam in gegevens:
+            if not isinstance(gegevens[naam], list):
+                gegevens[naam] = [gegevens[naam]]
+            gegevens[naam].append(waarde)
+        else:
+            gegevens[naam] = waarde
+    return gegevens
+
+
+def test_oude_bedragen_van_387_175_blijven_na_openen_en_opslaan(post, client, db):
+    """8,5 × 45,55 stond als 387,175 op de regel. Samen 774,35.
+
+    Het formulier mag dat niet naar 387,17 schrijven, en opslaan mag de
+    database niet naar 774,34 trekken."""
+    factuur_id = db.execute(
+        """INSERT INTO facturen (nummer, datum, klant_naam, status, totaal)
+           VALUES ('2026-091', ?, 'Stone', 'definitief', 774.35)""",
+        (facturen.vandaag().isoformat(),),
+    ).lastrowid
+    for _ in range(2):
+        db.execute(
+            """INSERT INTO regels (factuur_id, omschrijving, type, aantal, prijs, subtotaal)
+               VALUES (?, 'Oude uren', 'arbeid_uur', 8.5, 45.55, 387.175)""",
+            (factuur_id,),
+        )
+    db.commit()
+    voor = [
+        rij["subtotaal"] for rij in db.execute(
+            "SELECT subtotaal FROM regels ORDER BY id"
+        )
+    ]
+    totaal_voor = db.execute(
+        "SELECT totaal FROM facturen WHERE id=?", (factuur_id,)
+    ).fetchone()[0]
+
+    pagina = client.get(f"/factuur/{factuur_id}/bewerk").data.decode()
+    assert 'value="387.175"' in pagina
+    assert "774,35" in pagina
+
+    post(f"/factuur/{factuur_id}/bewerk", _formulier(pagina))
+
+    na = [
+        rij["subtotaal"] for rij in db.execute(
+            "SELECT subtotaal FROM regels ORDER BY id"
+        )
+    ]
+    totaal_na = db.execute(
+        "SELECT totaal FROM facturen WHERE id=?", (factuur_id,)
+    ).fetchone()[0]
+    assert na == voor
+    assert totaal_na == totaal_voor
+
+
+def test_prijs_wijzigen_rekent_het_subtotaal_opnieuw(post, db):
+    """Zonder script blijft het oude subtotaal in het formulier staan."""
+    klant_id, _klus_id = _klus(post, db)
+    post("/nieuw", {
+        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "omschrijving": "Kit", "type": "materiaal", "aantal": "1", "prijs": "12.50",
+    })
+    factuur_id = db.execute("SELECT id FROM facturen").fetchone()[0]
+    post(f"/factuur/{factuur_id}/bewerk", {
+        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "omschrijving": "Kit", "type": "materiaal", "aantal": "1", "prijs": "20",
+        "regel_subtotaal": "12.50",
+    })
+    regel = db.execute("SELECT aantal, prijs, subtotaal FROM regels").fetchone()
+    assert _cent(regel["prijs"]) == "20.00"
+    assert _cent(regel["subtotaal"]) == "20.00"
+    assert _cent(db.execute("SELECT totaal FROM facturen").fetchone()[0]) == "20.00"
+
+
+def test_aantal_wijzigen_rekent_het_subtotaal_opnieuw(post, db):
+    klant_id, _klus_id = _klus(post, db)
+    post("/nieuw", {
+        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "omschrijving": "Kit", "type": "materiaal", "aantal": "1", "prijs": "12.50",
+    })
+    factuur_id = db.execute("SELECT id FROM facturen").fetchone()[0]
+    post(f"/factuur/{factuur_id}/bewerk", {
+        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "omschrijving": "Kit", "type": "materiaal", "aantal": "3", "prijs": "12.50",
+        "regel_subtotaal": "12.50",
+    })
+    regel = db.execute("SELECT aantal, subtotaal FROM regels").fetchone()
+    assert _cent(regel["aantal"]) == "3.00"
+    assert _cent(regel["subtotaal"]) == "37.50"
+
+
+def test_soort_per_klus_rekent_niet_met_het_oude_aantal(post, db):
+    """2 × 12,50 en daarna 'Arbeid per klus' is 1 × 12,50, niet € 25,00."""
+    klant_id, _klus_id = _klus(post, db)
+    post("/nieuw", {
+        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "omschrijving": "Werk", "type": "arbeid_uur", "aantal": "2", "prijs": "12.50",
+    })
+    factuur_id = db.execute("SELECT id FROM facturen").fetchone()[0]
+    post(f"/factuur/{factuur_id}/bewerk", {
+        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "omschrijving": "Werk", "type": "arbeid_klus", "aantal": "1", "prijs": "12.50",
+        "regel_subtotaal": "25.00",
+    })
+    regel = db.execute("SELECT aantal, prijs, subtotaal FROM regels").fetchone()
+    assert _cent(regel["aantal"]) == "1.00"
+    assert _cent(regel["prijs"]) == "12.50"
+    assert _cent(regel["subtotaal"]) == "12.50"
+
+
+def test_tweede_tabblad_met_materiaal_maakt_geen_rekening(post, db):
+    klant_id, klus_id = _klus(post, db)
+    post(f"/klus/{klus_id}/dag", {"datum": "2026-10-12", "van": "08:00", "tot": "12:00"})
+    uur_id = db.execute("SELECT id FROM uren").fetchone()[0]
+    formulier = {
+        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "omschrijving": ["dag", "kit"],
+        "type": ["arbeid_uur", "materiaal"],
+        "aantal": ["4", "1"],
+        "prijs": ["45", "12.50"],
+        "regel_klus": [str(klus_id), ""],
+        "regel_uur": [str(uur_id), ""],
+    }
+    post("/nieuw", formulier)
+    tweede = post("/nieuw", formulier, follow_redirects=True)
+    tekst = tweede.data.decode()
+    assert "niet nog een keer" in tekst
+    assert "niet aangemaakt" in tekst
+    assert db.execute("SELECT COUNT(*) FROM facturen").fetchone()[0] == 1
+    # De kitregel hoort bij de eerste rekening. Een tweede rekening met
+    # alleen die regel mag er niet bijkomen.
+    assert db.execute(
+        "SELECT COUNT(*) FROM regels WHERE omschrijving='kit'"
+    ).fetchone()[0] == 1
+
+
+def test_verouderde_omschrijving_volgt_de_dag(post, db):
+    klant_id, klus_id = _klus(post, db)
+    post(f"/klus/{klus_id}/dag", {"datum": "2026-10-12", "van": "08:00", "tot": "12:00"})
+    uur_id = db.execute("SELECT id FROM uren").fetchone()[0]
+    post(f"/uur/{uur_id}/bewerk", {
+        "datum": "2026-10-12", "van": "09:00", "tot": "15:00",
+    })
+    post("/nieuw", {
+        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "omschrijving": "ma 12 okt 2026, 08:00–12:00 · Gevel",
+        "type": "arbeid_uur", "aantal": "4", "prijs": "45",
+        "regel_klus": str(klus_id), "regel_uur": str(uur_id),
+    })
+    tekst = db.execute("SELECT omschrijving FROM regels").fetchone()[0]
+    assert "09:00–15:00" in tekst
+    assert "08:00–12:00" not in tekst
+
+
+def test_dagregel_toont_uren_en_minuten(client, post, db):
+    klant_id, klus_id = _klus(post, db, tarief="45.55")
+    post(f"/klus/{klus_id}/dag", {"datum": "2026-10-12", "van": "07:00", "tot": "14:20"})
+    pagina = client.get(f"/nieuw?klus={klus_id}&klant={klant_id}").data.decode()
+    assert "7,33 u (7 u 20 min)" in pagina
+
+
+def test_klus_met_gefactureerde_dag_verwijderen_lukt_niet(post, db):
+    klant_id, klus_id = _klus(post, db)
+    post(f"/klus/{klus_id}/dag", {"datum": "2026-10-12", "van": "08:00", "tot": "12:00"})
+    uur_id = db.execute("SELECT id FROM uren").fetchone()[0]
+    post("/nieuw", {
+        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "omschrijving": "dag", "type": "arbeid_uur", "aantal": "4", "prijs": "45",
+        "regel_klus": str(klus_id), "regel_uur": str(uur_id),
+    })
+    factuur_id = db.execute("SELECT id FROM facturen").fetchone()[0]
+    antwoord = post(f"/klus/{klus_id}/verwijder", follow_redirects=True)
+    tekst = antwoord.data.decode()
+    assert "Deze klus kan niet weg." in tekst
+    assert "conceptrekening" in tekst
+    assert "Stone" in tekst
+    assert "rekening CONCEPT" not in tekst
+    assert "Naar de rekening" in tekst
+    assert f"/factuur/{factuur_id}/bewerk" in tekst
+    assert db.execute("SELECT id FROM klussen WHERE id=?", (klus_id,)).fetchone()
+    assert db.execute(
+        "SELECT uur_id FROM regels"
+    ).fetchone()[0] == uur_id
+
+
+def test_melding_naar_de_rekening_staat_onder_de_tekst(client):
+    """De link mag de tekst niet tot een smalle kolom drukken."""
+    css = css_van(client.get("/nieuw").data.decode())
+    links = regel_met(css, ".melding .melding-links")
+    assert "100%" in links
+    assert "44px" in links
+    assert "flex: none" not in regel_met(css, ".melding .melding-link")
+    assert "break-word" in regel_met(css, ".melding .woorden")
+
+
+def test_terughalen_zet_de_dag_weer_op_de_regel(post, db):
+    """Soft-delete zet uur_id op NULL. Terughalen moet die koppeling terugzetten."""
+    klant_id, klus_id = _klus(post, db)
+    post(f"/klus/{klus_id}/dag", {"datum": "2026-10-12", "van": "08:00", "tot": "12:00"})
+    uur_id = db.execute("SELECT id FROM uren").fetchone()[0]
+    post("/nieuw", {
+        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "omschrijving": "dag", "type": "arbeid_uur", "aantal": "4", "prijs": "45",
+        "regel_klus": str(klus_id), "regel_uur": str(uur_id),
+    })
+    factuur_id = db.execute("SELECT id FROM facturen").fetchone()[0]
+    regel_id = db.execute("SELECT id FROM regels").fetchone()[0]
+    uur = dict(db.execute("SELECT * FROM uren WHERE id=?", (uur_id,)).fetchone())
+    import json
+    from datetime import datetime
+    db.execute(
+        "INSERT INTO prullenbak (omschrijving, inhoud, wanneer) VALUES (?, ?, ?)",
+        (
+            "Klus Gevel",
+            json.dumps({
+                "rijen": {"uren": [uur]},
+                "bestanden": [],
+                "koppelingen": {"uur_regels": [{"regel_id": regel_id, "uur_id": uur_id}]},
+            }),
+            datetime.now().isoformat(),
+        ),
+    )
+    prul = db.execute("SELECT id FROM prullenbak ORDER BY id DESC").fetchone()[0]
+    db.execute("DELETE FROM uren WHERE id=?", (uur_id,))
+    db.commit()
+    assert db.execute("SELECT uur_id FROM regels").fetchone()[0] is None
+
+    post(f"/prullenbak/{prul}/terug")
+    assert db.execute("SELECT uur_id FROM regels").fetchone()[0] == uur_id
+    assert db.execute(
+        "SELECT factuur_id FROM uren WHERE id=?", (uur_id,)
+    ).fetchone()[0] == factuur_id
+
+
+def test_rekening_terughalen_weigert_als_de_dag_elders_staat(post, client, db):
+    klant_id, klus_id = _klus(post, db)
+    post(f"/klus/{klus_id}/dag", {"datum": "2026-10-12", "van": "08:00", "tot": "16:00"})
+    post(f"/klus/{klus_id}/dag", {"datum": "2026-10-13", "van": "08:00", "tot": "12:00"})
+    dagen = db.execute("SELECT id FROM uren ORDER BY datum").fetchall()
+    formulier = {
+        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "omschrijving": ["eerste", "tweede"],
+        "type": ["arbeid_uur", "arbeid_uur"],
+        "aantal": ["8", "4"],
+        "prijs": ["45", "45"],
+        "regel_klus": [str(klus_id), str(klus_id)],
+        "regel_uur": [str(dag["id"]) for dag in dagen],
+    }
+    post("/nieuw", formulier)
+    eerste = db.execute("SELECT id, totaal FROM facturen").fetchone()
+    post(f"/factuur/{eerste['id']}/verwijder")
+    post("/nieuw", formulier)
+    assert db.execute("SELECT COUNT(*) FROM facturen").fetchone()[0] == 1
+    nieuw = db.execute("SELECT id, totaal FROM facturen").fetchone()
+    prul = db.execute("SELECT id FROM prullenbak ORDER BY id DESC").fetchone()[0]
+
+    antwoord = post(f"/prullenbak/{prul}/terug", follow_redirects=True)
+    tekst = antwoord.data.decode()
+    assert "kan niet terug" in tekst
+    assert "12 okt 2026" in tekst
+    assert "13 okt 2026" in tekst
+    assert "conceptrekening" in tekst
+    assert db.execute("SELECT COUNT(*) FROM facturen").fetchone()[0] == 1
+    assert db.execute("SELECT id FROM facturen").fetchone()[0] == nieuw["id"]
+    assert db.execute(
+        "SELECT COUNT(*) FROM regels WHERE factuur_id=?", (nieuw["id"],)
+    ).fetchone()[0] == 2
+    assert db.execute("SELECT SUM(totaal) FROM facturen").fetchone()[0] == nieuw["totaal"]
+    assert db.execute("SELECT id FROM prullenbak WHERE id=?", (prul,)).fetchone()
+    overzicht = client.get("/").data.decode()
+    assert f"{nieuw['totaal']:.2f}".replace(".", ",") in overzicht or "540,00" in overzicht

@@ -126,6 +126,13 @@
       text-overflow: clip;
     }
   }
+  .letop {
+    background: var(--card);
+    border-left: 3px solid var(--danger);
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+    margin-bottom: 16px;
+  }
   .totaalbalk {
     display: flex;
     align-items: center;
@@ -272,6 +279,9 @@
 
 <form method="post" class="cards">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  {% if dagwaarschuwing|default('') %}
+  <div class="letop" role="status">{{ dagwaarschuwing }}</div>
+  {% endif %}
   {# Kwam je hier vanaf een aanvraag, dan gaat de offerte daar straks aan vast. #}
   {% if voor_klus|default('') %}
   <input type="hidden" name="voor_klus" value="{{ voor_klus }}">
@@ -397,7 +407,7 @@
              aria-expanded="false" aria-label="Regel openen of sluiten">
           {#- Geen type-badge: omschrijving + eenheid volstaan (rekening én offerte). -#}
           <span class="regel-tekst">Nieuwe regel</span>
-          <span class="regel-qty">—</span>
+          <span class="regel-qty">{{ aantal_tekst(r) }}</span>
           <span class="regel-eenheidsprijs">€&nbsp;0,00</span>
           <button type="button" class="weg" title="Regel verwijderen"
                   aria-label="Regel verwijderen">&times;</button>
@@ -426,21 +436,25 @@
                    {% if r and r.uur_id %}readonly
                    title="Het aantal volgt de dag. Een korting zet je op een aparte regel."
                    {% endif %}
-                   value="{{ '%g'|format(r.aantal) if r else '1' }}">
+                   value="{{ tekst_van_getal(r.aantal) if r else '1' }}">
           </div>
           <div class="field prijs-veld">
             <label class="prijs-label">Prijs</label>
             <input type="number" step="any" name="prijs" placeholder="0,00"
-                   value="{{ '%.2f'|format(r.prijs) if r else '' }}">
+                   value="{{ tekst_van_getal(r.prijs) if r else '' }}">
           </div>
           <input type="hidden" name="regel_klus" value="{{ r.klus_id if r and r.klus_id else '' }}">
           <input type="hidden" name="regel_inkoop" value="{{ r.inkoop_id if r and r.inkoop_id else '' }}">
           <input type="hidden" name="regel_uur" value="{{ r.uur_id if r and r.uur_id else '' }}">
-          {#- Het opgeslagen bedrag gaat mee terug. Opnieuw uitrekenen bij het
-              openen zou een oude rekening van centen laten verschuiven. -#}
+          {#- Het id, zodat een ongewijzigde regel zijn bedrag uit de database
+              houdt en niet uit een afgeronde tekst in dit formulier. -#}
+          <input type="hidden" name="regel_id"
+                 value="{% if factuur and r and r.id is not none %}{{ r.id }}{% endif %}">
+          {#- Het opgeslagen bedrag gaat mee voor het scherm. De server rekent
+              zelf na, behalve bij een regel die niet is aangepast. -#}
           <input type="hidden" name="regel_subtotaal"
                  {% if r and (r.bewaard or factuur) %}data-bewaard="1"{% endif %}
-                 value="{% if r and r.subtotaal is not none %}{{ '%.2f'|format(r.subtotaal) }}{% endif %}">
+                 value="{% if r and r.subtotaal is not none %}{{ tekst_van_getal(r.subtotaal) }}{% endif %}">
           <input type="hidden" name="regel_minuten" value="{{ r.minuten if r and r.minuten else '' }}">
         </div>
       </div>
@@ -569,11 +583,27 @@
         : n.toLocaleString('nl-NL', { maximumFractionDigits: 2 });
     }
 
-    function qtyTekst(soort, aantal) {
+    function minutenTekst(minuten) {
+      var min = parseInt(minuten, 10);
+      if (!isFinite(min) || min <= 0) return '';
+      var uren = Math.floor(min / 60);
+      var rest = min % 60;
+      if (uren && rest) return uren + ' u ' + rest + ' min';
+      if (uren) return uren + ' u';
+      return rest + ' min';
+    }
+
+    function qtyTekst(soort, aantal, minuten) {
       if (soort === 'arbeid_klus' || soort === 'bon') return '—';
       if (!aantal) return '—';
       var n = fmtAantal(aantal);
-      if (soort === 'arbeid_uur') return n + ' u';
+      if (soort === 'arbeid_uur') {
+        var duur = minutenTekst(minuten);
+        var tekst = n + ' u';
+        // 7,33 u alleen is niet te volgen tot € 334,03. De minuten erbij wel.
+        if (duur && duur !== tekst) return tekst + ' (' + duur + ')';
+        return tekst;
+      }
       if (soort === 'arbeid_dag') return n + ' dg';
       return n + '\u00d7';
     }
@@ -584,13 +614,15 @@
       var omschrijving = (regel.querySelector('[name="omschrijving"]').value || '').trim();
       var aantal = parseFloat(regel.querySelector('[name="aantal"]').value) || 0;
       var prijs = parseFloat(regel.querySelector('[name="prijs"]').value) || 0;
+      var minutenVeld = regel.querySelector('[name="regel_minuten"]');
       var badge = regel.querySelector('.regel-badge');
       var tekst = regel.querySelector('.regel-tekst');
       var qty = regel.querySelector('.regel-qty');
       var eenheid = regel.querySelector('.regel-eenheidsprijs');
       if (badge) badge.textContent = keuze.badge;
       if (tekst) tekst.textContent = omschrijving || 'Nieuwe regel';
-      if (qty) qty.textContent = qtyTekst(soort, aantal);
+      if (qty) qty.textContent = qtyTekst(
+        soort, aantal, minutenVeld ? minutenVeld.value : '');
       if (eenheid) eenheid.textContent = euro(prijs);
     }
 
@@ -694,8 +726,18 @@
       return p.negatief ? -centen : centen;
     }
 
+    // Een bewaard bedrag als 387,175 mag niet per regel naar centen vóór het
+    // optellen: twee keer 387,18 is 774,36, terwijl de rekening 774,35 is.
+    function microVanTekst(tekst) {
+      var p = parseVast(tekst);
+      var cijfers = p.cijfers;
+      if (p.schaal > 6) cijfers = halfUpDelen(cijfers, Math.pow(10, p.schaal - 6));
+      else if (p.schaal < 6) cijfers *= Math.pow(10, 6 - p.schaal);
+      return p.negatief ? -cijfers : cijfers;
+    }
+
     function berekenTotaal() {
-      var som = 0;
+      var micro = 0;
       container.querySelectorAll('.regel').forEach(function (regel) {
         var aantalVeld = regel.querySelector('[name="aantal"]');
         var prijsVeld = regel.querySelector('[name="prijs"]');
@@ -703,19 +745,19 @@
         var minuten = regel.querySelector('[name="regel_minuten"]');
         var uur = regel.querySelector('[name="regel_uur"]');
         var bewaard = sub && sub.dataset.bewaard === '1' && String(sub.value).trim() !== '';
-        var centen;
         if (bewaard) {
-          centen = productCenten('1', sub.value);
+          micro += microVanTekst(sub.value);
         } else if (uur && uur.value && minuten && String(minuten.value).trim() !== '') {
-          centen = centenVanMinuten(minuten.value, prijsVeld.value);
+          var centen = centenVanMinuten(minuten.value, prijsVeld.value);
           if (sub) sub.value = (centen / 100).toFixed(2);
+          micro += centen * 10000;
         } else {
-          centen = productCenten(aantalVeld.value, prijsVeld.value);
-          if (sub) sub.value = (centen / 100).toFixed(2);
+          var vers = productCenten(aantalVeld.value, prijsVeld.value);
+          if (sub) sub.value = (vers / 100).toFixed(2);
+          micro += vers * 10000;
         }
-        som += centen;
       });
-      totaalveld.textContent = euro(som / 100);
+      totaalveld.textContent = euro(halfUpDelen(micro, 10000) / 100);
     }
 
     function regelErbij() {
@@ -1036,7 +1078,12 @@
 
     container.addEventListener('change', function (e) {
       if (!e.target.classList.contains('soort')) return;
-      pasRegelAan(e.target.closest('.regel'));
+      var regel = e.target.closest('.regel');
+      var sub = regel.querySelector('[name="regel_subtotaal"]');
+      // Arbeid per klus zet het aantal op 1. Het oude subtotaal van 2 × de
+      // prijs zou anders blijven staan en 1 × de prijs als het dubbele tonen.
+      if (sub) delete sub.dataset.bewaard;
+      pasRegelAan(regel);
       berekenTotaal();
     });
 

@@ -371,6 +371,7 @@
   }
   .melding {
     display: flex;
+    flex-wrap: wrap;
     align-items: flex-start;
     gap: 12px;
     background: var(--card);
@@ -398,7 +399,11 @@
     line-height: 18px;
     text-align: center;
   }
-  .melding .woorden { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  /* De tekst krijgt de resterende breedte en breekt op woorden. flex:none op
+     de link ernaast drukte die tekst op een telefoon tot een kolom van een
+     paar letters. De link staat daarom op een eigen regel, over de volle
+     breedte, met een tikvlak van 44px. */
+  .melding .woorden { flex: 1 1 auto; min-width: 0; overflow-wrap: break-word; }
   /* Zelf weghalen: een gewone bevestiging verdwijnt vanzelf, maar een knop
      om iets terug te halen blijft staan tot je hem gebruikt. Die mag je óók
      wegvegen of dichttikken als je hem al gelezen hebt. */
@@ -433,13 +438,29 @@
   .melding.bezig { border-left-color: var(--info); }
   .melding.bezig .teken { background: var(--info); }
 
-  /* De knop in een melding: ongedaan maken, of een mail nog tegenhouden. */
+  /* De knop in een melding: ongedaan maken, of een mail nog tegenhouden.
+     De link naar een rekening staat eronder, niet ernaast. */
+  .melding > .melding-link,
+  .melding .melding-links {
+    flex: 1 0 100%;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    margin-top: 2px;
+  }
+  .melding .melding-links {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+  }
   .melding .melding-link {
-    flex: none;
     font-weight: 650;
     color: var(--primary);
     text-decoration: underline;
     text-underline-offset: 2px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
   }
   .melding form { margin: 0; flex: none; }
   .melding .terugknop {
@@ -763,7 +784,13 @@
     <div class="melding {{ soort }}">
       <span class="teken" aria-hidden="true">{{ '✕' if soort == 'fout' else ('·' if soort == 'bezig' else '✓') }}</span>
       <span class="woorden">{{ m.tekst }}</span>
-      {% if m.link %}
+      {% if m.links %}
+      <span class="melding-links">
+        {% for link in m.links %}
+        <a class="melding-link" href="{{ link.url }}">{{ link.label }}</a>
+        {% endfor %}
+      </span>
+      {% elif m.link %}
       <a class="melding-link" href="{{ m.link.url }}">{{ m.link.label }}</a>
       {% endif %}
       {% if m.knop %}

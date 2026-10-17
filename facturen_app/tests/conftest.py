@@ -23,7 +23,7 @@ import main as facturen  # noqa: E402  (moet ná het zetten van DATA_DIR)
 # Tabellen in de volgorde waarin ze leeg mogen: eerst wat naar iets anders verwijst.
 TABELLEN = [
     "regels", "offerte_regels", "uren", "betalingen", "bijlagen", "notities",
-    "inkoop_materialen", "inkopen",
+    "inkoop_materialen", "inkopen", "rekening_waarschuwing",
     "facturen",
     "offertes", "klussen", "klanten", "prullenbak",
 ]
@@ -57,6 +57,7 @@ def app():
     conn.commit()
     conn.close()
     facturen.MISLUKTE_POGINGEN.clear()
+    facturen._MIGRATIE_STAP = None
     # Opgezochte adressen blijven anders van de ene test in de andere hangen.
     facturen._ADRESCACHE.clear()
 
