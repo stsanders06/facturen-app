@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.36.0
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **Elke gewerkte dag komt op een eigen regel.** Datum en tijden blijven
+  staan, bijvoorbeeld "di 13 okt 2026, 07:30–16:00". De klusnaam en een notitie
+  komen erbij als die er zijn. Een pauze, in minuten, gaat van de uren af en
+  staat in de omschrijving.
+- **Opnieuw opslaan voegt die dagen niet samen.** Dezelfde dag blijft aan
+  dezelfde regel hangen. Een dag die nog bezig is komt er niet op, en een dag
+  die al op een rekening staat wordt niet nog een keer gerekend.
+- **Een rekening die al één regel voor alle uren had, blijft zo.** Die wordt
+  niet vanzelf opgesplitst.
+
 ## 1.35.0
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet

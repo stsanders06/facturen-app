@@ -115,6 +115,16 @@
     }
     .regel .omschrijving-veld { grid-column: 1 / -1; }
     .regel.vaste-prijs .prijs-veld { grid-column: auto; }
+    /* Een dagregel noemt datum en tijden. Op één regel naast uren, prijs en
+       het kruisje lopen die over elkaar heen; de tekst krijgt daarom een
+       eigen regel en de bedragen de volgende. */
+    .regel-samenvatting { flex-wrap: wrap; align-items: flex-start; }
+    .regel-tekst {
+      flex: 1 1 calc(100% - 52px);
+      white-space: normal;
+      overflow: visible;
+      text-overflow: clip;
+    }
   }
   .totaalbalk {
     display: flex;
@@ -420,6 +430,7 @@
           </div>
           <input type="hidden" name="regel_klus" value="{{ r.klus_id if r and r.klus_id else '' }}">
           <input type="hidden" name="regel_inkoop" value="{{ r.inkoop_id if r and r.inkoop_id else '' }}">
+          <input type="hidden" name="regel_uur" value="{{ r.uur_id if r and r.uur_id else '' }}">
         </div>
       </div>
       {% endfor %}
@@ -448,6 +459,7 @@
                   data-klus="{{ kl.id }}"
                   data-naam="{{ kl.naam }}"
                   data-uren="{{ kl.uren_open }}"
+                  data-dagen="{{ kl.dagen|tojson|forceescape }}"
                   data-tarief="{{ '%.2f'|format(kl.uurtarief or 0) }}"
                   data-klant="{{ kl.klant_id or '' }}"
                   {% if not kl.past %}hidden{% endif %}>
@@ -599,14 +611,19 @@
       pasSamenvattingAan(regel);
     }
 
+    function rondCenten(bedrag) {
+      return Math.round(bedrag * 100) / 100;
+    }
+
     function berekenTotaal() {
       var som = 0;
       container.querySelectorAll('.regel').forEach(function (regel) {
         var aantal = parseFloat(regel.querySelector('[name="aantal"]').value) || 0;
         var prijs = parseFloat(regel.querySelector('[name="prijs"]').value) || 0;
-        som += aantal * prijs;
+        // Zelfde afronding als op de server: eerst de regel, dan de som.
+        som += rondCenten(aantal * prijs);
       });
-      totaalveld.textContent = euro(som);
+      totaalveld.textContent = euro(rondCenten(som));
     }
 
     function regelErbij() {
@@ -811,21 +828,48 @@
       });
     }
 
-    // Uren van een klus komen als één arbeidsregel op de rekening: het totaal
-    // aantal uren maal het uurtarief van die klus, niet elke dag apart.
-    // Elke klus is nu een knop in het menu; de gegevens staan als data- op de knop.
+    // Elke gesloten dag wordt een eigen regel, met datum en tijden in de
+    // omschrijving. Eén regel voor het totaal liet die tijden verdwijnen.
     var zetKlusOpRekening = function (optie) {
         if (!optie || !optie.dataset.klus) return;
+        var dagen = [];
+        try { dagen = JSON.parse(optie.dataset.dagen || '[]'); }
+        catch (e) { dagen = []; }
+        if (!dagen.length) {
+          melding.textContent = 'Er zijn geen afgesloten dagen om op de rekening '
+            + 'te zetten. Een dag die nog bezig is telt niet mee.';
+          melding.style.color = 'var(--danger)';
+          melding.hidden = false;
+          return;
+        }
+        var al = {};
+        container.querySelectorAll('[name="regel_uur"]').forEach(function (veld) {
+          if (veld.value) al[veld.value] = true;
+        });
         allesTonen = true;
-        var regel = regelErbij();
-        regel.querySelector('.soort').value = 'arbeid_uur';
-        pasRegelAan(regel);
-        regel.querySelector('[name="omschrijving"]').value = optie.dataset.naam || '';
-        regel.querySelector('[name="aantal"]').value = optie.dataset.uren || '0';
-        regel.querySelector('[name="prijs"]').value = optie.dataset.tarief || '';
-        // Onthouden bij welke klus deze regel hoort, zodat die uren daarna als
-        // gefactureerd gelden en niet nog een keer meetellen.
-        regel.querySelector('[name="regel_klus"]').value = optie.dataset.klus;
+        var toegevoegd = 0;
+        dagen.forEach(function (dag) {
+          if (!dag || al[String(dag.id)]) return;
+          var regel = regelErbij();
+          regel.querySelector('.soort').value = 'arbeid_uur';
+          pasRegelAan(regel);
+          regel.querySelector('[name="omschrijving"]').value = dag.omschrijving || '';
+          regel.querySelector('[name="aantal"]').value = dag.uren;
+          regel.querySelector('[name="prijs"]').value = optie.dataset.tarief || '';
+          // De dag zelf, niet alleen het aantal uren: opnieuw opslaan moet
+          // dezelfde dag houden.
+          regel.querySelector('[name="regel_klus"]').value = optie.dataset.klus;
+          var uur = regel.querySelector('[name="regel_uur"]');
+          if (uur) uur.value = dag.id;
+          al[String(dag.id)] = true;
+          toegevoegd++;
+        });
+        if (!toegevoegd) {
+          melding.textContent = 'Deze dagen staan al op de rekening.';
+          melding.style.color = '';
+          melding.hidden = false;
+          return;
+        }
 
         // Een lege beginregel is dan alleen nog in de weg.
         var eerste = container.children[0];
@@ -841,8 +885,10 @@
           pasKlantAan(true);
         }
 
-        zetOpen(regel, false);
-        pasSamenvattingAan(regel);
+        container.querySelectorAll('.regel').forEach(function (regel) {
+          zetOpen(regel, false);
+          pasSamenvattingAan(regel);
+        });
         pasInklappenAan();
         berekenTotaal();
     };

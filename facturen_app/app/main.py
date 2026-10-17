@@ -34,7 +34,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.35.0"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.36.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -790,6 +790,59 @@ def duur_in_uren(van, tot):
     return round(minuten / 60, 2)
 
 
+def _pauze(rij):
+    """Minuten pauze op een dag. Oude rijen hebben die kolom niet."""
+    try:
+        return int(rij["pauze_minuten"] or 0)
+    except (KeyError, IndexError, TypeError, ValueError):
+        return 0
+
+
+def factureerbare_uren(van, tot, pauze_minuten=0):
+    """Uren die op de rekening horen: de kloktijd min de pauze.
+
+    De pauze blijft op de dag staan, maar die minuten reken je niet. Zonder
+    pauze is dit hetzelfde getal als vroeger, anders verschuiven bestaande
+    totalen."""
+    try:
+        pauze = max(0, int(pauze_minuten or 0)) / 60
+    except (TypeError, ValueError):
+        pauze = 0
+    return round(max(0.0, duur_in_uren(van, tot) - pauze), 2)
+
+
+def omschrijving_van_dag(datum, van, tot, pauze_minuten, klusnaam, notitie):
+    """Eén regel per dag, met de tijden erin. Anders verdwijnt een dag in het
+    totaal aantal uren en is bij het teruglezen niet meer te zien wanneer je was."""
+    try:
+        dag = date.fromisoformat(str(datum))
+        wanneer = (
+            f"{WEEKDAGEN[dag.weekday()]} {dag.day} "
+            f"{MAANDEN[dag.month - 1]} {dag.year}"
+        )
+    except (TypeError, ValueError):
+        wanneer = str(datum or "")
+    tekst = f"{wanneer}, {(van or '')[:5]}–{(tot or '')[:5]}"
+    try:
+        pauze = int(pauze_minuten or 0)
+    except (TypeError, ValueError):
+        pauze = 0
+    if pauze > 0:
+        tekst += f" (pauze {pauze} min)"
+    extra = [deel.strip() for deel in (klusnaam, notitie) if (deel or "").strip()]
+    if extra:
+        tekst += " · " + " · ".join(extra)
+    return tekst
+
+
+def rond_centen(bedrag):
+    """Eén regel naar centen, vóór het optellen.
+
+    Drie regels van 10,333 worden anders samen 31,00 terwijl je per regel
+    10,33 ziet. Het totaal hoort de som van die centen te zijn."""
+    return round(float(bedrag) * 100) / 100
+
+
 @app.template_filter("uren")
 def filter_uren(waarde):
     """8.5 wordt '8,5' en 8.0 wordt '8'."""
@@ -924,6 +977,9 @@ def init_db():
             prijs REAL NOT NULL,
             subtotaal REAL NOT NULL,
             klus_id INTEGER,
+            -- Welke gewerkte dag deze regel is. Zonder die koppeling past de app
+            -- bij opnieuw opslaan alleen het aantal uren, en schuiven de dagen.
+            uur_id INTEGER,
             FOREIGN KEY (factuur_id) REFERENCES facturen (id)
         );
 
@@ -956,6 +1012,9 @@ def init_db():
             tot TEXT,
             notitie TEXT DEFAULT '',
             factuur_id INTEGER,
+            -- Minuten die niet gerekend worden. 0 bij dagen van voor deze kolom,
+            -- zodat een oude rekening niet opeens minder uren krijgt.
+            pauze_minuten INTEGER NOT NULL DEFAULT 0,
             FOREIGN KEY (klus_id) REFERENCES klussen (id)
         );
 
@@ -1182,6 +1241,19 @@ def init_db():
         conn.execute("ALTER TABLE offerte_regels ADD COLUMN inkoop_id INTEGER")
 
     _eindtijd_optioneel(conn)
+
+    # Ná de herbouw van uren. Die kopieert de kolommen die er toen waren; een
+    # pauze die je er eerder bij zet, valt bij die herbouw weer weg.
+    urenkolommen = {rij["name"] for rij in conn.execute("PRAGMA table_info(uren)")}
+    if urenkolommen and "pauze_minuten" not in urenkolommen:
+        conn.execute(
+            "ALTER TABLE uren ADD COLUMN pauze_minuten INTEGER NOT NULL DEFAULT 0"
+        )
+    # Bestaande regels houden hun tekst. Alleen nieuwe dagen krijgen een uur_id;
+    # een oude samengevoegde regel blijft één regel.
+    regelkolommen = {rij["name"] for rij in conn.execute("PRAGMA table_info(regels)")}
+    if "uur_id" not in regelkolommen:
+        conn.execute("ALTER TABLE regels ADD COLUMN uur_id INTEGER")
 
     conn.commit()
     conn.close()
@@ -2103,7 +2175,10 @@ def klus_met_uren(conn, klus_id):
         dag["lopend"] = not eindtijd_ingevuld(rij["tot"])
         # Zonder eindtijd zijn de uren er nog niet. Optellen zou een bedrag
         # maken van een dag die nog loopt.
-        dag["uren"] = 0.0 if dag["lopend"] else duur_in_uren(rij["van"], rij["tot"])
+        dag["uren"] = (
+            0.0 if dag["lopend"]
+            else factureerbare_uren(rij["van"], rij["tot"], _pauze(rij))
+        )
         if not dag["lopend"]:
             totaal += dag["uren"]
         dagen.append(dag)
@@ -2140,7 +2215,7 @@ def klussenlijst():
     for rij in uren:
         gegevens = per_klus.setdefault(rij["klus_id"], dict(leeg))
         if eindtijd_ingevuld(rij["tot"]):
-            duur = duur_in_uren(rij["van"], rij["tot"])
+            duur = factureerbare_uren(rij["van"], rij["tot"], _pauze(rij))
             gegevens["uren"] += duur
             if rij["factuur_id"] is None:
                 gegevens["open"] += duur
@@ -2194,7 +2269,7 @@ def csv_gewerkte_dagen(conn):
     for rij in rijen:
         schrijver.writerow([
             rij["datum"], rij["van"], rij["tot"],
-            filter_uren(duur_in_uren(rij["van"], rij["tot"])),
+            filter_uren(factureerbare_uren(rij["van"], rij["tot"], _pauze(rij))),
             rij["klus"], rij["notitie"] or "",
         ])
     return uitvoer.getvalue()
@@ -2971,14 +3046,22 @@ def dag_erbij(klus_id):
             melding(melding_tweede_open_dag(bezig, datum), "fout")
             return redirect(url_for("klus", klus_id=klus_id))
 
+    pauze, pauze_fout = lees_pauze(request.form, van, tot)
+    if pauze_fout:
+        conn.close()
+        melding(pauze_fout, "fout")
+        return redirect(url_for("klus", klus_id=klus_id))
+
     conn.execute(
-        "INSERT INTO uren (klus_id, datum, van, tot, notitie) VALUES (?, ?, ?, ?, ?)",
+        """INSERT INTO uren (klus_id, datum, van, tot, notitie, pauze_minuten)
+           VALUES (?, ?, ?, ?, ?, ?)""",
         (
             klus_id,
             datum,
             van,
             tot,
             request.form.get("notitie", "").strip(),
+            pauze,
         ),
     )
     conn.commit()
@@ -3010,6 +3093,27 @@ def tijden_uit_form(form):
     if tot and duur_in_uren(van, tot) <= 0:
         return None, "De eindtijd moet na de begintijd liggen."
     return (van, tot or None), None
+
+
+def lees_pauze(form, van, tot):
+    """Minuten pauze, of een foutmelding. Leeg is geen pauze.
+
+    Een pauze die langer is dan de gewerkte tijd zou de uren negatief maken.
+    Die dag slaan we niet op, anders staat er 0 uur op een rekening terwijl
+    de kloktijden iets anders zeggen."""
+    tekst = (form.get("pauze") or "").strip()
+    if not tekst:
+        return 0, None
+    if not tekst.isdigit():
+        return None, ("De pauze klopt niet. Vul het aantal minuten in, "
+                      "bijvoorbeeld 30.")
+    minuten = int(tekst)
+    if minuten > 24 * 60:
+        return None, ("De pauze klopt niet. Vul het aantal minuten in, "
+                      "bijvoorbeeld 30.")
+    if tot and minuten > round(duur_in_uren(van, tot) * 60):
+        return None, "De pauze is langer dan de gewerkte tijd."
+    return minuten, None
 
 
 def lopende_dag_op(conn, klus_id, datum, behalve_id=None):
@@ -3060,14 +3164,22 @@ def dag_bewerk(uur_id):
             melding(melding_tweede_open_dag(bezig, datum), "fout")
             return redirect(url_for("klus", klus_id=gegevens["klus_id"]))
 
+    pauze, pauze_fout = lees_pauze(request.form, van, tot)
+    if pauze_fout:
+        conn.close()
+        melding(pauze_fout, "fout")
+        return redirect(url_for("klus", klus_id=gegevens["klus_id"]))
+
     was_lopend = not eindtijd_ingevuld(gegevens["tot"])
     conn.execute(
-        "UPDATE uren SET datum=?, van=?, tot=?, notitie=? WHERE id=?",
+        """UPDATE uren SET datum=?, van=?, tot=?, notitie=?, pauze_minuten=?
+           WHERE id=?""",
         (
             datum,
             van,
             tot,
             request.form.get("notitie", "").strip(),
+            pauze,
             uur_id,
         ),
     )
@@ -3112,13 +3224,14 @@ def lees_regels(form):
     Regels zonder omschrijving worden overgeslagen."""
     totaal = 0.0
     regels = []
-    for o, t, a, p, klus, inkoop in zip_longest(
+    for o, t, a, p, klus, inkoop, uur in zip_longest(
         form.getlist("omschrijving"),
         form.getlist("type"),
         form.getlist("aantal"),
         form.getlist("prijs"),
         form.getlist("regel_klus"),
         form.getlist("regel_inkoop"),
+        form.getlist("regel_uur"),
         fillvalue="",
     ):
         if not o:
@@ -3131,14 +3244,51 @@ def lees_regels(form):
         if t in ("arbeid_klus", "bon"):
             # Vaste prijs: het bedrag is de prijs, geen aantal keer tarief.
             a = 1.0
-        subtotaal = a * p
+        # Per regel afronden. Het totaal is daarna de som van die bedragen,
+        # niet een afronding van de ruwe som.
+        subtotaal = rond_centen(a * p)
         totaal += subtotaal
         regels.append((
             o, t, a, p, subtotaal,
             int(klus) if str(klus).isdigit() else None,
             int(inkoop) if str(inkoop).isdigit() else None,
+            int(uur) if str(uur).isdigit() else None,
         ))
-    return regels, round(totaal, 2)
+    return regels, rond_centen(totaal)
+
+
+def zonder_dubbele_dagen(regels):
+    """Dezelfde gewerkte dag mag niet twee regels vullen.
+
+    Het bedrag zou anders twee keer op de rekening staan terwijl de dag maar
+    één keer gekoppeld kan worden."""
+    gezien = set()
+    uit = []
+    dubbel = False
+    for regel in regels:
+        uur_id = regel[7] if len(regel) > 7 else None
+        if uur_id and uur_id in gezien:
+            dubbel = True
+            continue
+        if uur_id:
+            gezien.add(uur_id)
+        uit.append(regel)
+    return uit, dubbel
+
+
+DUBBELE_DAG = (
+    "Een gewerkte dag stond twee keer op de rekening. "
+    "Hij is maar één keer meegerekend."
+)
+
+
+def regels_uit_form(form):
+    """Regels en totaal. Een dag die twee keer voorkomt telt één keer."""
+    regels, totaal = lees_regels(form)
+    regels, dubbel = zonder_dubbele_dagen(regels)
+    if dubbel:
+        totaal = rond_centen(sum(regel[4] for regel in regels))
+    return regels, totaal, dubbel
 
 
 # ---------- Adressen en telefoonnummers netjes maken ----------
@@ -3418,8 +3568,62 @@ def geboekte_klussen(factuur_id=None, klant_id=None):
         if klus["uren_open"] > 0:
             # Zelfde vergelijking als de bonnen: zelfde klant, of allebei geen.
             klus["past"] = inkoop_past_bij_klant(klus["klant_id"], klant_id)
+            # Alleen dagen die nog nergens op staan. Dagen van déze rekening
+            # zitten al als regels op het formulier; die nog eens aanbieden
+            # zou ze dubbel rekenen.
+            klus["dagen"] = menu_dagen(klus)
             lijst.append(klus)
     return lijst
+
+
+def menu_dagen(klus):
+    """Gesloten, nog niet gefactureerde dagen, klaar voor een factuurregel."""
+    if klus.get("status") == "aangevraagd":
+        return []
+    conn = get_db()
+    try:
+        return [
+            {"id": dag["id"], "omschrijving": dag["omschrijving"], "uren": dag["uren"]}
+            for dag in regels_van_open_dagen(conn, klus)
+        ]
+    finally:
+        conn.close()
+
+
+def regels_van_open_dagen(conn, klus):
+    """Eén dict per gesloten dag die nog niet op een rekening staat.
+
+    Een lopende dag hoort hier niet in: die uren zijn er nog niet. Een dag
+    zonder factureerbare uren (pauze zo lang als de kloktijd) ook niet."""
+    if klus["status"] == "aangevraagd":
+        return []
+    rijen = conn.execute(
+        f"""SELECT id, datum, van, tot, notitie, pauze_minuten FROM uren
+            WHERE klus_id=? AND factuur_id IS NULL AND {_GESLOTEN_DAG}
+            ORDER BY datum, id""",
+        (klus["id"],),
+    ).fetchall()
+    uit = []
+    prijs = float(klus["uurtarief"] or 0)
+    for rij in rijen:
+        uren = factureerbare_uren(rij["van"], rij["tot"], _pauze(rij))
+        if uren <= 0:
+            continue
+        uit.append({
+            "omschrijving": omschrijving_van_dag(
+                rij["datum"], rij["van"], rij["tot"], _pauze(rij),
+                klus["naam"], rij["notitie"],
+            ),
+            "type": "arbeid_uur",
+            "aantal": uren,
+            "prijs": prijs,
+            "klus_id": klus["id"],
+            "inkoop_id": None,
+            "uur_id": rij["id"],
+            "uren": uren,
+            "id": rij["id"],
+        })
+    return uit
 
 
 def klant_sleutel(klant_id):
@@ -3518,7 +3722,7 @@ def verborgen_uren_melding(conn, regels, factuur_id=None):
                 (factuur_id,),
             )
         }
-    for _o, _t, _a, _p, _sub, klus_id, _inkoop in regels:
+    for _o, _t, _a, _p, _sub, klus_id, _inkoop, _uur in regels:
         if not klus_id or klus_id in al_eraan:
             continue
         klus = conn.execute(
@@ -3536,7 +3740,7 @@ def regels_passen_bij_klant(conn, regels, klant_id):
     Het menu verbergt andermans uren al. Een regel die er al stond, of een POST
     die het menu omzeilt, mag de uren of de bon niet alsnog op de verkeerde
     rekening zetten."""
-    for _o, _t, _a, _p, _sub, klus_id, inkoop_id in regels:
+    for _o, _t, _a, _p, _sub, klus_id, inkoop_id, _uur in regels:
         if klus_id:
             klus = conn.execute(
                 "SELECT klant_id FROM klussen WHERE id=?", (klus_id,)
@@ -3558,11 +3762,11 @@ def regels_passen_bij_klant(conn, regels, klant_id):
 
 def bewaar_regels(conn, factuur_id, regels):
     conn.execute("DELETE FROM regels WHERE factuur_id=?", (factuur_id,))
-    for o, t, a, p, subtotaal, klus_id, inkoop_id in regels:
+    for o, t, a, p, subtotaal, klus_id, inkoop_id, uur_id in regels:
         conn.execute(
             """INSERT INTO regels (factuur_id, omschrijving, type, aantal, prijs, subtotaal,
-               klus_id, inkoop_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (factuur_id, o, t, a, p, subtotaal, klus_id, inkoop_id),
+               klus_id, inkoop_id, uur_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (factuur_id, o, t, a, p, subtotaal, klus_id, inkoop_id, uur_id),
         )
     meldingen = boek_uren(conn, factuur_id, regels)
     boek_inkopen(conn, factuur_id, [r[6] for r in regels if r[6]])
@@ -3599,21 +3803,54 @@ def melding_lopende_dagen(conn, klus_id, naam):
     )
 
 
+def _duur_dag(dag):
+    return factureerbare_uren(dag["van"], dag["tot"], _pauze(dag))
+
+
+def _koppel_expliciete_dag(conn, factuur_id, uur_id, subtotaal, gezien):
+    """Koppel precies deze dag, of een melding als dat niet mag.
+
+    Een regel mét uur_id wijst één dag aan. Opnieuw opslaan mag die niet
+    verruilen voor een andere dag die toevallig evenveel uren heeft."""
+    if uur_id in gezien:
+        return ("Een gewerkte dag stond twee keer op de rekening. "
+                "Hij is maar één keer gekoppeld.")
+    gezien.add(uur_id)
+    if float(subtotaal) <= 0.004:
+        return ("Een dag is niet als gefactureerd gemarkeerd: het bedrag op "
+                "de regel is nul. De dag blijft open.")
+    dag = conn.execute(
+        f"""SELECT id FROM uren
+            WHERE id=? AND factuur_id IS NULL AND {_GESLOTEN_DAG}""",
+        (uur_id,),
+    ).fetchone()
+    if dag is None:
+        andere = conn.execute(
+            "SELECT factuur_id FROM uren WHERE id=?", (uur_id,)
+        ).fetchone()
+        if andere is not None and andere["factuur_id"]:
+            return ("Een dag staat al op een andere rekening en is hier "
+                    "niet nog een keer gekoppeld.")
+        return None
+    conn.execute(
+        "UPDATE uren SET factuur_id=? WHERE id=?", (factuur_id, uur_id)
+    )
+    return None
+
+
 def boek_uren(conn, factuur_id, regels):
-    """Markeert alleen de dagen die in de uren op de regel passen.
+    """Markeert de dagen die bij de regels horen.
 
-    Hele dagen. Wat al op deze rekening stond blijft daar, ook als je tussendoor
-    een oudere dag hebt afgesloten; anders worden al gefactureerde dagen weer
-    open en kun je ze een tweede keer rekenen. Nieuwe dagen vullen daarna aan,
-    oudste eerst. Een dag die niet meer in het resterende aantal past blijft
-    open. Bij een bedrag van nul wordt niets gemarkeerd: anders staat de klus
-    op 'al op een rekening' terwijl er niets is gerekend.
+    Een regel met een uur_id koppelt die ene dag. Zonder uur_id — een oude
+    rekening waar alle uren op één regel stonden — blijven hele dagen passen
+    bij het aantal uren. Wat al op deze rekening stond blijft daar, ook als
+    je tussendoor een oudere dag hebt afgesloten; anders worden al gefactureerde
+    dagen weer open en kun je ze een tweede keer rekenen. Nieuwe dagen vullen
+    daarna aan, oudste eerst. Een dag die niet meer in het resterende aantal
+    past blijft open. Bij een bedrag van nul wordt niets gemarkeerd.
 
-    Een dag zelf splitsen (4 uur van een dag van 8) kan hier niet. Die dag
-    blijft dan open; de melding zegt dat.
-
-    Een dag zonder eindtijd blijft altijd open. Die uren zijn er nog niet, en
-    een duur van 0 zou anders in elk aantal passen."""
+    Een dag zelf splitsen (4 uur van een dag van 8) kan hier niet. Een dag
+    zonder eindtijd blijft altijd open."""
     # Dagen die al op deze rekening stonden. Bij een aanvraag mogen er geen
     # nieuwe bij; anders markeer je dagen die op de klus uit beeld zijn.
     eerder = {
@@ -3622,25 +3859,43 @@ def boek_uren(conn, factuur_id, regels):
     }
     conn.execute("UPDATE uren SET factuur_id=NULL WHERE factuur_id=?", (factuur_id,))
     per_klus = {}
-    for _o, _t, aantal, _p, subtotaal, klus_id, _inkoop in regels:
+    klus_ids = []
+    gezien = set()
+    meldingen = []
+    dubbel_gezegd = False
+    for _o, _t, aantal, _p, subtotaal, klus_id, _inkoop, uur_id in regels:
+        if klus_id and klus_id not in klus_ids:
+            klus_ids.append(klus_id)
+        if uur_id:
+            tekst = _koppel_expliciete_dag(
+                conn, factuur_id, uur_id, subtotaal, gezien)
+            if tekst and not (dubbel_gezegd and "twee keer" in tekst):
+                if "twee keer" in tekst:
+                    dubbel_gezegd = True
+                meldingen.append(tekst)
+            continue
         if not klus_id:
             continue
         emmer = per_klus.setdefault(klus_id, {"uren": 0.0, "bedrag": 0.0})
         emmer["uren"] += float(aantal)
         emmer["bedrag"] += float(subtotaal)
 
-    meldingen = []
+    for klus_id in klus_ids:
+        klus = conn.execute(
+            "SELECT naam, status FROM klussen WHERE id=?", (klus_id,)
+        ).fetchone()
+        # Op een aanvraag zie je de dagen niet. Daar hoort deze melding niet bij.
+        if klus is None or klus["status"] == "aangevraagd":
+            continue
+        tekst = melding_lopende_dagen(conn, klus_id, klus["naam"])
+        if tekst:
+            meldingen.append(tekst)
+
     for klus_id, emmer in per_klus.items():
         klus = conn.execute(
             "SELECT naam, status FROM klussen WHERE id=?", (klus_id,)
         ).fetchone()
         naam = klus["naam"] if klus else "deze klus"
-        # Op een aanvraag zie je de dagen niet. Daar hoort deze melding niet bij;
-        # de rekening wordt dan al geweigerd voordat de uren geboekt worden.
-        if klus is None or klus["status"] != "aangevraagd":
-            tekst = melding_lopende_dagen(conn, klus_id, naam)
-            if tekst:
-                meldingen.append(tekst)
         if emmer["bedrag"] <= 0.004 or emmer["uren"] <= 0:
             meldingen.append(
                 f"De uren van {naam} zijn niet als gefactureerd gemarkeerd: het "
@@ -3652,7 +3907,7 @@ def boek_uren(conn, factuur_id, regels):
                 continue
             plekken = ",".join("?" * len(eerder))
             dagen = conn.execute(
-                f"""SELECT id, van, tot FROM uren
+                f"""SELECT id, van, tot, pauze_minuten FROM uren
                     WHERE klus_id=? AND factuur_id IS NULL AND id IN ({plekken})
                       AND {_GESLOTEN_DAG}
                     ORDER BY datum, id""",
@@ -3661,10 +3916,11 @@ def boek_uren(conn, factuur_id, regels):
         else:
             # Eerst de dagen die hier al op stonden. Een net afgesloten oudere
             # dag zou anders hun plek innemen en de latere dagen loskoppelen.
+            # Dagen die via een uur_id al gekoppeld zijn, zijn niet meer vrij.
             if eerder:
                 plekken = ",".join("?" * len(eerder))
                 dagen = conn.execute(
-                    f"""SELECT id, van, tot FROM uren
+                    f"""SELECT id, van, tot, pauze_minuten FROM uren
                         WHERE klus_id=? AND factuur_id IS NULL AND {_GESLOTEN_DAG}
                         ORDER BY CASE WHEN id IN ({plekken}) THEN 0 ELSE 1 END,
                                  datum, id""",
@@ -3672,21 +3928,22 @@ def boek_uren(conn, factuur_id, regels):
                 ).fetchall()
             else:
                 dagen = conn.execute(
-                    f"""SELECT id, van, tot FROM uren
+                    f"""SELECT id, van, tot, pauze_minuten FROM uren
                         WHERE klus_id=? AND factuur_id IS NULL AND {_GESLOTEN_DAG}
                         ORDER BY datum, id""",
                     (klus_id,),
                 ).fetchall()
+        dagen = [dag for dag in dagen if _duur_dag(dag) > 0]
         if not dagen:
             continue
-        open_uren = sum(duur_in_uren(dag["van"], dag["tot"]) for dag in dagen)
+        open_uren = sum(_duur_dag(dag) for dag in dagen)
         if emmer["uren"] + 0.01 >= open_uren:
             gekozen = list(dagen)
         else:
             gekozen = []
             geboekt = 0.0
             for dag in dagen:
-                duur = duur_in_uren(dag["van"], dag["tot"])
+                duur = _duur_dag(dag)
                 if geboekt + duur <= emmer["uren"] + 0.01:
                     gekozen.append(dag)
                     geboekt += duur
@@ -3701,7 +3958,7 @@ def boek_uren(conn, factuur_id, regels):
             conn.execute(
                 "UPDATE uren SET factuur_id=? WHERE id=?", (factuur_id, dag["id"])
             )
-        geboekt = sum(duur_in_uren(dag["van"], dag["tot"]) for dag in gekozen)
+        geboekt = sum(_duur_dag(dag) for dag in gekozen)
         if geboekt + 0.01 < open_uren:
             meldingen.append(
                 f"Van {naam} staan {_uren_tekst(geboekt)} op deze rekening. "
@@ -3725,7 +3982,7 @@ def boek_inkopen(conn, factuur_id, inkoop_ids):
 @app.route("/nieuw", methods=["GET", "POST"])
 def nieuw():
     if request.method == "POST":
-        regels, totaal = lees_regels(request.form)
+        regels, totaal, dubbel = regels_uit_form(request.form)
         if not regels:
             melding("Vul minstens één regel in met een omschrijving; anders is er niets "
                   "te factureren.", "fout")
@@ -3773,24 +4030,42 @@ def nieuw():
               "hem verstuurt of definitief maakt.")
         for tekst in uren_meldingen:
             melding(tekst, "fout")
+        if dubbel:
+            melding(DUBBELE_DAG, "fout")
 
         return redirect(url_for("index"))
 
     # Vanuit een klantpagina kun je meteen een rekening voor die klant beginnen.
     vooraf = request.args.get("klant", "")
+    vooraf_klus = request.args.get("klus", "")
     gekozen = None
+    regels = []
+    conn = get_db()
     if vooraf.isdigit():
-        conn = get_db()
         gekozen = conn.execute("SELECT * FROM klanten WHERE id=?", (vooraf,)).fetchone()
-        conn.close()
+    if vooraf_klus.isdigit():
+        klus = conn.execute(
+            "SELECT * FROM klussen WHERE id=?", (int(vooraf_klus),)
+        ).fetchone()
+        if klus is not None:
+            # De dagen staan al in het formulier. Het script mag ze niet nog
+            # een keer toevoegen, anders staat elke dag er dubbel.
+            regels = regels_van_open_dagen(conn, klus)
+            if regels:
+                vooraf_klus = ""
+            if gekozen is None and klus["klant_id"]:
+                gekozen = conn.execute(
+                    "SELECT * FROM klanten WHERE id=?", (klus["klant_id"],)
+                ).fetchone()
+    conn.close()
 
     vandaag = nu().date().isoformat()
     return render_template(
         "nieuw.html", vandaag=vandaag, actief="nieuw",
-        factuur=None, regels=[], klanten=klantenlijst(), gekozen_klant=gekozen,
+        factuur=None, regels=regels, klanten=klantenlijst(), gekozen_klant=gekozen,
         klussen=geboekte_klussen(klant_id=gekozen["id"] if gekozen else None),
         open_inkopen=geboekte_inkopen(klant_id=gekozen["id"] if gekozen else None),
-        vooraf_klus=request.args.get("klus", ""),
+        vooraf_klus=vooraf_klus,
         vervalt=standaard_vervalt(vandaag),
         standaard_vervalt=standaard_vervalt(vandaag),
     )
@@ -3805,7 +4080,7 @@ def bewerk(factuur_id):
         abort(404)
 
     if request.method == "POST":
-        regels, totaal = lees_regels(request.form)
+        regels, totaal, dubbel = regels_uit_form(request.form)
         if not regels:
             conn.close()
             melding("Vul minstens één regel in met een omschrijving; anders is er niets "
@@ -3849,6 +4124,8 @@ def bewerk(factuur_id):
         melding(f"Rekening {factuurnaam(factuur)} bijgewerkt.")
         for tekst in uren_meldingen:
             melding(tekst, "fout")
+        if dubbel:
+            melding(DUBBELE_DAG, "fout")
 
         return redirect(url_for("index"))
 
@@ -3905,7 +4182,7 @@ def lees_vervaldatum(form, datum):
 
 def bewaar_offerte_regels(conn, offerte_id, regels):
     conn.execute("DELETE FROM offerte_regels WHERE offerte_id=?", (offerte_id,))
-    for o, t, a, p, subtotaal, _klus_id, inkoop_id in regels:
+    for o, t, a, p, subtotaal, _klus_id, inkoop_id, _uur_id in regels:
         conn.execute(
             """INSERT INTO offerte_regels (offerte_id, omschrijving, type, aantal, prijs,
                subtotaal, inkoop_id) VALUES (?, ?, ?, ?, ?, ?, ?)""",
@@ -4216,12 +4493,12 @@ def offerte_naar_rekening(offerte_id):
         inkoop_id = r["inkoop_id"] if "inkoop_id" in r.keys() else None
         regels.append((
             r["omschrijving"], r["type"], r["aantal"], r["prijs"], r["subtotaal"],
-            None, inkoop_id,
+            None, inkoop_id, None,
         ))
     if reeds > 0.004:
         regels.append((
             f"Reeds aanbetaald op offerte {offerte['nummer']}",
-            "arbeid_klus", 1, -reeds, -reeds, None, None,
+            "arbeid_klus", 1, -reeds, -reeds, None, None, None,
         ))
     bewaar_regels(conn, factuur_id, regels)
     conn.execute(
