@@ -240,6 +240,9 @@
         {% if kl.eerste_datum and kl.status != 'aangevraagd' %}
         <span class="datum">{{ periode_nl(kl.eerste_datum, kl.laatste_datum) }}</span>
         {% endif %}
+        {% if kl.bezig_sinds and kl.status != 'aangevraagd' %}
+        <span class="datum">Bezig sinds {{ kl.bezig_sinds }}</span>
+        {% endif %}
         <span class="chip chip-{{ kl.status }}">
           {% if kl.status == 'afgerond' %}Afgerond
           {% elif kl.status == 'aangevraagd' %}Aanvraag

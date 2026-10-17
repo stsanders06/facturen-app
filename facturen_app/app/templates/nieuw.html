@@ -204,6 +204,14 @@
       text-align: center;
       box-sizing: border-box;
     }
+    /* Zelfde stapeling als de menu's: anders blijft deze knop een smalle
+       pil naast een volle rij en valt hij op 390px deels weg. */
+    .regelknoppen .haal-op > a.csv-dagen {
+      width: 100%;
+      min-height: 44px;
+      justify-content: center;
+      box-sizing: border-box;
+    }
   }
 
   /* Bij veel regels wordt de lijst een muur; de rest komt achter deze knop
@@ -476,6 +484,12 @@
           <p class="menu-uitleg">Kopjes op de eerste regel: omschrijving, aantal,
             prijs en eventueel soort.</p>
         {% endcall %}
+        {#- Zelfde rij als CSV inlezen en Uren van een klus. Op een telefoon
+            stapelt die rij onder + Regel; een losse knop erbuiten werd afgekapt. -#}
+        <a class="btn btn-outline csv-dagen" id="csv-dagen"
+           href="{{ url_for('gewerkte_dagen_csv') }}"
+           title="Alle afgesloten dagen. Een dag die nog bezig is zit er niet bij.">
+          Gewerkte dagen</a>
       </span>
       <input type="file" id="regels_csv" accept=".csv,text/csv,text/plain" hidden>
     </div>

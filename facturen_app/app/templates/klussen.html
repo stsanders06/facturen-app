@@ -96,6 +96,14 @@
   /* Hoe lang een aanvraag al ligt te wachten; dat is hier het cijfer dat telt. */
   .klus .wachttijd { font-size: 13px; }
   .klus .gefactureerd { color: var(--text-secondary); font-size: 13px; }
+  /* Eigen regel: naast de periode paste "Bezig sinds 07:30" op een telefoon
+     niet meer, en dan schoof de tijd over de uren heen. */
+  .klus .bezig {
+    display: block;
+    margin-top: 2px;
+    color: var(--status-lopend);
+    font-weight: 600;
+  }
 </style>
 {% endblock %}
 {% block content %}
@@ -137,6 +145,7 @@
   <div class="periode{% if kl.status == 'afgerond' %} gedimd{% endif %}">
     {% if kl.klant_naam %}{{ kl.klant_naam }}{% else %}Geen klant{% endif %}
     {%- if kl.eerste_datum %} · {{ periode_nl(kl.eerste_datum, kl.laatste_datum) }}{% endif %}
+    {% if kl.bezig_sinds %}<span class="bezig">Bezig sinds {{ kl.bezig_sinds }}</span>{% endif %}
   </div>
   <div class="onderkant">
     {# Het aantal dagen stond hier ook in, maar dan paste de chip met de knoppen
