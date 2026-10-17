@@ -1086,11 +1086,35 @@ def test_verouderde_omschrijving_volgt_de_dag(post, db):
     assert "08:00–12:00" not in tekst
 
 
-def test_dagregel_toont_uren_en_minuten(client, post, db):
+def test_dagregel_toont_het_aantal_zonder_minuten_ernaast(client, post, db):
+    """7,33 u blijft. '(7 u 20 min)' niet, ook niet bij bewerken of op de PDF.
+
+    De tijden staan in de omschrijving. Het bedrag blijft dat van de minuten."""
+    zet_bedrijf(db)
     klant_id, klus_id = _klus(post, db, tarief="45.55")
     post(f"/klus/{klus_id}/dag", {"datum": "2026-10-12", "van": "07:00", "tot": "14:20"})
-    pagina = client.get(f"/nieuw?klus={klus_id}&klant={klant_id}").data.decode()
-    assert "7,33 u (7 u 20 min)" in pagina
+    uur_id = db.execute("SELECT id FROM uren").fetchone()[0]
+    nieuw = client.get(f"/nieuw?klus={klus_id}&klant={klant_id}").data.decode()
+    assert "7,33 u" in nieuw
+    assert "7 u 20 min" not in nieuw
+    assert "07:00–14:20" in nieuw
+
+    post("/nieuw", {
+        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "omschrijving": "ma 12 okt 2026, 07:00–14:20 · Gevel",
+        "type": "arbeid_uur", "aantal": "7.33", "prijs": "45.55",
+        "regel_klus": str(klus_id), "regel_uur": str(uur_id),
+    })
+    factuur_id = db.execute("SELECT id FROM facturen").fetchone()[0]
+    assert _cent(db.execute("SELECT subtotaal FROM regels").fetchone()[0]) == "334.03"
+    bewerkt = client.get(f"/factuur/{factuur_id}/bewerk").data.decode()
+    assert "7,33 u" in bewerkt
+    assert "7 u 20 min" not in bewerkt
+    assert "07:00–14:20" in bewerkt
+    pdf = tekst_uit_pdf(facturen.maak_pdf(factuur_id))
+    assert "7,33 u" in pdf
+    assert "7 u 20 min" not in pdf
+    assert "07:00" in pdf and "14:20" in pdf
 
 
 def test_klus_met_gefactureerde_dag_verwijderen_lukt_niet(post, db):
@@ -1256,7 +1280,8 @@ def test_totaal_en_betaalstrook_blijven_samen(post, db, aantal):
     blad = paginas[met_totaal[0]]
     # De laatste dagen staan bij het totaal, niet op een blad met alleen de strook.
     assert "Gevel" in blad
-    assert "7 u 20 min" in blad or any("7 u 20 min" in tekst for tekst in paginas)
+    assert all("7 u 20 min" not in tekst for tekst in paginas)
+    assert any("07:00" in tekst for tekst in paginas)
 
 
 def test_geweigerde_opslag_houdt_het_formulier(post, db):
