@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.35.0
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **Een gewerkte dag mag zonder eindtijd.** 's Ochtends vul je de begintijd in.
+  De dag staat dan als bezig, bijvoorbeeld "Bezig sinds 07:30". Als je klaar bent
+  tik je op Dag afsluiten. De eindtijd staat al op de huidige tijd; die kun je
+  nog aanpassen.
+- **Een dag die nog bezig is telt nergens mee.** Niet in de uren, niet in het
+  bedrag en niet op een rekening. Zet je de klus toch op een rekening, dan zegt
+  de app dat de open dag niet meegaat. De eindtijd moet na de begintijd liggen.
+  Een klus die na middernacht doorloopt mag nog steeds.
+
 ## 1.34.1
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
