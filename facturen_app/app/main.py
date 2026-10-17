@@ -35,7 +35,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.36.0"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.36.1"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -957,22 +957,6 @@ def tekst_van_getal(waarde):
     return tekst or "0"
 
 
-def duur_tekst(minuten):
-    """'7 u 20 min' bij 440 minuten. Het aantal 7,33 uur verbergt die 20 minuten."""
-    try:
-        minuten = int(minuten or 0)
-    except (TypeError, ValueError):
-        return ""
-    if minuten <= 0:
-        return ""
-    uren, rest = divmod(minuten, 60)
-    if uren and rest:
-        return f"{uren} u {rest} min"
-    if uren:
-        return f"{uren} u"
-    return f"{rest} min"
-
-
 def _veld(rij, naam, standaard=None):
     """Waarde uit een dict of een sqlite-rij. Een sqlite-rij heeft geen .get."""
     if rij is None:
@@ -997,13 +981,10 @@ def aantal_tekst(regel):
     if soort_regel == "arbeid_dag":
         return f"{basis} dg"
     if soort_regel == "arbeid_uur" or _veld(regel, "uur_id"):
-        tekst = f"{basis} u"
-        duur = duur_tekst(_veld(regel, "minuten"))
-        # 8 uur is al duidelijk. 7,33 uur niet: daar hoort '7 u 20 min' bij,
-        # anders is niet te zien waarom het bedrag geen 7,33 maal het tarief is.
-        if duur and duur != tekst:
-            return f"{tekst} ({duur})"
-        return tekst
+        # Alleen het aantal, bijvoorbeeld 7,33 u. De minuten zitten in het
+        # bedrag en in de tijden van de omschrijving; een tweede notatie
+        # ernaast ("7 u 20 min") maakt de regel druk.
+        return f"{basis} u"
     return f"{basis}×"
 
 
@@ -5694,7 +5675,6 @@ def maak_pdf(factuur_id, weergavenummer=None, pad=None):
     # maakt een klant die de helft heeft betaald na een herinnering het hele bedrag over.
     betaald = betaald_op(conn, factuur_id)
     s = get_settings()
-    regels = [_regel_met_minuten(conn, rij) for rij in regels]
     conn.close()
 
     doc = dict(factuur)
@@ -5912,37 +5892,6 @@ def _teken_kolomkoppen(vel):
     vel.y -= 4.5 * mm
 
 
-def _regel_met_minuten(conn, rij):
-    """De minuten van de dag, zodat de PDF '7 u 20 min' naast 7,33 uur kan zetten."""
-    regel = dict(rij)
-    uur_id = regel.get("uur_id")
-    if not uur_id:
-        return regel
-    dag = conn.execute(
-        "SELECT van, tot, pauze_minuten FROM uren WHERE id=?", (uur_id,)
-    ).fetchone()
-    if dag is not None and eindtijd_ingevuld(dag["tot"]):
-        regel["minuten"] = factureerbare_minuten(
-            dag["van"], dag["tot"], _pauze(dag))
-    return regel
-
-
-def _omschrijving_voor_pdf(regel):
-    """De omschrijving, met de duur erbij als het afgeronde aantal die verbergt.
-
-    8 uur is op de PDF al duidelijk. 7,33 uur niet: daar hoort '(7 u 20 min)'
-    bij, dezelfde tekst als op het formulier, anders klopt het bedrag niet
-    met wat je ziet."""
-    tekst = (regel["omschrijving"] or "").strip()
-    duur = duur_tekst(_veld(regel, "minuten"))
-    if not duur:
-        return tekst
-    aantal = f"{float(regel['aantal'] or 0):g}".replace(".", ",")
-    if duur == f"{aantal} u" or f"({duur})" in tekst:
-        return tekst
-    return f"{tekst} ({duur})".strip()
-
-
 # Een regel mag niet in de voettekst zakken. Het totaal en de betaalstrook
 # hebben meer nodig: de stippellijn staat op 62 mm, het totaal erboven.
 # Onder 80 mm zou alleen de strook naar de volgende pagina gaan.
@@ -6047,7 +5996,7 @@ def _teken_regels(vel, regels, met_strook=False):
     omschrijfbreedte = vel.kolom_aantal - vel.links - 18 * mm
     voorbereid = []
     for r in regels:
-        tekst = _omschrijving_voor_pdf(r)
+        tekst = (r["omschrijving"] or "").strip()
         voorbereid.append({
             "regel": r,
             "tekstregels": _regels_afbreken(

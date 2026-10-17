@@ -586,27 +586,11 @@
         : n.toLocaleString('nl-NL', { maximumFractionDigits: 2 });
     }
 
-    function minutenTekst(minuten) {
-      var min = parseInt(minuten, 10);
-      if (!isFinite(min) || min <= 0) return '';
-      var uren = Math.floor(min / 60);
-      var rest = min % 60;
-      if (uren && rest) return uren + ' u ' + rest + ' min';
-      if (uren) return uren + ' u';
-      return rest + ' min';
-    }
-
-    function qtyTekst(soort, aantal, minuten) {
+    function qtyTekst(soort, aantal) {
       if (soort === 'arbeid_klus' || soort === 'bon') return '—';
       if (!aantal) return '—';
       var n = fmtAantal(aantal);
-      if (soort === 'arbeid_uur') {
-        var duur = minutenTekst(minuten);
-        var tekst = n + ' u';
-        // 7,33 u alleen is niet te volgen tot € 334,03. De minuten erbij wel.
-        if (duur && duur !== tekst) return tekst + ' (' + duur + ')';
-        return tekst;
-      }
+      if (soort === 'arbeid_uur') return n + ' u';
       if (soort === 'arbeid_dag') return n + ' dg';
       return n + '\u00d7';
     }
@@ -617,15 +601,13 @@
       var omschrijving = (regel.querySelector('[name="omschrijving"]').value || '').trim();
       var aantal = parseFloat(regel.querySelector('[name="aantal"]').value) || 0;
       var prijs = parseFloat(regel.querySelector('[name="prijs"]').value) || 0;
-      var minutenVeld = regel.querySelector('[name="regel_minuten"]');
       var badge = regel.querySelector('.regel-badge');
       var tekst = regel.querySelector('.regel-tekst');
       var qty = regel.querySelector('.regel-qty');
       var eenheid = regel.querySelector('.regel-eenheidsprijs');
       if (badge) badge.textContent = keuze.badge;
       if (tekst) tekst.textContent = omschrijving || 'Nieuwe regel';
-      if (qty) qty.textContent = qtyTekst(
-        soort, aantal, minutenVeld ? minutenVeld.value : '');
+      if (qty) qty.textContent = qtyTekst(soort, aantal);
       if (eenheid) eenheid.textContent = euro(prijs);
     }
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.36.1
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **De duur tussen haakjes staat niet meer op de rekening.** Je zag
+  "7,33 u (7 u 20 min)". Nu blijft het "7,33 u", bij het maken, het bewerken
+  en op de PDF. Datum en tijden staan nog in de omschrijving. Het bedrag
+  rekent nog steeds met de minuten.
+
 ## 1.36.0
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
