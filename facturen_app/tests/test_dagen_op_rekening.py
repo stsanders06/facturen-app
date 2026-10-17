@@ -11,7 +11,7 @@ from html.parser import HTMLParser
 import pytest
 
 from conftest import facturen
-from test_pdf import tekst_uit_pdf, zet_bedrijf
+from test_pdf import paginas_uit_pdf, tekst_uit_pdf, zet_bedrijf
 from test_smalle_weergave import css_van, regel_met
 
 
@@ -866,6 +866,8 @@ def test_migratie_laat_alleen_de_regel_van_de_dag_gekoppeld(db, client, caplog):
 
     pagina = client.get(f"/factuur/{tweede}/bewerk").data.decode()
     assert "795,63" in pagina
+    # Het euroteken en het bedrag blijven aan elkaar, ook als de regel smal is.
+    assert "€\u00a0400,00" in pagina
     assert "hoort bij rekening 2026-001" in pagina
     assert "niet twee keer" in pagina
 
@@ -1201,3 +1203,134 @@ def test_rekening_terughalen_weigert_als_de_dag_elders_staat(post, client, db):
     assert db.execute("SELECT id FROM prullenbak WHERE id=?", (prul,)).fetchone()
     overzicht = client.get("/").data.decode()
     assert f"{nieuw['totaal']:.2f}".replace(".", ",") in overzicht or "540,00" in overzicht
+
+
+def _pdf_met_dagen(n, post, db):
+    """Een rekening met n dagen van 07:00 tot 14:20, en de tekst per pagina."""
+    zet_bedrijf(db)
+    klant_id, klus_id = _klus(post, db, tarief="45.55")
+    begin = date(2026, 1, 5)
+    for nummer in range(n):
+        dag = begin + timedelta(days=nummer)
+        db.execute(
+            """INSERT INTO uren (klus_id, datum, van, tot, notitie, pauze_minuten)
+               VALUES (?, ?, '07:00', '14:20', '', 0)""",
+            (klus_id, dag.isoformat()),
+        )
+    db.commit()
+    dagen = db.execute("SELECT id, datum FROM uren ORDER BY datum").fetchall()
+    omschrijvingen = [
+        facturen.omschrijving_van_dag(rij["datum"], "07:00", "14:20", 0, "Gevel", "")
+        for rij in dagen
+    ]
+    post("/nieuw", {
+        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-03-01",
+        "omschrijving": omschrijvingen,
+        "type": ["arbeid_uur"] * n,
+        "aantal": ["7.33"] * n,
+        "prijs": ["45.55"] * n,
+        "regel_klus": [str(klus_id)] * n,
+        "regel_uur": [str(rij["id"]) for rij in dagen],
+    })
+    factuur_id = db.execute("SELECT id FROM facturen").fetchone()[0]
+    return paginas_uit_pdf(facturen.maak_pdf(factuur_id))
+
+
+def _heeft(tekst, *woorden):
+    return all(woord in tekst for woord in woorden)
+
+
+@pytest.mark.parametrize("aantal", list(range(25, 46)))
+def test_totaal_en_betaalstrook_blijven_samen(post, db, aantal):
+    """Het totaal en de strook staan op één pagina, ook als de grens kantelt.
+
+    Bij 32 en 44 dagen viel het totaal nog op de volle pagina en de strook
+    alleen op de volgende. Die grens schuift mee met het aantal dagen."""
+    paginas = _pdf_met_dagen(aantal, post, db)
+    assert len(paginas) >= 2
+    # De kopjes staan met spaties tussen de letters: "T O T A A L".
+    met_totaal = [i for i, tekst in enumerate(paginas) if "T O T A A L" in tekst]
+    met_strook = [i for i, tekst in enumerate(paginas) if "B E T A L E N" in tekst]
+    assert met_totaal == met_strook
+    assert len(met_totaal) == 1
+    blad = paginas[met_totaal[0]]
+    # De laatste dagen staan bij het totaal, niet op een blad met alleen de strook.
+    assert "Gevel" in blad
+    assert "7 u 20 min" in blad or any("7 u 20 min" in tekst for tekst in paginas)
+
+
+def test_geweigerde_opslag_houdt_het_formulier(post, db):
+    """Zonder script: de POST zelf zet klant, datum en de andere regels terug."""
+    klant_id, klus_id = _klus(post, db)
+    post(f"/klus/{klus_id}/dag", {"datum": "2026-10-12", "van": "08:00", "tot": "12:00"})
+    uur_id = db.execute("SELECT id FROM uren").fetchone()[0]
+    formulier = {
+        "klant_naam": "Stone",
+        "klant_id": str(klant_id),
+        "klant_adres": "Straat 1",
+        "datum": "2026-10-16",
+        "vervalt_op": "2026-10-30",
+        "betaaltermijn": "ja",
+        "betaalmethode": "cash",
+        "kenmerk": "tweede scherm",
+        "omschrijving": ["GEWEIGERDE DAG", "kit", "eigen buis"],
+        "type": ["arbeid_uur", "materiaal", "materiaal"],
+        "aantal": ["4", "2", "1"],
+        "prijs": ["45", "12.50", "8"],
+        "regel_klus": [str(klus_id), "", ""],
+        "regel_uur": [str(uur_id), "", ""],
+    }
+    post("/nieuw", formulier)
+    tweede = post("/nieuw", formulier)
+    tekst = tweede.data.decode()
+    assert "niet nog een keer" in tekst
+    assert "niet aangemaakt" in tekst
+    assert 'value="Stone"' in tekst
+    assert 'value="2026-10-16"' in tekst
+    assert 'value="2026-10-30"' in tekst
+    assert 'value="tweede scherm"' in tekst
+    assert "selected" in tekst and "Contant" in tekst
+    assert 'value="kit"' in tekst
+    assert 'value="eigen buis"' in tekst
+    assert 'value="GEWEIGERDE DAG"' not in tekst
+    assert db.execute("SELECT COUNT(*) FROM facturen").fetchone()[0] == 1
+    assert db.execute(
+        "SELECT COUNT(*) FROM regels WHERE omschrijving='kit'"
+    ).fetchone()[0] == 1
+
+
+def test_geweigerde_opslag_blijft_staan_met_script(post, db):
+    """Met script blijven de teruggezette regels in de samenvatting staan."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    klant_id, klus_id = _klus(post, db)
+    post(f"/klus/{klus_id}/dag", {"datum": "2026-10-12", "van": "08:00", "tot": "12:00"})
+    uur_id = db.execute("SELECT id FROM uren").fetchone()[0]
+    formulier = {
+        "klant_naam": "Stone",
+        "klant_id": str(klant_id),
+        "datum": "2026-10-16",
+        "betaaltermijn": "ja",
+        "vervalt_op": "2026-10-30",
+        "kenmerk": "tweede scherm",
+        "omschrijving": ["GEWEIGERDE DAG", "kit", "eigen buis"],
+        "type": ["arbeid_uur", "materiaal", "materiaal"],
+        "aantal": ["4", "1", "3"],
+        "prijs": ["45", "12.50", "8"],
+        "regel_klus": [str(klus_id), "", ""],
+        "regel_uur": [str(uur_id), "", ""],
+    }
+    post("/nieuw", formulier)
+    tweede = post("/nieuw", formulier)
+    html = tweede.data.decode()
+    with sync_playwright() as p:
+        browser = p.webkit.launch()
+        page = browser.new_page()
+        page.set_content(html)
+        teksten = page.locator(".regel-tekst").all_inner_texts()
+        browser.close()
+    assert "kit" in teksten
+    assert "eigen buis" in teksten
+    assert "GEWEIGERDE DAG" not in teksten
+    assert "Nieuwe regel" not in teksten

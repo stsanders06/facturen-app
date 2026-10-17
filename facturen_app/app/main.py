@@ -1661,20 +1661,20 @@ def _conflict_zin(conn, dag, regel):
     bedrag = nl_bedrag(regel["subtotaal"])
     if dag is None:
         return (
-            f"Een regel van € {bedrag} verwees naar een dag die er niet meer is. "
+            f"Een regel van €\u00a0{bedrag} verwees naar een dag die er niet meer is. "
             "Het bedrag is blijven staan en de koppeling is weg."
         )
     wanneer = filter_datum_nl(dag["datum"])
     if not dag["factuur_id"]:
         return (
             f"De dag van {wanneer} staat op geen rekening. "
-            f"Het bedrag van € {bedrag} is blijven staan, "
+            f"Het bedrag van €\u00a0{bedrag} is blijven staan, "
             "maar de dag hangt niet aan deze rekening."
         )
     titel = zin_van_rekening(_rekening_rij(conn, dag["factuur_id"]))
     return (
         f"De dag van {wanneer} hoort bij {titel}. "
-        f"Het bedrag van € {bedrag} op deze rekening is blijven staan, "
+        f"Het bedrag van €\u00a0{bedrag} op deze rekening is blijven staan, "
         "maar de dag is hier losgekoppeld. "
         "Controleer of je die uren niet twee keer rekent."
     )
@@ -4918,6 +4918,112 @@ def boek_inkopen(conn, factuur_id, inkoop_ids):
         )
 
 
+def _regels_zoals_ingevuld(form):
+    """De regels uit het formulier, nog niet herberekend.
+
+    Bij een geweigerde opslag moet het scherm terugkomen zoals het was
+    ingevuld. Het subtotaal uit het formulier telt bij een geslaagde opslag
+    niet mee; hier bewaren we alleen wat de gebruiker zag."""
+    uit = []
+    for o, t, a, p, klus, inkoop, uur, sub, minuten in zip_longest(
+        form.getlist("omschrijving"),
+        form.getlist("type"),
+        form.getlist("aantal"),
+        form.getlist("prijs"),
+        form.getlist("regel_klus"),
+        form.getlist("regel_inkoop"),
+        form.getlist("regel_uur"),
+        form.getlist("regel_subtotaal"),
+        form.getlist("regel_minuten"),
+        fillvalue="",
+    ):
+        if not str(o or "").strip():
+            continue
+        uit.append({
+            "omschrijving": str(o),
+            "type": t or "materiaal",
+            "aantal": a if str(a).strip() else "1",
+            "prijs": p,
+            "subtotaal": sub,
+            "klus_id": int(klus) if str(klus).isdigit() else None,
+            "inkoop_id": int(inkoop) if str(inkoop).isdigit() else None,
+            "uur_id": int(uur) if str(uur).isdigit() else None,
+            "minuten": int(minuten) if str(minuten).isdigit() else None,
+            # Open, zodat de velden ook zonder script te zien zijn. Met script
+            # klappen ze weer in en blijft de samenvatting staan.
+            "open": True,
+        })
+    return uit
+
+
+def _dag_staat_elders(conn, uur_id, eigen_factuur_id):
+    dag = conn.execute(
+        "SELECT factuur_id FROM uren WHERE id=?", (uur_id,)
+    ).fetchone()
+    return bool(
+        dag and dag["factuur_id"] and dag["factuur_id"] != eigen_factuur_id
+    )
+
+
+def formulier_van_post(conn, form, eigen_factuur_id=None):
+    """Wat er op het scherm terug moet na een geweigerde opslag.
+
+    De geweigerde dagregels gaan eraf: die staan al op een andere rekening.
+    Klant, datums en de overige regels blijven. Er wordt niets opgeslagen."""
+    regels = []
+    for regel in _regels_zoals_ingevuld(form):
+        uur_id = regel.get("uur_id")
+        if uur_id and _dag_staat_elders(conn, uur_id, eigen_factuur_id):
+            continue
+        if uur_id and not regel.get("minuten"):
+            dag = conn.execute(
+                "SELECT van, tot, pauze_minuten FROM uren WHERE id=?", (uur_id,)
+            ).fetchone()
+            if dag is not None and eindtijd_ingevuld(dag["tot"]):
+                regel["minuten"] = factureerbare_minuten(
+                    dag["van"], dag["tot"], _pauze(dag))
+        regels.append(regel)
+    klant_id = (form.get("klant_id") or "").strip()
+    return {
+        "klant": {
+            "id": int(klant_id) if klant_id.isdigit() else None,
+            "naam": form.get("klant_naam", ""),
+            "adres": form.get("klant_adres", ""),
+            "email": form.get("klant_email", ""),
+        },
+        "datum": geldige_datum(form.get("datum")),
+        "vervalt": (form.get("vervalt_op") or "") if form.get("betaaltermijn") == "ja" else "",
+        "termijn_aan": form.get("betaaltermijn") == "ja",
+        "kenmerk": form.get("kenmerk", ""),
+        "betaalmethode": form.get("betaalmethode") or "bank",
+        "regels": regels,
+    }
+
+
+def _render_nieuw_ingevuld(ingevuld):
+    """Nieuwe rekening, met de gegevens die net geweigerd zijn nog ingevuld."""
+    vandaag = ingevuld["datum"]
+    gekozen = ingevuld["klant"]
+    klant_id = gekozen.get("id")
+    return render_template(
+        "nieuw.html",
+        vandaag=vandaag,
+        actief="nieuw",
+        factuur=None,
+        regels=ingevuld["regels"],
+        klanten=klantenlijst(),
+        gekozen_klant=gekozen,
+        klussen=geboekte_klussen(klant_id=klant_id),
+        open_inkopen=geboekte_inkopen(klant_id=klant_id),
+        vooraf_klus="",
+        vervalt=ingevuld["vervalt"],
+        standaard_vervalt=standaard_vervalt(vandaag),
+        kenmerk=ingevuld["kenmerk"],
+        betaalmethode=ingevuld["betaalmethode"],
+        termijn_aan=ingevuld["termijn_aan"],
+    )
+
+
 @app.route("/nieuw", methods=["GET", "POST"])
 def nieuw():
     if request.method == "POST":
@@ -4928,10 +5034,11 @@ def nieuw():
             regels, totaal, meldingen, fout = regels_voor_opslaan(
                 conn, request.form, klant_id)
             if fout:
+                ingevuld = formulier_van_post(conn, request.form)
                 conn.rollback()
                 conn.close()
                 melding(fout, "fout")
-                return redirect(url_for("nieuw"))
+                return _render_nieuw_ingevuld(ingevuld)
             datum = geldige_datum(request.form.get("datum"))
 
             # Nog geen nummer: dat komt pas als de rekening definitief wordt. Zo laat een
@@ -4956,10 +5063,11 @@ def nieuw():
             uren_meldingen = bewaar_regels(conn, factuur_id, regels)
             conn.commit()
         except sqlite3.IntegrityError:
+            ingevuld = formulier_van_post(conn, request.form)
             conn.rollback()
             conn.close()
             melding(DAG_AL_ELDERS, "fout")
-            return redirect(url_for("nieuw"))
+            return _render_nieuw_ingevuld(ingevuld)
         conn.close()
 
         maak_pdf(factuur_id)
@@ -5586,6 +5694,7 @@ def maak_pdf(factuur_id, weergavenummer=None, pad=None):
     # maakt een klant die de helft heeft betaald na een herinnering het hele bedrag over.
     betaald = betaald_op(conn, factuur_id)
     s = get_settings()
+    regels = [_regel_met_minuten(conn, rij) for rij in regels]
     conn.close()
 
     doc = dict(factuur)
@@ -5803,7 +5912,122 @@ def _teken_kolomkoppen(vel):
     vel.y -= 4.5 * mm
 
 
-def _teken_regels(vel, regels):
+def _regel_met_minuten(conn, rij):
+    """De minuten van de dag, zodat de PDF '7 u 20 min' naast 7,33 uur kan zetten."""
+    regel = dict(rij)
+    uur_id = regel.get("uur_id")
+    if not uur_id:
+        return regel
+    dag = conn.execute(
+        "SELECT van, tot, pauze_minuten FROM uren WHERE id=?", (uur_id,)
+    ).fetchone()
+    if dag is not None and eindtijd_ingevuld(dag["tot"]):
+        regel["minuten"] = factureerbare_minuten(
+            dag["van"], dag["tot"], _pauze(dag))
+    return regel
+
+
+def _omschrijving_voor_pdf(regel):
+    """De omschrijving, met de duur erbij als het afgeronde aantal die verbergt.
+
+    8 uur is op de PDF al duidelijk. 7,33 uur niet: daar hoort '(7 u 20 min)'
+    bij, dezelfde tekst als op het formulier, anders klopt het bedrag niet
+    met wat je ziet."""
+    tekst = (regel["omschrijving"] or "").strip()
+    duur = duur_tekst(_veld(regel, "minuten"))
+    if not duur:
+        return tekst
+    aantal = f"{float(regel['aantal'] or 0):g}".replace(".", ",")
+    if duur == f"{aantal} u" or f"({duur})" in tekst:
+        return tekst
+    return f"{tekst} ({duur})".strip()
+
+
+# Een regel mag niet in de voettekst zakken. Het totaal en de betaalstrook
+# hebben meer nodig: de stippellijn staat op 62 mm, het totaal erboven.
+# Onder 80 mm zou alleen de strook naar de volgende pagina gaan.
+REGEL_BODEM = 72 * mm
+STROOK_GRENS = 80 * mm
+# Koppen boven de regels: 3 mm tot de streep en 4,5 mm erna.
+KOLOMKOP = 7.5 * mm
+
+
+def _vervolg_y(vel):
+    """Waar de eerste regel op een vervolgpagina begint, onder de koppen."""
+    return vel.hoogte - 28 * mm - KOLOMKOP
+
+
+def _daling_regel(aantal_tekstregels):
+    """Hoeveel y zakt na het tekenen van één rekeningregel."""
+    return aantal_tekstregels * 4.4 * mm + 11 * mm
+
+
+def _plaats_regels(items, y, bodem):
+    """Regels over pagina's, met `y` al onder de kolomkoppen.
+
+    Geeft de pagina's en de y na de laatste regel. Een nieuwe pagina begint
+    op de vervolgzijde; de aanroeper tekent de koppen daar zelf."""
+    paginas = []
+    huidige = []
+    eind = y
+    for item in items:
+        n = len(item["tekstregels"])
+        nodig = n * 4.4 * mm + 8 * mm
+        if huidige and y - nodig < bodem:
+            paginas.append(huidige)
+            huidige = []
+            y = _vervolg_y_zonder_vel()
+        huidige.append(item)
+        y -= _daling_regel(n)
+        eind = y
+    if huidige:
+        paginas.append(huidige)
+    return paginas, eind
+
+
+def _vervolg_y_zonder_vel():
+    """Zelfde hoogte als _vervolg_y, zonder het vel: A4 staat vast."""
+    return A4[1] - 28 * mm - KOLOMKOP
+
+
+def _splits_voor_totaal(items, start_y):
+    """Het langste begin dat boven de strook eindigt, en de regels erna.
+
+    Die laatste regels gaan mee naar de pagina van het totaal. Anders staat
+    het totaal op de ene pagina en de betaalstrook alleen op de volgende."""
+    y = start_y
+    grens = 0
+    for index, item in enumerate(items):
+        nieuw = y - _daling_regel(len(item["tekstregels"]))
+        if nieuw < STROOK_GRENS:
+            break
+        y = nieuw
+        grens = index + 1
+    return items[:grens], items[grens:]
+
+
+def _plan_regelpaginas(vel, voorbereid, met_strook):
+    """Pagina's met regels. De laatste laat ruimte voor totaal én strook."""
+    y0 = vel.y - KOLOMKOP
+    paginas, eind = _plaats_regels(voorbereid, y0, REGEL_BODEM)
+    # _plaats_regels kent de hoogte van een vervolgpagina, maar de eerste
+    # aanroep begint op y0. Een latere pagina in die aanroep gebruikt de
+    # vervolgzijde. Dat klopt met het tekenen.
+    veilig = 0
+    while met_strook and paginas and eind < STROOK_GRENS and veilig < 30:
+        veilig += 1
+        laatste = paginas[-1]
+        start = y0 if len(paginas) == 1 else _vervolg_y(vel)
+        prefix, suffix = _splits_voor_totaal(laatste, start)
+        if not prefix or not suffix:
+            break
+        paginas[-1] = prefix
+        extra, eind = _plaats_regels(suffix, _vervolg_y(vel), REGEL_BODEM)
+        paginas.extend(extra)
+    return paginas
+
+
+def _teken_regels(vel, regels, met_strook=False):
     """De regels zelf. Past er niets meer op, dan gaat het door op een vervolgvel.
 
     Geen typenaam onder de omschrijving (rekening én offerte): die staat al in
@@ -5812,50 +6036,53 @@ def _teken_regels(vel, regels):
 
     Een lange materiaalomschrijving loopt over meerdere regels in plaats van
     afgekapt te worden: de klant moet de hele naam kunnen lezen.
-    """
+
+    Bij een rekening blijft onderaan ruimte voor het totaal samen met de
+    betaalstrook. De regels die anders in die ruimte zouden vallen, gaan mee
+    naar die pagina."""
     c = vel.c
-    _teken_kolomkoppen(vel)
     # Het aantal staat rechts uitgelijnd en steekt dus naar links. 6 mm was
     # krapper dan "10,33 u", waardoor een afgebroken omschrijving in de
     # cijfers liep.
     omschrijfbreedte = vel.kolom_aantal - vel.links - 18 * mm
-
+    voorbereid = []
     for r in regels:
-        soort_info = soort(r["type"])
-        c.setFont("Helvetica", 9.5)
-        tekstregels = _regels_afbreken(
-            c, r["omschrijving"] or "", "Helvetica", 9.5, omschrijfbreedte)
-        # Hoogte van deze regel plus de streep eronder, zodat hij niet half op
-        # de volgende pagina begint als het nog net past.
-        nodig = len(tekstregels) * 4.4 * mm + 8 * mm
-        # De betaalstrook begint op 62 mm. 72 mm laat nog een regel extra op
-        # de eerste pagina in plaats van een leeg vlak boven de strook.
-        if vel.y - nodig < 72 * mm:
+        tekst = _omschrijving_voor_pdf(r)
+        voorbereid.append({
+            "regel": r,
+            "tekstregels": _regels_afbreken(
+                c, tekst, "Helvetica", 9.5, omschrijfbreedte),
+        })
+    paginas = _plan_regelpaginas(vel, voorbereid, met_strook)
+    if not paginas:
+        _teken_kolomkoppen(vel)
+        return
+
+    for index, pagina in enumerate(paginas):
+        if index:
             vel.nieuwe_pagina(vervolg=True)
-            _teken_kolomkoppen(vel)
-
-        for i, tekst in enumerate(tekstregels):
-            if vel.y < 72 * mm:
-                vel.nieuwe_pagina(vervolg=True)
-                _teken_kolomkoppen(vel)
-            c.setFillColor(INKT)
-            c.setFont("Helvetica", 9.5)
-            c.drawString(vel.links, vel.y, tekst)
-            if i == 0:
-                # Bij een vaste prijs per klus zeggen aantal en tarief niets.
-                if soort_info["eenheid"]:
-                    aantal = f"{r['aantal']:g}".replace(".", ",")
-                    c.drawRightString(vel.kolom_aantal, vel.y,
-                                      f"{aantal} {soort_info['eenheid']}")
-                    c.drawRightString(vel.kolom_prijs, vel.y, nl_bedrag(r["prijs"]))
-                c.drawRightString(vel.rechts, vel.y, nl_bedrag(r["subtotaal"]))
-            vel.y -= 4.4 * mm
-
-        vel.y -= 4 * mm
-        c.setStrokeColor(LIJN)
-        c.setLineWidth(0.5)
-        c.line(vel.links, vel.y, vel.rechts, vel.y)
-        vel.y -= 7 * mm
+        _teken_kolomkoppen(vel)
+        for item in pagina:
+            r = item["regel"]
+            soort_info = soort(r["type"])
+            for i, tekst in enumerate(item["tekstregels"]):
+                c.setFillColor(INKT)
+                c.setFont("Helvetica", 9.5)
+                c.drawString(vel.links, vel.y, tekst)
+                if i == 0:
+                    # Bij een vaste prijs per klus zeggen aantal en tarief niets.
+                    if soort_info["eenheid"]:
+                        aantal = f"{r['aantal']:g}".replace(".", ",")
+                        c.drawRightString(vel.kolom_aantal, vel.y,
+                                          f"{aantal} {soort_info['eenheid']}")
+                        c.drawRightString(vel.kolom_prijs, vel.y, nl_bedrag(r["prijs"]))
+                    c.drawRightString(vel.rechts, vel.y, nl_bedrag(r["subtotaal"]))
+                vel.y -= 4.4 * mm
+            vel.y -= 4 * mm
+            c.setStrokeColor(LIJN)
+            c.setLineWidth(0.5)
+            c.line(vel.links, vel.y, vel.rechts, vel.y)
+            vel.y -= 7 * mm
 
 
 def _teken_totaal(vel, totaal):
@@ -5892,10 +6119,11 @@ def _teken_toelichting(vel, toelichting):
 
 def _teken_betaalstrook(vel, doc, s, vervalt):
     """De afscheurbare strook onderaan een rekening, met alles wat de klant nodig
-    heeft om te betalen. Bij contant afrekenen staat er 'Voldaan' en geen IBAN."""
+    heeft om te betalen. Bij contant afrekenen staat er 'Voldaan' en geen IBAN.
+
+    De strook gaat niet zelf naar een nieuwe pagina. Het totaal hoort erboven
+    op hetzelfde vel; de aanroeper schuift ze samen op als ze niet meer passen."""
     c = vel.c
-    if vel.y < 80 * mm:
-        vel.nieuwe_pagina()
 
     strook_y = 62 * mm
     c.setStrokeColor(STIPPEL)
@@ -5984,14 +6212,22 @@ def _teken_document(pad, doc, regels, s):
     _teken_merkregel(vel, s)
     _teken_titel(vel, kopregel)
     _teken_partijen(vel, s, doc)
-    _teken_regels(vel, regels)
-    _teken_totaal(vel, doc["totaal"])
+    _teken_regels(vel, regels, met_strook=not offerte)
 
     toelichting = (doc.get("toelichting") or "").strip()
-    if toelichting:
-        _teken_toelichting(vel, toelichting)
-
-    if not offerte:
+    if offerte:
+        _teken_totaal(vel, doc["totaal"])
+        if toelichting:
+            _teken_toelichting(vel, toelichting)
+    else:
+        # Het totaal en de strook blijven op één pagina. De regels daarboven
+        # laten daar al ruimte voor. Zakt een toelichting er toch onder, dan
+        # gaan totaal en strook samen naar het volgende vel.
+        if toelichting:
+            _teken_toelichting(vel, toelichting)
+        if vel.y < STROOK_GRENS:
+            vel.nieuwe_pagina(vervolg=True)
+        _teken_totaal(vel, doc["totaal"])
         _teken_betaalstrook(vel, doc, s, vervalt)
 
     _teken_voetregel(vel, offerte)

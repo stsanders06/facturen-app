@@ -784,6 +784,15 @@
     <div class="melding {{ soort }}">
       <span class="teken" aria-hidden="true">{{ '✕' if soort == 'fout' else ('·' if soort == 'bezig' else '✓') }}</span>
       <span class="woorden">{{ m.tekst }}</span>
+      {% if m.knop %}
+      <form method="post" action="{{ m.knop.url }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="terugknop">{{ m.knop.label }}</button>
+      </form>
+      {% endif %}
+      <button type="button" class="sluit" aria-label="Melding sluiten">&times;</button>
+      {# De link staat na het kruisje, zodat 'Ongedaan maken' op de eerste
+         regel blijft en de link eronder de volle breedte pakt. #}
       {% if m.links %}
       <span class="melding-links">
         {% for link in m.links %}
@@ -793,13 +802,6 @@
       {% elif m.link %}
       <a class="melding-link" href="{{ m.link.url }}">{{ m.link.label }}</a>
       {% endif %}
-      {% if m.knop %}
-      <form method="post" action="{{ m.knop.url }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" class="terugknop">{{ m.knop.label }}</button>
-      </form>
-      {% endif %}
-      <button type="button" class="sluit" aria-label="Melding sluiten">&times;</button>
       {% if m.knop and m.knop.seconden %}
       <span class="balk" style="animation-duration: {{ m.knop.seconden }}s"></span>
       {% endif %}

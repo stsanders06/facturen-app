@@ -358,14 +358,15 @@
       <div class="field">
         <label for="betaalmethode">Betaalmethode</label>
         <select id="betaalmethode" name="betaalmethode">
-          <option value="bank" {% if factuur and factuur.betaalmethode != 'cash' %}selected{% endif %}>Bank</option>
-          <option value="cash" {% if factuur and factuur.betaalmethode == 'cash' %}selected{% endif %}>Contant</option>
+          {% set methode = factuur.betaalmethode if factuur else betaalmethode|default('bank') %}
+          <option value="bank" {% if methode != 'cash' %}selected{% endif %}>Bank</option>
+          <option value="cash" {% if methode == 'cash' %}selected{% endif %}>Contant</option>
         </select>
       </div>
       <div class="field">
         <label for="vervalt_op">Vervaldatum</label>
         <input type="date" id="vervalt_op" name="vervalt_op" value="{{ vervalt or standaard_vervalt }}"
-               {% if factuur and not vervalt %}disabled{% endif %}>
+               {% if termijn_aan is defined and not termijn_aan %}disabled{% elif factuur and not vervalt %}disabled{% endif %}>
       </div>
       {% endif %}
     </div>
@@ -383,14 +384,14 @@
     {% else %}
     <div class="checkregel" style="margin-top:14px">
       <input type="checkbox" id="betaaltermijn" name="betaaltermijn" value="ja"
-             {% if vervalt or not factuur %}checked{% endif %}>
+             {% if termijn_aan is defined %}{% if termijn_aan %}checked{% endif %}{% elif vervalt or not factuur %}checked{% endif %}>
       <label for="betaaltermijn">Op de rekening zetten tot wanneer hij betaald moet zijn</label>
     </div>
     {% endif %}
     <div class="field" style="margin-top:16px">
       <label for="kenmerk">Kenmerk voor jezelf</label>
       <input type="text" id="kenmerk" name="kenmerk"
-             value="{{ factuur.kenmerk if factuur else '' }}"
+             value="{{ factuur.kenmerk if factuur else kenmerk|default('') }}"
              placeholder="Bijv. tweede voorstel, of achterstallig onderhoud">
     </div>
   </section>
@@ -402,17 +403,19 @@
 
     <div id="regels">
       {% for r in regels or [none] %}
-      <div class="regel" data-open="false">
+      {#- Een sqlite-rij heeft geen .get. Alleen een teruggezet formulier zet open. -#}
+      {% set regel_open = r.get('open') if r and r.get is defined else false %}
+      <div class="regel" data-open="{{ 'true' if regel_open else 'false' }}">
         <div class="regel-samenvatting" role="button" tabindex="0"
-             aria-expanded="false" aria-label="Regel openen of sluiten">
+             aria-expanded="{{ 'true' if regel_open else 'false' }}" aria-label="Regel openen of sluiten">
           {#- Geen type-badge: omschrijving + eenheid volstaan (rekening én offerte). -#}
-          <span class="regel-tekst">Nieuwe regel</span>
+          <span class="regel-tekst">{{ r.omschrijving if r and r.omschrijving else 'Nieuwe regel' }}</span>
           <span class="regel-qty">{{ aantal_tekst(r) }}</span>
-          <span class="regel-eenheidsprijs">€&nbsp;0,00</span>
+          <span class="regel-eenheidsprijs">€&nbsp;{% if r and r.prijs %}{{ r.prijs|bedrag }}{% else %}0,00{% endif %}</span>
           <button type="button" class="weg" title="Regel verwijderen"
                   aria-label="Regel verwijderen">&times;</button>
         </div>
-        <div class="regel-detail" hidden>
+        <div class="regel-detail" {% if not regel_open %}hidden{% endif %}>
           <div class="field">
             <label>Soort</label>
             <select name="type" class="soort">

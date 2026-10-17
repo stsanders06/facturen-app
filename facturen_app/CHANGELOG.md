@@ -38,7 +38,13 @@ genoeg; anders blijft de vorige versie draaien.
 - **Een verwijderde rekening komt niet terug als de dagen al op een andere
   rekening staan.** Je ziet op welke. De regels verdwijnen daarbij niet stil.
 - **Bij een dagregel zie je de duur**, bijvoorbeeld "7,33 u (7 u 20 min)",
-  zodat het bedrag te volgen is.
+  zodat het bedrag te volgen is. Op de PDF staat die duur er ook bij.
+- **Het totaal en de betaalstrook staan op dezelfde pagina.** Past dat niet
+  meer onder de laatste dagen, dan gaan ze samen naar de volgende pagina,
+  met die laatste dagen erbij.
+- **Een opslag die niet doorgaat laat het formulier staan.** Klant, datums
+  en de regels die wel mochten blijven ingevuld. Alleen de dag die al op een
+  andere rekening staat, gaat eraf. Er wordt niets opgeslagen.
 
 ## 1.35.0
 
