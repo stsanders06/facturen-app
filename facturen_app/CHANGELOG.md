@@ -11,8 +11,19 @@ genoeg; anders blijft de vorige versie draaien.
   nog aanpassen.
 - **Een dag die nog bezig is telt nergens mee.** Niet in de uren, niet in het
   bedrag en niet op een rekening. Zet je de klus toch op een rekening, dan zegt
-  de app dat de open dag niet meegaat. De eindtijd moet na de begintijd liggen.
-  Een klus die na middernacht doorloopt mag nog steeds.
+  de app dat de open dag niet meegaat.
+- **Een eindtijd vóór de begintijd wordt geweigerd.** 07:30 tot 07:00 is meestal
+  een tikfout. Wil de klus echt doorlopen na middernacht, zet dan het vinkje
+  **Loopt door na middernacht** aan. Dat geldt bij het invoeren en bij het
+  afsluiten.
+- **Gewerkte dagen kun je als CSV downloaden.** Op de rekening staat die knop
+  bij CSV inlezen en Uren van een klus. Een dag die nog bezig is zit er niet in.
+- **Een rekening opnieuw opslaan laat de dagen staan die er al op stonden.**
+  Een oudere dag die je daarna afsluit komt er niet stilletjes voor in de plaats.
+- **Op één datum loopt er maar één dag.** Een tweede begintijd op dezelfde dag
+  vraagt om eerst de open dag af te sluiten.
+- **Bezig sinds noemt de datum als het niet vandaag is.** Bijvoorbeeld
+  "Bezig sinds di 13 okt 06:45". Vandaag blijft het alleen de tijd.
 
 ## 1.34.1
 

@@ -209,6 +209,16 @@
   }
   .afsluiten input[type="time"] { width: 100%; min-height: 44px; }
   .afsluiten .btn { flex: 1 1 10rem; min-height: 44px; }
+  /* Het vinkje zelf is klein; het label eromheen is het tikvlak. */
+  .nacht {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    min-height: 44px;
+    font-size: 14px;
+  }
+  .nacht input { width: 20px; height: 20px; flex: none; margin: 0; }
   .dag-hint { margin: 10px 0 0; }
   .bewaard { font-size: 12px; color: var(--ok); margin-right: auto; }
   .bewaard[hidden] { display: none; }
@@ -268,7 +278,8 @@
        smaller dan een duim, of het tijdveld steekt buiten de kaart. */
     .afsluiten { flex-direction: column; align-items: stretch; }
     .afsluiten .btn,
-    .afsluiten .eindtijd-veld { flex: 1 1 auto; width: 100%; }
+    .afsluiten .eindtijd-veld,
+    .afsluiten .nacht { flex: 1 1 100%; width: 100%; }
 
     /* Alleen op iOS. Safari telt daar de marge en de rand van een datum- of tijdveld
        bóvenop de opgegeven breedte in plaats van erin, ook al staat box-sizing op
@@ -694,6 +705,10 @@
         <span class="uitkomst">0 u</span>
       </div>
       <p class="hint dag-hint">Eindtijd mag leeg als je nog bezig bent.</p>
+      <label class="nacht">
+        <input type="checkbox" name="over_middernacht" value="ja">
+        Loopt door na middernacht
+      </label>
       <div class="invoerform-actie">
         <button type="submit" class="btn">Dag toevoegen</button>
       </div>
@@ -744,6 +759,10 @@
               <input type="time" id="tot-{{ d.id }}" name="tot" value="{{ nu_tijd }}"
                      aria-label="Eindtijd">
             </div>
+            <label class="nacht">
+              <input type="checkbox" name="over_middernacht" value="ja">
+              Loopt door na middernacht
+            </label>
             <button type="submit" class="btn">Dag afsluiten</button>
           </form>
           <div class="invoerrij-acties">
@@ -784,6 +803,11 @@
             </div>
             <span class="uitkomst">{% if d.lopend %}bezig{% else %}{{ d.uren|uren }} u{% endif %}</span>
           </div>
+          <label class="nacht">
+            <input type="checkbox" name="over_middernacht" value="ja"
+                   {% if d.tot and d.van and d.tot < d.van %}checked{% endif %}>
+            Loopt door na middernacht
+          </label>
           <div class="dag-formulier-onder">
             <span class="bewaard" hidden>Opgeslagen</span>
             <span class="opslaan-knop"><button type="submit" class="btn btn-text">Opslaan</button></span>
@@ -1146,13 +1170,32 @@
       }
     }
 
-    function urenTussen(van, tot) {
+    function urenTussen(van, tot, door) {
       if (!van || !tot) return 0;
       var a = van.split(':'), b = tot.split(':');
       if (a.length < 2 || b.length < 2) return 0;
       var minuten = (b[0] * 60 + +b[1]) - (a[0] * 60 + +a[1]);
-      if (minuten < 0) minuten += 24 * 60;
+      // Zonder het vinkje is een eindtijd vóór de start geen nachtdienst.
+      // Anders toont het scherm 23,5 uur terwijl opslaan wordt geweigerd.
+      if (minuten < 0) {
+        if (!door) return 0;
+        minuten += 24 * 60;
+      }
       return Math.round(minuten / 60 * 100) / 100;
+    }
+
+    function looptDoor(veld) {
+      var formulier = veld && veld.form;
+      if (!formulier) return false;
+      var vak = formulier.querySelector('[name="over_middernacht"]');
+      return !!(vak && vak.checked);
+    }
+
+    function eindigtEerder(formulier) {
+      var van = formulier.querySelector('[name="van"]');
+      var tot = formulier.querySelector('[name="tot"]');
+      if (!van || !tot || !van.value || !tot.value || looptDoor(van)) return false;
+      return tot.value < van.value;
     }
 
     function twee(getal) {
@@ -1187,7 +1230,7 @@
       var van = scope.querySelector('[name="van"]');
       var tot = scope.querySelector('[name="tot"]');
       if (!van || !tot) return;
-      var uren = (van.value && tot.value) ? urenTussen(van.value, tot.value) : 0;
+      var uren = (van.value && tot.value) ? urenTussen(van.value, tot.value, looptDoor(van)) : 0;
       if (rij.dataset.lopend && !tot.value) uren = 0;
       rij.dataset.uren = uren;
       var tekst = (van.value && !tot.value) ? 'bezig' : (toonUren(uren) + ' u');
@@ -1265,6 +1308,17 @@
         // Afsluiten gaat met de knop, zodat je de voorgestelde tijd nog kunt
         // aanpassen voordat de dag dichtgaat.
         if (formulier.classList.contains('afsluiten')) return;
+        if (eindigtEerder(formulier)) {
+          var melding = formulier.querySelector('.bewaard');
+          if (melding) {
+            melding.textContent = 'Eindtijd ligt vóór de begintijd.';
+            melding.style.color = 'var(--danger)';
+            melding.hidden = false;
+          }
+          var rij = formulier.closest('.invoerrij');
+          if (rij) { verversRij(rij); verversTotalen(); }
+          return;
+        }
         if (!formulier.querySelector('[name="van"]').value) return;
         bewaar(formulier);
       });
@@ -1285,7 +1339,13 @@
 
     // Het formulier bovenaan telt live mee terwijl je tijden intikt.
     var nieuwe = document.getElementById('nieuwe-dag');
-    if (nieuwe) nieuwe.addEventListener('input', function () { verversRij(nieuwe); });
+    if (nieuwe) {
+      nieuwe.addEventListener('input', function () { verversRij(nieuwe); });
+      var formulierNieuw = nieuwe.closest('form');
+      if (formulierNieuw) {
+        formulierNieuw.addEventListener('change', function () { verversRij(nieuwe); });
+      }
+    }
   })();
 
   (function () {

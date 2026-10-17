@@ -575,6 +575,8 @@ MAANDEN = [
     "jan", "feb", "mrt", "apr", "mei", "jun",
     "jul", "aug", "sep", "okt", "nov", "dec",
 ]
+# Maandag eerst, dezelfde volgorde als date.weekday().
+WEEKDAGEN = ["ma", "di", "wo", "do", "vr", "za", "zo"]
 
 # Standaardtermijn op een nieuwe rekening als je de vervaldatum aanzet. Net als
 # OFFERTE_GELDIG_DAGEN: alleen de default op het formulier, geen globale setting.
@@ -733,6 +735,23 @@ def filter_datum_nl(waarde):
 def eindtijd_ingevuld(tot):
     """Een dag zonder eindtijd loopt nog. Die uren zijn er pas als de tijd er is."""
     return bool((tot or "").strip())
+
+
+def bezig_sinds_tekst(datum, tijd):
+    """'07:30' als de dag vandaag loopt, anders 'di 13 okt 06:45'.
+
+    Op de klussenlijst en bij de klant is de datum geen titel van de dag.
+    Alleen de tijd zou een dag van eergisteren laten lijken op vanochtend."""
+    tijd = (tijd or "")[:5]
+    if not tijd:
+        return ""
+    if not datum or str(datum) == vandaag().isoformat():
+        return tijd
+    try:
+        dag = date.fromisoformat(str(datum))
+    except ValueError:
+        return tijd
+    return f"{WEEKDAGEN[dag.weekday()]} {dag.day} {MAANDEN[dag.month - 1]} {tijd}"
 
 
 def lees_tijd(waarde):
@@ -1168,20 +1187,53 @@ def init_db():
     conn.close()
 
 
+def _uren_teller_meenemen(conn):
+    """De volgende dag moet een id krijgen dat er nog niet is.
+
+    Na een hernoeming heet de teller soms nog uren_nieuw. Een lege uren die de
+    start net had aangemaakt kan ook een teller hebben achtergelaten; die twee
+    namen kunnen niet allebei 'uren' worden."""
+    try:
+        hoogste = conn.execute("SELECT COALESCE(MAX(id), 0) FROM uren").fetchone()[0]
+        conn.execute("DELETE FROM sqlite_sequence WHERE name IN ('uren', 'uren_nieuw')")
+        if hoogste:
+            conn.execute(
+                "INSERT INTO sqlite_sequence (name, seq) VALUES ('uren', ?)",
+                (hoogste,),
+            )
+    except sqlite3.OperationalError:
+        pass
+
+
 def _eindtijd_optioneel(conn):
     """Maak de eindtijd leeg mogen zijn, zonder een bestaande tijd kwijt te raken.
 
     SQLite kan een NOT NULL niet loslaten. De tabel wordt daarom nagebouwd en de
     rijen gaan eerst naar de kopie; pas daarna gaat de oude tabel weg. Blijft de
-    app tussen die twee stappen steken, dan maakt de volgende start het af."""
+    app tussen die twee stappen steken, dan maakt de volgende start het af.
+    Staat de data alleen nog in de kopie, dan mag die niet worden weggegooid —
+    ook niet als de start intussen een lege uren heeft aangemaakt."""
     namen = {
         rij["name"]
         for rij in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
     }
     if "uren_nieuw" in namen and "uren" not in namen:
         conn.execute("ALTER TABLE uren_nieuw RENAME TO uren")
+        _uren_teller_meenemen(conn)
         return
-    if "uren_nieuw" in namen:
+    if "uren_nieuw" in namen and "uren" in namen:
+        leeg = conn.execute("SELECT COUNT(*) FROM uren").fetchone()[0] == 0
+        heeft_kopie = conn.execute(
+            "SELECT COUNT(*) FROM uren_nieuw"
+        ).fetchone()[0] > 0
+        if leeg and heeft_kopie:
+            # De start maakt uren opnieuw aan zodra de tabel weg is. Gebeurt
+            # dat ná het weggooien van de oude tabel en vóór de hernoeming,
+            # dan staat alles alleen nog in uren_nieuw.
+            conn.execute("DROP TABLE uren")
+            conn.execute("ALTER TABLE uren_nieuw RENAME TO uren")
+            _uren_teller_meenemen(conn)
+            return
         conn.execute("DROP TABLE uren_nieuw")
     if "uren" not in namen:
         return
@@ -1219,12 +1271,7 @@ def _eindtijd_optioneel(conn):
     conn.execute("ALTER TABLE uren_nieuw RENAME TO uren")
     # De hernoeming houdt de teller meestal bij de nieuwe naam. Blijft de oude
     # naam staan, dan kan de volgende dag een id krijgen dat er al was.
-    try:
-        conn.execute(
-            "UPDATE sqlite_sequence SET name='uren' WHERE name='uren_nieuw'"
-        )
-    except sqlite3.OperationalError:
-        pass
+    _uren_teller_meenemen(conn)
 
 
 def tenaamstelling(s):
@@ -2100,7 +2147,7 @@ def klussenlijst():
         else:
             # De laatste in deze volgorde is de recentste dag die nog loopt.
             gegevens["lopend"] += 1
-            gegevens["bezig_sinds"] = (rij["van"] or "")[:5]
+            gegevens["bezig_sinds"] = bezig_sinds_tekst(rij["datum"], rij["van"])
         gegevens["dagen"] += 1
         if gegevens["van"] is None:
             gegevens["van"] = rij["datum"]
@@ -2151,6 +2198,23 @@ def csv_gewerkte_dagen(conn):
             rij["klus"], rij["notitie"] or "",
         ])
     return uitvoer.getvalue()
+
+
+@app.route("/klussen/gewerkte-dagen.csv")
+def gewerkte_dagen_csv():
+    """Download van de afgesloten dagen, naast de andere CSV-knoppen.
+
+    Een lopende dag hoort hier niet in: die uren zijn er nog niet, en een
+    boekhouder zou ze anders meetellen."""
+    conn = get_db()
+    tekst = csv_gewerkte_dagen(conn)
+    conn.close()
+    return send_file(
+        io.BytesIO(tekst.encode("utf-8-sig")),
+        mimetype="text/csv",
+        as_attachment=True,
+        download_name="gewerkte-dagen.csv",
+    )
 
 
 def klus_uit_form(form):
@@ -2897,12 +2961,21 @@ def dag_erbij(klus_id):
         melding(fout, "fout")
         return redirect(url_for("klus", klus_id=klus_id))
     van, tot = tijden
+    datum = geldige_datum(request.form.get("datum"))
+    # Twee open dagen op dezelfde datum zijn niet uit elkaar te houden: allebei
+    # 'bezig sinds', en bij het afsluiten weet je niet welke je dicht doet.
+    if tot is None:
+        bezig = lopende_dag_op(conn, klus_id, datum)
+        if bezig is not None:
+            conn.close()
+            melding(melding_tweede_open_dag(bezig, datum), "fout")
+            return redirect(url_for("klus", klus_id=klus_id))
 
     conn.execute(
         "INSERT INTO uren (klus_id, datum, van, tot, notitie) VALUES (?, ?, ?, ?, ?)",
         (
             klus_id,
-            geldige_datum(request.form.get("datum")),
+            datum,
             van,
             tot,
             request.form.get("notitie", "").strip(),
@@ -2918,8 +2991,9 @@ def dag_erbij(klus_id):
 def tijden_uit_form(form):
     """(van, tot) of een foutmelding. tot is None zolang de dag nog loopt.
 
-    Een eindtijd vóór de begintijd telt als de volgende ochtend, dezelfde regel
-    als bij het optellen. Alleen dezelfde tijd is geen gewerkte dag."""
+    Een eindtijd vóór de begintijd is meestal een tikfout: 07:30 tot 07:00
+    werd anders stil 23,5 uur. Alleen met het vinkje telt die tijd als de
+    volgende ochtend. Dezelfde tijd is geen gewerkte dag."""
     van = lees_tijd(form.get("van"))
     tot = lees_tijd(form.get("tot"))
     if van is None:
@@ -2931,9 +3005,29 @@ def tijden_uit_form(form):
                       "of laat hem leeg als je nog bezig bent.")
     if form.get("afsluiten") == "ja" and not tot:
         return None, "Vul een eindtijd in om de dag af te sluiten."
+    if tot and tot < van and form.get("over_middernacht") != "ja":
+        return None, "Eindtijd ligt vóór de begintijd."
     if tot and duur_in_uren(van, tot) <= 0:
         return None, "De eindtijd moet na de begintijd liggen."
     return (van, tot or None), None
+
+
+def lopende_dag_op(conn, klus_id, datum, behalve_id=None):
+    """De open dag op deze klus en datum, als die er al is."""
+    sql = f"""SELECT id, van FROM uren
+              WHERE klus_id=? AND datum=? AND NOT ({_GESLOTEN_DAG})"""
+    params = [klus_id, datum]
+    if behalve_id is not None:
+        sql += " AND id<>?"
+        params.append(behalve_id)
+    return conn.execute(sql + " ORDER BY id LIMIT 1", params).fetchone()
+
+
+def melding_tweede_open_dag(rij, datum):
+    return (
+        f"Op {filter_datum_nl(datum)} loopt al een dag, sinds {(rij['van'] or '')[:5]}. "
+        "Sluit die eerst af."
+    )
 
 
 @app.route("/uur/<int:uur_id>/bewerk", methods=["POST"])
@@ -2958,11 +3052,19 @@ def dag_bewerk(uur_id):
                 "fout")
         return redirect(url_for("klus", klus_id=gegevens["klus_id"]))
 
+    datum = geldige_datum(request.form.get("datum"))
+    if tot is None:
+        bezig = lopende_dag_op(conn, gegevens["klus_id"], datum, behalve_id=uur_id)
+        if bezig is not None:
+            conn.close()
+            melding(melding_tweede_open_dag(bezig, datum), "fout")
+            return redirect(url_for("klus", klus_id=gegevens["klus_id"]))
+
     was_lopend = not eindtijd_ingevuld(gegevens["tot"])
     conn.execute(
         "UPDATE uren SET datum=?, van=?, tot=?, notitie=? WHERE id=?",
         (
-            geldige_datum(request.form.get("datum")),
+            datum,
             van,
             tot,
             request.form.get("notitie", "").strip(),
@@ -3500,10 +3602,12 @@ def melding_lopende_dagen(conn, klus_id, naam):
 def boek_uren(conn, factuur_id, regels):
     """Markeert alleen de dagen die in de uren op de regel passen.
 
-    Hele dagen, oudste eerst. Een dag die niet meer in het resterende aantal
-    past blijft open, zodat de rest later nog gefactureerd kan worden. Bij een
-    bedrag van nul wordt niets gemarkeerd: anders staat de klus op 'al op een
-    rekening' terwijl er niets is gerekend.
+    Hele dagen. Wat al op deze rekening stond blijft daar, ook als je tussendoor
+    een oudere dag hebt afgesloten; anders worden al gefactureerde dagen weer
+    open en kun je ze een tweede keer rekenen. Nieuwe dagen vullen daarna aan,
+    oudste eerst. Een dag die niet meer in het resterende aantal past blijft
+    open. Bij een bedrag van nul wordt niets gemarkeerd: anders staat de klus
+    op 'al op een rekening' terwijl er niets is gerekend.
 
     Een dag zelf splitsen (4 uur van een dag van 8) kan hier niet. Die dag
     blijft dan open; de melding zegt dat.
@@ -3555,12 +3659,24 @@ def boek_uren(conn, factuur_id, regels):
                 (klus_id, *eerder),
             ).fetchall()
         else:
-            dagen = conn.execute(
-                f"""SELECT id, van, tot FROM uren
-                    WHERE klus_id=? AND factuur_id IS NULL AND {_GESLOTEN_DAG}
-                    ORDER BY datum, id""",
-                (klus_id,),
-            ).fetchall()
+            # Eerst de dagen die hier al op stonden. Een net afgesloten oudere
+            # dag zou anders hun plek innemen en de latere dagen loskoppelen.
+            if eerder:
+                plekken = ",".join("?" * len(eerder))
+                dagen = conn.execute(
+                    f"""SELECT id, van, tot FROM uren
+                        WHERE klus_id=? AND factuur_id IS NULL AND {_GESLOTEN_DAG}
+                        ORDER BY CASE WHEN id IN ({plekken}) THEN 0 ELSE 1 END,
+                                 datum, id""",
+                    (klus_id, *eerder),
+                ).fetchall()
+            else:
+                dagen = conn.execute(
+                    f"""SELECT id, van, tot FROM uren
+                        WHERE klus_id=? AND factuur_id IS NULL AND {_GESLOTEN_DAG}
+                        ORDER BY datum, id""",
+                    (klus_id,),
+                ).fetchall()
         if not dagen:
             continue
         open_uren = sum(duur_in_uren(dag["van"], dag["tot"]) for dag in dagen)
