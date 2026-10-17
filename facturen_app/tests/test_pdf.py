@@ -7,15 +7,13 @@ import zlib
 from conftest import facturen
 
 
-def tekst_uit_pdf(pad):
-    """Haalt de leesbare tekst uit een reportlab-PDF. Genoeg om te controleren dat
-    een naam of bedrag erop staat, zonder een extra pakket te hoeven installeren.
+def _stromen_uit_pdf(pad):
+    """De inhoudsstromen van een reportlab-PDF, al uitgepakt.
 
-    reportlab schrijft de pagina-inhoud als ASCII85 met daaronder zlib, dus beide
-    lagen moeten eraf voordat er iets leesbaars overblijft."""
+    reportlab schrijft een pagina als ASCII85 met daaronder zlib. Beide lagen
+    moeten eraf voordat er iets leesbaars overblijft."""
     with open(pad, "rb") as f:
         rauw = f.read()
-
     stukken = []
     for stroom in re.findall(rb"stream\r?\n(.*?)endstream", rauw, re.S):
         data = stroom.strip().removesuffix(b"~>")
@@ -28,11 +26,28 @@ def tekst_uit_pdf(pad):
         except zlib.error:
             pass
         stukken.append(data)
+    return stukken
 
-    inhoud = b"\n".join(stukken).decode("latin-1")
+
+def tekst_uit_pdf(pad):
+    """Haalt de leesbare tekst uit een reportlab-PDF. Genoeg om te controleren dat
+    een naam of bedrag erop staat, zonder een extra pakket te hoeven installeren."""
+    inhoud = b"\n".join(_stromen_uit_pdf(pad)).decode("latin-1")
     # Tekst staat in de inhoudsstroom als (letters) Tj, met \( voor een echte haak.
     losse = re.findall(r"\((?:[^()\\]|\\.)*\)", inhoud)
     return " ".join(_ontsnap(deel[1:-1]) for deel in losse)
+
+
+def paginas_uit_pdf(pad):
+    """Tekst per pagina. Een stroom zonder tekst (een lettertype) telt niet mee."""
+    paginas = []
+    for data in _stromen_uit_pdf(pad):
+        inhoud = data.decode("latin-1")
+        if "Tj" not in inhoud and "TJ" not in inhoud:
+            continue
+        losse = re.findall(r"\((?:[^()\\]|\\.)*\)", inhoud)
+        paginas.append(" ".join(_ontsnap(deel[1:-1]) for deel in losse))
+    return paginas
 
 
 def _ontsnap(tekst):

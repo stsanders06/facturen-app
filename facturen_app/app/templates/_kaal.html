@@ -173,6 +173,9 @@
     <div class="melding {{ soort }}">
       <span class="teken" aria-hidden="true">{{ '✕' if soort == 'fout' else '✓' }}</span>
       <span class="woorden">{{ m.tekst }}</span>
+      {% if m.link %}
+      <a href="{{ m.link.url }}">{{ m.link.label }}</a>
+      {% endif %}
     </div>
   {% endfor %}
 

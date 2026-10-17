@@ -1,5 +1,51 @@
 # Changelog
 
+## 1.36.0
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **Elke gewerkte dag komt op een eigen regel.** Datum en tijden blijven
+  staan, bijvoorbeeld "di 13 okt 2026, 07:30–16:00". De klusnaam en een notitie
+  komen erbij als die er zijn. Een pauze, in minuten, gaat van de uren af en
+  staat in de omschrijving.
+- **Opnieuw opslaan voegt die dagen niet samen.** Dezelfde dag blijft aan
+  dezelfde regel hangen. Een dag die nog bezig is komt er niet op, en een dag
+  die al op een rekening staat wordt niet nog een keer gerekend.
+- **Een rekening die al één regel voor alle uren had, blijft zo.** Die wordt
+  niet vanzelf opgesplitst.
+- **Een dag die al op een rekening staat, komt er niet nog een keer op.** Ook
+  niet als je twee schermen open hebt en allebei opslaat. Het jaaroverzicht
+  telt hem dan één keer.
+- **Een halve cent gaat omhoog.** 1,5 uur maal € 45,55 is € 68,33. Een rekening
+  die er al stond houdt het bedrag dat erop staat; die wordt niet opnieuw
+  afgerond.
+- **Het bedrag van een dag rekent met de minuten.** 07:00 tot 14:20 zie je als
+  7,33 uur, het bedrag is dat van 7 uur en 20 minuten. Het aantal op die regel
+  volgt de dag. Een korting zet je op een aparte regel.
+- **Een dag op een rekening verwijder of verschuif je niet zomaar.** Eerst van
+  de rekening af, of pas de tijden daar. De melding linkt naar die rekening.
+- **Op de PDF staat het paginanummer**, bijvoorbeeld "Pagina 1 van 5". Een
+  lange omschrijving loopt niet meer in de kolom met het aantal. De eerste
+  pagina is wat krapper, zodat er meer dagen op passen.
+- **Een oude rekening houdt zijn bedrag.** Ook als dat niet mooi op centen
+  uitkomt. Wijzig je het aantal, de prijs of de soort, dan rekent de app
+  dat opnieuw uit.
+- **Een klus met dagen op een rekening kun je niet verwijderen.** De melding
+  linkt naar die rekening. Een concept heet daar een conceptrekening, met de
+  klant en de datum, en de link staat onder de tekst zodat je hem op een
+  telefoon kunt lezen.
+- **Een verwijderde rekening komt niet terug als de dagen al op een andere
+  rekening staan.** Je ziet op welke. De regels verdwijnen daarbij niet stil.
+- **Bij een dagregel zie je de duur**, bijvoorbeeld "7,33 u (7 u 20 min)",
+  zodat het bedrag te volgen is. Op de PDF staat die duur er ook bij.
+- **Het totaal en de betaalstrook staan op dezelfde pagina.** Past dat niet
+  meer onder de laatste dagen, dan gaan ze samen naar de volgende pagina,
+  met die laatste dagen erbij.
+- **Een opslag die niet doorgaat laat het formulier staan.** Klant, datums
+  en de regels die wel mochten blijven ingevuld. Alleen de dag die al op een
+  andere rekening staat, gaat eraf. Er wordt niets opgeslagen.
+
 ## 1.35.0
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet

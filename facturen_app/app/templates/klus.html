@@ -219,6 +219,17 @@
     font-size: 14px;
   }
   .nacht input { width: 20px; height: 20px; flex: none; margin: 0; }
+  /* Buiten het tijd-raster: een extra veld daarin maakt Van en Tot op de
+     iPhone weer breder dan de kaart. */
+  .pauze-veld {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    max-width: 16rem;
+  }
+  .pauze-veld label { font-size: 13px; color: var(--text-secondary); }
+  .pauze-veld input { width: 5rem; min-height: 44px; }
   .dag-hint { margin: 10px 0 0; }
   .bewaard { font-size: 12px; color: var(--ok); margin-right: auto; }
   .bewaard[hidden] { display: none; }
@@ -279,7 +290,10 @@
     .afsluiten { flex-direction: column; align-items: stretch; }
     .afsluiten .btn,
     .afsluiten .eindtijd-veld,
+    .afsluiten .pauze-veld,
     .afsluiten .nacht { flex: 1 1 100%; width: 100%; }
+    .afsluiten .pauze-veld { max-width: none; }
+    .afsluiten .pauze-veld input { width: 100%; }
 
     /* Alleen op iOS. Safari telt daar de marge en de rand van een datum- of tijdveld
        bóvenop de opgegeven breedte in plaats van erin, ook al staat box-sizing op
@@ -290,6 +304,7 @@
       .dagvelden input[type="date"],
       .dagvelden input[type="time"],
       .afsluiten input[type="time"] { width: calc(100% - 22px); }
+      .afsluiten .pauze-veld input { width: calc(100% - 22px); }
     }
   }
   @media (pointer: coarse), (max-width: 720px) {
@@ -705,6 +720,12 @@
         <span class="uitkomst">0 u</span>
       </div>
       <p class="hint dag-hint">Eindtijd mag leeg als je nog bezig bent.</p>
+      <div class="pauze-veld">
+        <label for="pauze-nieuw">Pauze</label>
+        <input type="number" id="pauze-nieuw" name="pauze" min="0" max="1440" step="1"
+               inputmode="numeric" placeholder="0" aria-label="Pauze in minuten">
+        <span>min</span>
+      </div>
       <label class="nacht">
         <input type="checkbox" name="over_middernacht" value="ja">
         Loopt door na middernacht
@@ -726,7 +747,7 @@
           <span class="uitkomst">{{ d.uren|uren }} u</span>
         </div>
         <div class="invoerrij-bij">
-          <span class="tijden">{{ d.van }} – {{ d.tot }}</span>
+            <span class="tijden">{{ d.van }} – {{ d.tot }}{% if d.pauze_minuten %} (pauze {{ d.pauze_minuten }} min){% endif %}</span>
           {%- if d.notitie %} · {{ d.notitie|met_links }}{% endif %}
           <span class="chip chip-betaald">op {{ d.factuur_nummer or 'rekening' }}</span>
         </div>
@@ -759,6 +780,13 @@
               <input type="time" id="tot-{{ d.id }}" name="tot" value="{{ nu_tijd }}"
                      aria-label="Eindtijd">
             </div>
+            <div class="pauze-veld">
+              <label for="pauze-af-{{ d.id }}">Pauze</label>
+              <input type="number" id="pauze-af-{{ d.id }}" name="pauze" min="0" max="1440"
+                     step="1" inputmode="numeric" placeholder="0"
+                     value="{{ d.pauze_minuten or '' }}" aria-label="Pauze in minuten">
+              <span>min</span>
+            </div>
             <label class="nacht">
               <input type="checkbox" name="over_middernacht" value="ja">
               Loopt door na middernacht
@@ -776,7 +804,7 @@
             <span class="uitkomst">{{ d.uren|uren }} u</span>
           </div>
           <div class="invoerrij-bij">
-            <span class="samenvatting-tijden">{{ d.van }} – {{ d.tot }}</span><span class="samenvatting-notitie">{% if d.notitie %} · {{ d.notitie|met_links }}{% endif %}</span>
+            <span class="samenvatting-tijden">{{ d.van }} – {{ d.tot }}{% if d.pauze_minuten %} (pauze {{ d.pauze_minuten }} min){% endif %}</span><span class="samenvatting-notitie">{% if d.notitie %} · {{ d.notitie|met_links }}{% endif %}</span>
           </div>
           <div class="invoerrij-acties">
             <button type="button" class="btn btn-text" data-dag-bewerk>Bewerken</button>
@@ -802,6 +830,13 @@
                      aria-label="Notitie">
             </div>
             <span class="uitkomst">{% if d.lopend %}bezig{% else %}{{ d.uren|uren }} u{% endif %}</span>
+          </div>
+          <div class="pauze-veld">
+            <label for="pauze-{{ d.id }}">Pauze</label>
+            <input type="number" id="pauze-{{ d.id }}" name="pauze" min="0" max="1440" step="1"
+                   inputmode="numeric" placeholder="0" value="{{ d.pauze_minuten or '' }}"
+                   aria-label="Pauze in minuten">
+            <span>min</span>
           </div>
           <label class="nacht">
             <input type="checkbox" name="over_middernacht" value="ja"
@@ -1184,6 +1219,14 @@
       return Math.round(minuten / 60 * 100) / 100;
     }
 
+    function pauzeMinuten(veld) {
+      var formulier = veld && veld.form;
+      if (!formulier) return 0;
+      var vak = formulier.querySelector('[name="pauze"]');
+      var n = parseInt(vak && vak.value, 10);
+      return isNaN(n) || n < 0 ? 0 : n;
+    }
+
     function looptDoor(veld) {
       var formulier = veld && veld.form;
       if (!formulier) return false;
@@ -1231,6 +1274,9 @@
       var tot = scope.querySelector('[name="tot"]');
       if (!van || !tot) return;
       var uren = (van.value && tot.value) ? urenTussen(van.value, tot.value, looptDoor(van)) : 0;
+      if (uren) {
+        uren = Math.max(0, Math.round((uren - pauzeMinuten(van) / 60) * 100) / 100);
+      }
       if (rij.dataset.lopend && !tot.value) uren = 0;
       rij.dataset.uren = uren;
       var tekst = (van.value && !tot.value) ? 'bezig' : (toonUren(uren) + ' u');
@@ -1239,7 +1285,9 @@
       });
       var tijden = rij.querySelector('.samenvatting-tijden');
       if (tijden && van.value && tot.value) {
-        tijden.textContent = van.value + ' – ' + tot.value;
+        var pauze = pauzeMinuten(van);
+        tijden.textContent = van.value + ' – ' + tot.value
+          + (pauze ? ' (pauze ' + pauze + ' min)' : '');
       }
       var notitieVeld = scope.querySelector('[name="notitie"]');
       var notitieTekst = rij.querySelector('.samenvatting-notitie');
@@ -1340,10 +1388,13 @@
     // Het formulier bovenaan telt live mee terwijl je tijden intikt.
     var nieuwe = document.getElementById('nieuwe-dag');
     if (nieuwe) {
-      nieuwe.addEventListener('input', function () { verversRij(nieuwe); });
+      var verversNieuw = function () { verversRij(nieuwe); };
+      nieuwe.addEventListener('input', verversNieuw);
       var formulierNieuw = nieuwe.closest('form');
       if (formulierNieuw) {
-        formulierNieuw.addEventListener('change', function () { verversRij(nieuwe); });
+        // Pauze staat buiten het tijdblok, anders telt die live niet mee.
+        formulierNieuw.addEventListener('input', verversNieuw);
+        formulierNieuw.addEventListener('change', verversNieuw);
       }
     }
   })();
