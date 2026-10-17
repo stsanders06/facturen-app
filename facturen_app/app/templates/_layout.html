@@ -434,6 +434,13 @@
   .melding.bezig .teken { background: var(--info); }
 
   /* De knop in een melding: ongedaan maken, of een mail nog tegenhouden. */
+  .melding .melding-link {
+    flex: none;
+    font-weight: 650;
+    color: var(--primary);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
   .melding form { margin: 0; flex: none; }
   .melding .terugknop {
     background: transparent;
@@ -756,6 +763,9 @@
     <div class="melding {{ soort }}">
       <span class="teken" aria-hidden="true">{{ '✕' if soort == 'fout' else ('·' if soort == 'bezig' else '✓') }}</span>
       <span class="woorden">{{ m.tekst }}</span>
+      {% if m.link %}
+      <a class="melding-link" href="{{ m.link.url }}">{{ m.link.label }}</a>
+      {% endif %}
       {% if m.knop %}
       <form method="post" action="{{ m.knop.url }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

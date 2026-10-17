@@ -14,6 +14,19 @@ genoeg; anders blijft de vorige versie draaien.
   die al op een rekening staat wordt niet nog een keer gerekend.
 - **Een rekening die al één regel voor alle uren had, blijft zo.** Die wordt
   niet vanzelf opgesplitst.
+- **Een dag die al op een rekening staat, komt er niet nog een keer op.** Ook
+  niet als je twee schermen open hebt en allebei opslaat. Het jaaroverzicht
+  telt hem dan één keer.
+- **Een halve cent gaat omhoog.** 1,5 uur maal € 45,55 is € 68,33. Een rekening
+  die er al stond houdt het bedrag dat erop staat; die wordt niet opnieuw
+  afgerond.
+- **Het bedrag van een dag rekent met de minuten.** 07:00 tot 14:20 zie je als
+  7,33 uur, het bedrag is dat van 7 uur en 20 minuten. Het aantal op die regel
+  volgt de dag. Een korting zet je op een aparte regel.
+- **Een dag op een rekening verwijder of verschuif je niet zomaar.** Eerst van
+  de rekening af, of pas de tijden daar. De melding linkt naar die rekening.
+- **Op de PDF staat het paginanummer**, bijvoorbeeld "Pagina 1 van 5". Een
+  lange omschrijving loopt niet meer in de kolom met het aantal.
 
 ## 1.35.0
 

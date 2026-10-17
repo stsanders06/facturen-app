@@ -13,6 +13,7 @@ import smtplib
 import threading
 import time
 from datetime import date, datetime, timedelta
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from email.message import EmailMessage
 from itertools import zip_longest
 from urllib.parse import quote, urlencode, urlsplit
@@ -171,7 +172,7 @@ def terug_naar(standaard=None):
     return standaard or url_for("index")
 
 
-def melding(tekst, soort="gelukt", knop=None):
+def melding(tekst, soort="gelukt", knop=None, link=None):
     """Een regel die na een handeling bovenaan het scherm blijft hangen.
 
     Drie soorten: "gelukt" voor een bevestiging, "fout" voor iets dat niet kon, en
@@ -181,8 +182,13 @@ def melding(tekst, soort="gelukt", knop=None):
 
     Met `knop` komt er een knop in de melding, bijvoorbeeld om het verwijderen
     ongedaan te maken of een mail tegen te houden. Staat er `seconden` bij, dan
-    loopt er een balkje leeg en verdwijnt de knop daarna vanzelf."""
-    flash(json.dumps({"tekst": tekst, "knop": knop}, ensure_ascii=False), soort)
+    loopt er een balkje leeg en verdwijnt de knop daarna vanzelf.
+
+    `link` is een gewone link, bijvoorbeeld naar de rekening waar een dag op
+    staat. De tekst zelf blijft platte tekst: een adres in de tekst werd anders
+    geëscaped en was niet aan te klikken."""
+    flash(json.dumps(
+        {"tekst": tekst, "knop": knop, "link": link}, ensure_ascii=False), soort)
 
 
 def mail_straks(wat, functie, *argumenten):
@@ -799,16 +805,56 @@ def _pauze(rij):
 
 
 def factureerbare_uren(van, tot, pauze_minuten=0):
-    """Uren die op de rekening horen: de kloktijd min de pauze.
+    """Uren op de klus en in de CSV: de kloktijd min de pauze, afgerond.
 
     De pauze blijft op de dag staan, maar die minuten reken je niet. Zonder
     pauze is dit hetzelfde getal als vroeger, anders verschuiven bestaande
-    totalen."""
+    totalen. Het bedrag van een dagregel rekent niet hiermee maar met de
+    minuten: 7,33 uur maal het tarief scheelt een cent met 7 uur 20 minuten."""
     try:
         pauze = max(0, int(pauze_minuten or 0)) / 60
     except (TypeError, ValueError):
         pauze = 0
     return round(max(0.0, duur_in_uren(van, tot) - pauze), 2)
+
+
+def duur_in_minuten(van, tot):
+    """Hele minuten tussen twee kloktijden. Zonder eindtijd is de dag nog bezig."""
+    if not eindtijd_ingevuld(van) or not eindtijd_ingevuld(tot):
+        return 0
+    try:
+        van_u, van_m = (int(deel) for deel in str(van).split(":")[:2])
+        tot_u, tot_m = (int(deel) for deel in str(tot).split(":")[:2])
+    except ValueError:
+        return 0
+    minuten = (tot_u * 60 + tot_m) - (van_u * 60 + van_m)
+    if minuten < 0:
+        minuten += 24 * 60
+    return minuten
+
+
+def factureerbare_minuten(van, tot, pauze_minuten=0):
+    """Minuten die meetellen. Het bedrag is minuten maal tarief gedeeld door 60.
+
+    Afronden naar uren en dan pas vermenigvuldigen rondt twee keer. 07:00 tot
+    14:20 is 7,33 uur op de regel, maar 7,33 maal 45,55 is 333,88 terwijl
+    440 minuten maal 45,55 gedeeld door 60 op 334,03 uitkomt."""
+    try:
+        pauze = max(0, int(pauze_minuten or 0))
+    except (TypeError, ValueError):
+        pauze = 0
+    return max(0, duur_in_minuten(van, tot) - pauze)
+
+
+def uren_uit_minuten(minuten):
+    """Het aantal op de regel, leesbaar op twee decimalen. Niet het bedrag."""
+    try:
+        minuten = int(minuten or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    if minuten <= 0:
+        return 0.0
+    return rond_centen(Decimal(minuten) / Decimal(60))
 
 
 def omschrijving_van_dag(datum, van, tot, pauze_minuten, klusnaam, notitie):
@@ -835,12 +881,57 @@ def omschrijving_van_dag(datum, van, tot, pauze_minuten, klusnaam, notitie):
     return tekst
 
 
+def als_decimal(waarde):
+    """Een bedrag of aantal als Decimal, vanuit de tekst die het formulier stuurde.
+
+    Een float maal honderd zit er soms een fractie naast, en Decimal(0.1) neemt
+    die fout mee. Daarom uit de tekst, niet uit een kommagetal."""
+    if isinstance(waarde, Decimal):
+        return waarde
+    if isinstance(waarde, bool):
+        return Decimal(int(waarde))
+    if isinstance(waarde, int):
+        return Decimal(waarde)
+    if isinstance(waarde, float):
+        return Decimal(str(waarde))
+    tekst = str(waarde or "").strip().replace(" ", "")
+    if not tekst:
+        return Decimal("0")
+    if "," in tekst:
+        tekst = tekst.replace(".", "").replace(",", ".")
+    try:
+        return Decimal(tekst)
+    except InvalidOperation:
+        raise ValueError
+
+
 def rond_centen(bedrag):
-    """Eén regel naar centen, vóór het optellen.
+    """Eén regel naar centen, vóór het optellen. Een halve cent gaat omhoog.
 
     Drie regels van 10,333 worden anders samen 31,00 terwijl je per regel
-    10,33 ziet. Het totaal hoort de som van die centen te zijn."""
-    return round(float(bedrag) * 100) / 100
+    10,33 ziet. Het totaal hoort de som van die centen te zijn. round() kiest
+    bij precies 5 de even cent, waardoor 1,5 maal 45,55 op 68,32 uitkwam in
+    plaats van 68,33."""
+    return float(als_decimal(bedrag).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
+def bedrag_van_minuten(minuten, prijs):
+    """Centen voor een dag: minuten maal tarief gedeeld door 60, halve cent omhoog."""
+    try:
+        minuten = int(minuten or 0)
+    except (TypeError, ValueError):
+        minuten = 0
+    if minuten <= 0:
+        return 0.0
+    return rond_centen((Decimal(minuten) * als_decimal(prijs)) / Decimal(60))
+
+
+def som_van(regels):
+    """Som van de centen die al per regel zijn afgerond."""
+    totaal = Decimal("0")
+    for regel in regels:
+        totaal += als_decimal(f"{float(regel[4]):.2f}")
+    return rond_centen(totaal)
 
 
 @app.template_filter("uren")
@@ -924,6 +1015,10 @@ def periode_nl(van, tot):
 def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    # Zonder deze pragma is een FOREIGN KEY alleen documentatie. ON DELETE
+    # SET NULL op regels.uur_id doet dan niets, en een dag kan aan twee
+    # regels blijven hangen.
+    conn.execute("PRAGMA foreign_keys=ON")
     return conn
 
 
@@ -977,10 +1072,12 @@ def init_db():
             prijs REAL NOT NULL,
             subtotaal REAL NOT NULL,
             klus_id INTEGER,
-            -- Welke gewerkte dag deze regel is. Zonder die koppeling past de app
-            -- bij opnieuw opslaan alleen het aantal uren, en schuiven de dagen.
-            uur_id INTEGER,
-            FOREIGN KEY (factuur_id) REFERENCES facturen (id)
+            -- Welke gewerkte dag deze regel is. Eén dag, één regel: anders zet
+            -- een tweede tabblad dezelfde dag nog een keer op een rekening.
+            -- Verdwijnt de dag, dan blijft het bedrag op de regel staan.
+            uur_id INTEGER UNIQUE,
+            FOREIGN KEY (factuur_id) REFERENCES facturen (id),
+            FOREIGN KEY (uur_id) REFERENCES uren (id) ON DELETE SET NULL
         );
 
         CREATE TABLE IF NOT EXISTS klanten (
@@ -1254,6 +1351,10 @@ def init_db():
     regelkolommen = {rij["name"] for rij in conn.execute("PRAGMA table_info(regels)")}
     if "uur_id" not in regelkolommen:
         conn.execute("ALTER TABLE regels ADD COLUMN uur_id INTEGER")
+    # Ná de kolom. Een tabel van voor deze koppeling heeft uur_id zonder
+    # unieke index; die herbouwen we, anders blijft een tweede tabblad
+    # dezelfde dag op twee rekeningen zetten.
+    _uur_koppeling_uniek(conn)
 
     conn.commit()
     conn.close()
@@ -1318,6 +1419,10 @@ def _eindtijd_optioneel(conn):
     heeft_factuur = any(kolom["name"] == "factuur_id" for kolom in info)
     if not heeft_factuur:
         conn.execute("ALTER TABLE uren ADD COLUMN factuur_id INTEGER")
+    # Binnen een transactie doet deze pragma niets, en dan weigert de kopie
+    # een dag waarvan de klus er even niet is.
+    if conn.in_transaction:
+        conn.commit()
     conn.execute("PRAGMA foreign_keys=OFF")
     conn.execute(
         """
@@ -1344,6 +1449,147 @@ def _eindtijd_optioneel(conn):
     # De hernoeming houdt de teller meestal bij de nieuwe naam. Blijft de oude
     # naam staan, dan kan de volgende dag een id krijgen dat er al was.
     _uren_teller_meenemen(conn)
+    if conn.in_transaction:
+        conn.commit()
+    conn.execute("PRAGMA foreign_keys=ON")
+
+
+def _zonder_transactie(conn, pragma):
+    """Een PRAGMA die SQLite negeert zolang er een transactie openstaat."""
+    if conn.in_transaction:
+        conn.commit()
+    conn.execute(pragma)
+
+
+def _teller_op_tabel(conn, naam):
+    """De volgende rij moet een id krijgen dat er nog niet is.
+
+    Na een hernoeming heet de teller soms nog naar de tijdelijke tabel."""
+    try:
+        hoogste = conn.execute(f"SELECT COALESCE(MAX(id), 0) FROM {naam}").fetchone()[0]
+        conn.execute(
+            "DELETE FROM sqlite_sequence WHERE name IN (?, ?)",
+            (naam, f"{naam}_nieuw"),
+        )
+        if hoogste:
+            conn.execute(
+                "INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)",
+                (naam, hoogste),
+            )
+    except sqlite3.OperationalError:
+        pass
+
+
+def _uur_koppeling_al_uniek(conn):
+    """Of regels.uur_id al één dag per regel afdwingt, mét loslaten bij verwijderen."""
+    uniek = False
+    for idx in conn.execute("PRAGMA index_list(regels)"):
+        if not idx["unique"]:
+            continue
+        kolommen = [
+            rij["name"]
+            for rij in conn.execute(f"PRAGMA index_info('{idx['name']}')")
+        ]
+        if kolommen == ["uur_id"]:
+            uniek = True
+            break
+    if not uniek:
+        return False
+    for fk in conn.execute("PRAGMA foreign_key_list(regels)"):
+        if (fk["from"] == "uur_id" and fk["table"] == "uren"
+                and (fk["on_delete"] or "").upper() == "SET NULL"):
+            return True
+    return False
+
+
+def _ontkoppel_dubbele_dagen(conn):
+    """Een dag die aan twee regels hangt, blijft aan één hangen.
+
+    De andere regel houdt zijn tekst en zijn bedrag. Weggooien zou een
+    verstuurde rekening stil kleiner maken. De dag zelf wijst daarna naar
+    de rekening van de regel die hem houdt, zodat de twee kanten gelijk
+    blijven lopen."""
+    conn.execute(
+        """UPDATE regels SET uur_id=NULL
+           WHERE uur_id IS NOT NULL
+             AND uur_id NOT IN (SELECT id FROM uren)"""
+    )
+    dubbel = conn.execute(
+        """SELECT uur_id FROM regels
+           WHERE uur_id IS NOT NULL
+           GROUP BY uur_id HAVING COUNT(*) > 1"""
+    ).fetchall()
+    for rij in dubbel:
+        uur_id = rij["uur_id"]
+        dag = conn.execute(
+            "SELECT factuur_id FROM uren WHERE id=?", (uur_id,)
+        ).fetchone()
+        kandidaten = conn.execute(
+            "SELECT id, factuur_id FROM regels WHERE uur_id=? ORDER BY id",
+            (uur_id,),
+        ).fetchall()
+        houden = kandidaten[0]["id"]
+        if dag is not None and dag["factuur_id"]:
+            for kandidaat in kandidaten:
+                if kandidaat["factuur_id"] == dag["factuur_id"]:
+                    houden = kandidaat["id"]
+                    break
+        conn.execute(
+            "UPDATE regels SET uur_id=NULL WHERE uur_id=? AND id<>?",
+            (uur_id, houden),
+        )
+        houden_factuur = conn.execute(
+            "SELECT factuur_id FROM regels WHERE id=?", (houden,)
+        ).fetchone()["factuur_id"]
+        if dag is not None and dag["factuur_id"] != houden_factuur:
+            conn.execute(
+                "UPDATE uren SET factuur_id=? WHERE id=?",
+                (houden_factuur, uur_id),
+            )
+
+
+def _uur_koppeling_uniek(conn):
+    """Eén gewerkte dag per regel, en de koppeling valt weg als de dag weggaat.
+
+    SQLite kan een UNIQUE of een foreign key niet achteraf op een kolom zetten.
+    De tabel wordt daarom nagebouwd. Eerst de conflicten: anders weigert de
+    kopie een database waarin twee tabbladen dezelfde dag al twee keer hebben
+    gezet, en is de hele rekening weg."""
+    if _uur_koppeling_al_uniek(conn):
+        return
+    _ontkoppel_dubbele_dagen(conn)
+    _zonder_transactie(conn, "PRAGMA foreign_keys=OFF")
+    conn.execute(
+        """
+        CREATE TABLE regels_nieuw (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            factuur_id INTEGER NOT NULL,
+            omschrijving TEXT NOT NULL,
+            type TEXT NOT NULL,
+            aantal REAL NOT NULL,
+            prijs REAL NOT NULL,
+            subtotaal REAL NOT NULL,
+            klus_id INTEGER,
+            inkoop_id INTEGER,
+            uur_id INTEGER UNIQUE,
+            FOREIGN KEY (factuur_id) REFERENCES facturen (id),
+            FOREIGN KEY (uur_id) REFERENCES uren (id) ON DELETE SET NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO regels_nieuw
+            (id, factuur_id, omschrijving, type, aantal, prijs, subtotaal,
+             klus_id, inkoop_id, uur_id)
+        SELECT id, factuur_id, omschrijving, type, aantal, prijs, subtotaal,
+               klus_id, inkoop_id, uur_id FROM regels
+        """
+    )
+    conn.execute("DROP TABLE regels")
+    conn.execute("ALTER TABLE regels_nieuw RENAME TO regels")
+    _teller_op_tabel(conn, "regels")
+    _zonder_transactie(conn, "PRAGMA foreign_keys=ON")
 
 
 def tenaamstelling(s):
@@ -3148,27 +3394,34 @@ def dag_bewerk(uur_id):
         melding(fout, "fout")
         return redirect(url_for("klus", klus_id=gegevens["klus_id"]))
     van, tot = tijden
-    # Een dag die al op een rekening staat heeft uren. Die leegmaken zou de
-    # rekening een dag geven die nergens meer meetelt.
-    if gegevens["factuur_id"] and tot is None:
+    datum = geldige_datum(request.form.get("datum"))
+    pauze, pauze_fout = lees_pauze(request.form, van, tot)
+    if pauze_fout:
         conn.close()
-        melding("Deze dag staat al op een rekening. De eindtijd kun je niet leegmaken.",
-                "fout")
+        melding(pauze_fout, "fout")
         return redirect(url_for("klus", klus_id=gegevens["klus_id"]))
 
-    datum = geldige_datum(request.form.get("datum"))
+    # De tijden staan in de omschrijving op de rekening. Ze hier wijzigen
+    # laat die tekst en het bedrag achter, of maakt de dag leeg terwijl de
+    # regel blijft staan. Eerst van de rekening halen, dan pas aanpassen.
+    # Een notitie mag wel: die staat niet in het bedrag.
+    if gegevens["factuur_id"] and _dag_wijkt_af(gegevens, datum, van, tot, pauze):
+        tekst, link = melding_dag_op_rekening(conn, gegevens["factuur_id"])
+        if tot is None and eindtijd_ingevuld(gegevens["tot"]):
+            tekst += ". De eindtijd kun je niet leegmaken."
+        else:
+            tekst += (". De tijden pas je op die rekening aan, of haal de dag "
+                      "eerst van de rekening.")
+        conn.close()
+        melding(tekst, "fout", link=link)
+        return redirect(url_for("klus", klus_id=gegevens["klus_id"]))
+
     if tot is None:
         bezig = lopende_dag_op(conn, gegevens["klus_id"], datum, behalve_id=uur_id)
         if bezig is not None:
             conn.close()
             melding(melding_tweede_open_dag(bezig, datum), "fout")
             return redirect(url_for("klus", klus_id=gegevens["klus_id"]))
-
-    pauze, pauze_fout = lees_pauze(request.form, van, tot)
-    if pauze_fout:
-        conn.close()
-        melding(pauze_fout, "fout")
-        return redirect(url_for("klus", klus_id=gegevens["klus_id"]))
 
     was_lopend = not eindtijd_ingevuld(gegevens["tot"])
     conn.execute(
@@ -3190,6 +3443,37 @@ def dag_bewerk(uur_id):
     return redirect(url_for("klus", klus_id=gegevens["klus_id"]))
 
 
+def _tijd_gelijk(a, b):
+    return (a or "")[:5] == (b or "")[:5]
+
+
+def _dag_wijkt_af(gegevens, datum, van, tot, pauze):
+    """Of datum, tijden of pauze anders zijn dan wat er nu staat."""
+    return (
+        str(datum) != str(gegevens["datum"])
+        or not _tijd_gelijk(van, gegevens["van"])
+        or not _tijd_gelijk(tot, gegevens["tot"])
+        or int(pauze or 0) != _pauze(gegevens)
+    )
+
+
+def melding_dag_op_rekening(conn, factuur_id):
+    """Tekst en link naar de rekening waar deze dag op staat.
+
+    Zonder link is de melding alleen tekst, en de rekening is niet aan te
+    tikken: de tekst wordt geëscaped."""
+    rij = conn.execute(
+        "SELECT id, nummer FROM facturen WHERE id=?", (factuur_id,)
+    ).fetchone()
+    if rij is None:
+        return "Deze dag staat op rekening CONCEPT", None
+    nummer = (rij["nummer"] or "").strip() or "CONCEPT"
+    return (
+        f"Deze dag staat op rekening {nummer}",
+        {"url": url_for("bewerk", factuur_id=rij["id"]), "label": "Naar de rekening"},
+    )
+
+
 @app.route("/uur/<int:uur_id>/verwijder", methods=["POST"])
 def dag_verwijder(uur_id):
     conn = get_db()
@@ -3197,6 +3481,11 @@ def dag_verwijder(uur_id):
     if gegevens is None:
         conn.close()
         abort(404)
+    if gegevens["factuur_id"]:
+        tekst, link = melding_dag_op_rekening(conn, gegevens["factuur_id"])
+        conn.close()
+        melding(f"{tekst}.", "fout", link=link)
+        return redirect(url_for("klus", klus_id=gegevens["klus_id"]))
     prullenbak_id = naar_prullenbak(
         conn, f"De dag van {filter_datum_nl(gegevens['datum'])}", {"uren": [gegevens]})
     conn.execute("DELETE FROM uren WHERE id=?", (uur_id,))
@@ -3221,10 +3510,15 @@ def _getal(waarde):
 
 def lees_regels(form):
     """Haalt de ingevulde regels uit het formulier en telt het totaal op.
-    Regels zonder omschrijving worden overgeslagen."""
-    totaal = 0.0
+    Regels zonder omschrijving worden overgeslagen.
+
+    Staat er een subtotaal bij, dan is dat het bedrag dat al op de rekening
+    stond. Opnieuw uitrekenen zou een oude rekening van centen laten
+    verschuiven. Alleen een nieuwe regel, zonder dat bedrag, komt uit aantal
+    maal prijs. Een dagregel wordt daarna nog langs de gewerkte minuten
+    gelegd, tenzij hij al zo op déze rekening stond."""
     regels = []
-    for o, t, a, p, klus, inkoop, uur in zip_longest(
+    for o, t, a_ruw, p_ruw, klus, inkoop, uur, sub_ruw in zip_longest(
         form.getlist("omschrijving"),
         form.getlist("type"),
         form.getlist("aantal"),
@@ -3232,29 +3526,33 @@ def lees_regels(form):
         form.getlist("regel_klus"),
         form.getlist("regel_inkoop"),
         form.getlist("regel_uur"),
+        form.getlist("regel_subtotaal"),
         fillvalue="",
     ):
-        if not o:
+        if not str(o or "").strip():
             continue
         try:
-            a = _getal(a)
-            p = _getal(p)
+            aantal = als_decimal(a_ruw)
+            prijs = als_decimal(p_ruw)
         except ValueError:
             continue
         if t in ("arbeid_klus", "bon"):
             # Vaste prijs: het bedrag is de prijs, geen aantal keer tarief.
-            a = 1.0
-        # Per regel afronden. Het totaal is daarna de som van die bedragen,
-        # niet een afronding van de ruwe som.
-        subtotaal = rond_centen(a * p)
-        totaal += subtotaal
+            aantal = Decimal("1")
+        if str(sub_ruw).strip():
+            try:
+                subtotaal = als_decimal(sub_ruw)
+            except ValueError:
+                subtotaal = aantal * prijs
+        else:
+            subtotaal = aantal * prijs
         regels.append((
-            o, t, a, p, subtotaal,
+            str(o), t, float(aantal), float(prijs), rond_centen(subtotaal),
             int(klus) if str(klus).isdigit() else None,
             int(inkoop) if str(inkoop).isdigit() else None,
             int(uur) if str(uur).isdigit() else None,
         ))
-    return regels, rond_centen(totaal)
+    return regels, som_van(regels)
 
 
 def zonder_dubbele_dagen(regels):
@@ -3287,7 +3585,7 @@ def regels_uit_form(form):
     regels, totaal = lees_regels(form)
     regels, dubbel = zonder_dubbele_dagen(regels)
     if dubbel:
-        totaal = rond_centen(sum(regel[4] for regel in regels))
+        totaal = som_van(regels)
     return regels, totaal, dubbel
 
 
@@ -3583,7 +3881,8 @@ def menu_dagen(klus):
     conn = get_db()
     try:
         return [
-            {"id": dag["id"], "omschrijving": dag["omschrijving"], "uren": dag["uren"]}
+            {"id": dag["id"], "omschrijving": dag["omschrijving"],
+             "uren": dag["uren"], "minuten": dag["minuten"]}
             for dag in regels_van_open_dagen(conn, klus)
         ]
     finally:
@@ -3606,7 +3905,10 @@ def regels_van_open_dagen(conn, klus):
     uit = []
     prijs = float(klus["uurtarief"] or 0)
     for rij in rijen:
-        uren = factureerbare_uren(rij["van"], rij["tot"], _pauze(rij))
+        minuten = factureerbare_minuten(rij["van"], rij["tot"], _pauze(rij))
+        # Het aantal is om te lezen. Het bedrag komt uit de minuten, anders
+        # wordt 7 uur 20 minuten 7,33 uur en scheelt het een cent.
+        uren = uren_uit_minuten(minuten)
         if uren <= 0:
             continue
         uit.append({
@@ -3617,12 +3919,36 @@ def regels_van_open_dagen(conn, klus):
             "type": "arbeid_uur",
             "aantal": uren,
             "prijs": prijs,
+            "subtotaal": bedrag_van_minuten(minuten, prijs),
             "klus_id": klus["id"],
             "inkoop_id": None,
             "uur_id": rij["id"],
             "uren": uren,
+            "minuten": minuten,
             "id": rij["id"],
         })
+    return uit
+
+
+def met_minuten(conn, regels):
+    """Bestaande regels, met de minuten van de dag erbij voor het scherm.
+
+    `bewaard` zorgt dat het script het opgeslagen bedrag toont en niet
+    opnieuw afrondt. Een nieuwe dagregel heeft die vlag niet."""
+    uit = []
+    for rij in regels:
+        regel = dict(rij)
+        regel["bewaard"] = True
+        uur_id = regel.get("uur_id")
+        if uur_id:
+            dag = conn.execute(
+                "SELECT van, tot, pauze_minuten FROM uren WHERE id=?",
+                (uur_id,),
+            ).fetchone()
+            if dag is not None and eindtijd_ingevuld(dag["tot"]):
+                regel["minuten"] = factureerbare_minuten(
+                    dag["van"], dag["tot"], _pauze(dag))
+        uit.append(regel)
     return uit
 
 
@@ -3758,6 +4084,187 @@ def regels_passen_bij_klant(conn, regels, klant_id):
                 return ("Een bon op een regel hoort bij een andere klant. Haal die "
                         "regel weg of kies de klant waarbij de bon hoort.")
     return None
+
+
+def begin_direct(conn):
+    """Een transactie die meteen de schrijflock pakt.
+
+    De module opent anders pas een transactie bij de eerste wijziging, en die
+    is niet exclusief. Twee tabbladen lezen de dag dan allebei als vrij en
+    zetten hem allebei op een rekening. Een mislukte tweede poging hoort de
+    hele rekening terug te draaien, niet een factuur zonder regels te laten
+    staan."""
+    if conn.in_transaction:
+        conn.commit()
+    conn.isolation_level = None
+    conn.execute("BEGIN IMMEDIATE")
+
+
+def dagen_horen_bij_klant_en_klus(conn, regels, klant_id):
+    """None als elke dagregel bij deze klant en deze klus hoort.
+
+    Het menu zet dat zelf goed. Een POST die een uur_id van een andere klus
+    meestuurt, mag die dag niet op deze rekening zetten."""
+    for _o, _t, _a, _p, _sub, klus_id, _inkoop, uur_id in regels:
+        if not uur_id:
+            continue
+        dag = conn.execute(
+            """SELECT u.klus_id, k.klant_id
+               FROM uren u JOIN klussen k ON k.id = u.klus_id
+               WHERE u.id=?""",
+            (uur_id,),
+        ).fetchone()
+        if dag is None:
+            return "Deze dag bestaat niet meer."
+        if not inkoop_past_bij_klant(dag["klant_id"], klant_id):
+            return "Deze dag hoort bij een andere klant."
+        if not klus_id or dag["klus_id"] != klus_id:
+            return "Deze dag hoort bij een andere klus."
+    return None
+
+
+def _nummer_van_rekening(conn, factuur_id):
+    rij = conn.execute(
+        "SELECT nummer FROM facturen WHERE id=?", (factuur_id,)
+    ).fetchone()
+    if rij is None:
+        return "CONCEPT"
+    return (rij["nummer"] or "").strip() or "CONCEPT"
+
+
+def zonder_bezette_dagen(conn, regels, eigen_factuur_id):
+    """Regels waarvan de dag al op een andere rekening staat, eruit.
+
+    Het bedrag mag niet op deze rekening blijven staan als de dag er niet aan
+    hangt: het jaaroverzicht telt de totalen op en rekent die dag dan dubbel."""
+    houden = []
+    meldingen = []
+    gezien = set()
+    for regel in regels:
+        uur_id = regel[7]
+        if not uur_id:
+            houden.append(regel)
+            continue
+        dag = conn.execute(
+            "SELECT factuur_id FROM uren WHERE id=?", (uur_id,)
+        ).fetchone()
+        bezet = (
+            dag is not None
+            and dag["factuur_id"]
+            and dag["factuur_id"] != eigen_factuur_id
+        )
+        if not bezet:
+            houden.append(regel)
+            continue
+        nummer = _nummer_van_rekening(conn, dag["factuur_id"])
+        if nummer == "CONCEPT":
+            tekst = (
+                "Deze dag staat al op een andere rekening. "
+                "Hij is niet nog een keer op deze rekening gezet."
+            )
+        else:
+            tekst = (
+                f"Deze dag staat al op rekening {nummer}. "
+                "Hij is niet nog een keer op deze rekening gezet."
+            )
+        if tekst not in gezien:
+            gezien.add(tekst)
+            meldingen.append(tekst)
+    return houden, meldingen
+
+
+AANTAL_VOLGT_DE_DAG = (
+    "Het aantal uren volgt de dag en is niet aangepast. "
+    "Een korting zet je op een aparte regel."
+)
+
+
+def _zelfde_centen(a, b):
+    return rond_centen(a) == rond_centen(b)
+
+
+def bedragen_uit_de_dag(conn, regels, eigen_factuur_id):
+    """Nieuwe dagregels rekenen met de minuten. Een bestaande houdt zijn bedrag.
+
+    Het aantal op de regel volgt de dag en is niet los te zetten: anders
+    verdwijnt een uur van de rekening terwijl de dag wel gekoppeld blijft.
+    Een ander tarief rekent wel opnieuw. Het oude bedrag laten staan als alleen
+    het scherm opnieuw opent, anders schuift een rekening van 774,35 naar
+    iets anders zodra je hem opslaat."""
+    uit = []
+    waarschuwing = False
+    for o, t, aantal, prijs, subtotaal, klus_id, inkoop_id, uur_id in regels:
+        if not uur_id:
+            uit.append((o, t, aantal, prijs, subtotaal, klus_id, inkoop_id, uur_id))
+            continue
+        dag = conn.execute(
+            "SELECT van, tot, pauze_minuten, factuur_id FROM uren WHERE id=?",
+            (uur_id,),
+        ).fetchone()
+        if dag is None or not eindtijd_ingevuld(dag["tot"]):
+            uit.append((o, t, aantal, prijs, subtotaal, klus_id, inkoop_id, uur_id))
+            continue
+        minuten = factureerbare_minuten(dag["van"], dag["tot"], _pauze(dag))
+        aantal_dag = uren_uit_minuten(minuten)
+        if abs(float(aantal) - float(aantal_dag)) > 0.001:
+            waarschuwing = True
+        bestaand = None
+        if eigen_factuur_id and dag["factuur_id"] == eigen_factuur_id:
+            bestaand = conn.execute(
+                """SELECT prijs, subtotaal FROM regels
+                   WHERE factuur_id=? AND uur_id=?
+                   ORDER BY id LIMIT 1""",
+                (eigen_factuur_id, uur_id),
+            ).fetchone()
+        if bestaand is not None and _zelfde_centen(bestaand["prijs"], prijs):
+            subtotaal_af = float(bestaand["subtotaal"])
+        else:
+            subtotaal_af = bedrag_van_minuten(minuten, prijs)
+        uit.append((
+            o, t, aantal_dag, float(prijs), subtotaal_af,
+            klus_id, inkoop_id, uur_id,
+        ))
+    return uit, waarschuwing
+
+
+def regels_voor_opslaan(conn, form, klant_id, eigen_factuur_id=None):
+    """Regels die op de rekening mogen, het totaal, meldingen, of een fout.
+
+    Een fout weigert de hele opdracht. Een dag die al elders staat valt alleen
+    uit de regels. Blijft er niets over, dan komt er geen lege rekening."""
+    regels, _totaal, dubbel = regels_uit_form(form)
+    if not regels:
+        return None, None, [], (
+            "Vul minstens één regel in met een omschrijving; anders is er niets "
+            "te factureren."
+        )
+    fout = regels_passen_bij_klant(conn, regels, klant_id)
+    if fout is None:
+        fout = verborgen_uren_melding(conn, regels, eigen_factuur_id)
+    if fout is None:
+        fout = dagen_horen_bij_klant_en_klus(conn, regels, klant_id)
+    if fout:
+        return None, None, [], fout
+    regels, bezet = zonder_bezette_dagen(conn, regels, eigen_factuur_id)
+    if not regels:
+        tekst = bezet[0] if bezet else (
+            "Deze dag staat al op een andere rekening. "
+            "Hij is niet nog een keer op deze rekening gezet."
+        )
+        return None, None, bezet, tekst
+    regels, aantal_waarschuwing = bedragen_uit_de_dag(conn, regels, eigen_factuur_id)
+    meldingen = list(bezet)
+    if dubbel:
+        meldingen.append(DUBBELE_DAG)
+    if aantal_waarschuwing:
+        meldingen.append(AANTAL_VOLGT_DE_DAG)
+    return regels, som_van(regels), meldingen, None
+
+
+DAG_AL_ELDERS = (
+    "Deze dag staat al op een andere rekening. "
+    "Hij is niet nog een keer op deze rekening gezet."
+)
 
 
 def bewaar_regels(conn, factuur_id, regels):
@@ -3982,44 +4489,45 @@ def boek_inkopen(conn, factuur_id, inkoop_ids):
 @app.route("/nieuw", methods=["GET", "POST"])
 def nieuw():
     if request.method == "POST":
-        regels, totaal, dubbel = regels_uit_form(request.form)
-        if not regels:
-            melding("Vul minstens één regel in met een omschrijving; anders is er niets "
-                  "te factureren.", "fout")
-            return redirect(url_for("nieuw"))
-
         conn = get_db()
-        klant_id = bepaal_klant(conn, request.form)
-        past_niet = regels_passen_bij_klant(conn, regels, klant_id)
-        if past_niet is None:
-            past_niet = verborgen_uren_melding(conn, regels)
-        if past_niet:
-            conn.close()
-            melding(past_niet, "fout")
-            return redirect(url_for("nieuw"))
-        datum = geldige_datum(request.form.get("datum"))
+        try:
+            begin_direct(conn)
+            klant_id = bepaal_klant(conn, request.form)
+            regels, totaal, meldingen, fout = regels_voor_opslaan(
+                conn, request.form, klant_id)
+            if fout:
+                conn.rollback()
+                conn.close()
+                melding(fout, "fout")
+                return redirect(url_for("nieuw"))
+            datum = geldige_datum(request.form.get("datum"))
 
-        # Nog geen nummer: dat komt pas als de rekening definitief wordt. Zo laat een
-        # concept dat je weggooit geen gat achter in de reeks.
-        cur = conn.execute(
-            """INSERT INTO facturen (nummer, datum, vervalt_op, klant_id, klant_naam,
-               klant_adres, klant_email, betaalmethode, status, totaal, kenmerk)
-               VALUES ('', ?, ?, ?, ?, ?, ?, ?, 'concept', ?, ?)""",
-            (
-                datum,
-                lees_vervaldatum(request.form, datum),
-                klant_id,
-                request.form.get("klant_naam", ""),
-                net_adres(request.form.get("klant_adres", "")),
-                request.form.get("klant_email", ""),
-                request.form.get("betaalmethode", "bank"),
-                totaal,
-                request.form.get("kenmerk", "").strip(),
-            ),
-        )
-        factuur_id = cur.lastrowid
-        uren_meldingen = bewaar_regels(conn, factuur_id, regels)
-        conn.commit()
+            # Nog geen nummer: dat komt pas als de rekening definitief wordt. Zo laat een
+            # concept dat je weggooit geen gat achter in de reeks.
+            cur = conn.execute(
+                """INSERT INTO facturen (nummer, datum, vervalt_op, klant_id, klant_naam,
+                   klant_adres, klant_email, betaalmethode, status, totaal, kenmerk)
+                   VALUES ('', ?, ?, ?, ?, ?, ?, ?, 'concept', ?, ?)""",
+                (
+                    datum,
+                    lees_vervaldatum(request.form, datum),
+                    klant_id,
+                    request.form.get("klant_naam", ""),
+                    net_adres(request.form.get("klant_adres", "")),
+                    request.form.get("klant_email", ""),
+                    request.form.get("betaalmethode", "bank"),
+                    totaal,
+                    request.form.get("kenmerk", "").strip(),
+                ),
+            )
+            factuur_id = cur.lastrowid
+            uren_meldingen = bewaar_regels(conn, factuur_id, regels)
+            conn.commit()
+        except sqlite3.IntegrityError:
+            conn.rollback()
+            conn.close()
+            melding(DAG_AL_ELDERS, "fout")
+            return redirect(url_for("nieuw"))
         conn.close()
 
         maak_pdf(factuur_id)
@@ -4028,10 +4536,8 @@ def nieuw():
         # De mail gaat pas weg vanaf het controlescherm, met Mail versturen.
         melding("Rekening opgeslagen als concept. Hij krijgt zijn nummer zodra je "
               "hem verstuurt of definitief maakt.")
-        for tekst in uren_meldingen:
+        for tekst in list(uren_meldingen) + list(meldingen):
             melding(tekst, "fout")
-        if dubbel:
-            melding(DUBBELE_DAG, "fout")
 
         return redirect(url_for("index"))
 
@@ -4080,41 +4586,41 @@ def bewerk(factuur_id):
         abort(404)
 
     if request.method == "POST":
-        regels, totaal, dubbel = regels_uit_form(request.form)
-        if not regels:
+        try:
+            begin_direct(conn)
+            klant_id = bepaal_klant(conn, request.form)
+            regels, totaal, meldingen, fout = regels_voor_opslaan(
+                conn, request.form, klant_id, factuur_id)
+            if fout:
+                conn.rollback()
+                conn.close()
+                melding(fout, "fout")
+                return redirect(url_for("bewerk", factuur_id=factuur_id))
+            datum = geldige_datum(request.form.get("datum"), factuur["datum"])
+            conn.execute(
+                """UPDATE facturen SET datum=?, vervalt_op=?, klant_id=?, klant_naam=?,
+                   klant_adres=?, klant_email=?, betaalmethode=?, totaal=?, kenmerk=?
+                   WHERE id=?""",
+                (
+                    datum,
+                    lees_vervaldatum(request.form, datum),
+                    klant_id,
+                    request.form.get("klant_naam", ""),
+                    net_adres(request.form.get("klant_adres", "")),
+                    request.form.get("klant_email", ""),
+                    request.form.get("betaalmethode", "bank"),
+                    totaal,
+                    request.form.get("kenmerk", "").strip(),
+                    factuur_id,
+                ),
+            )
+            uren_meldingen = bewaar_regels(conn, factuur_id, regels)
+            conn.commit()
+        except sqlite3.IntegrityError:
+            conn.rollback()
             conn.close()
-            melding("Vul minstens één regel in met een omschrijving; anders is er niets "
-                  "te factureren.", "fout")
+            melding(DAG_AL_ELDERS, "fout")
             return redirect(url_for("bewerk", factuur_id=factuur_id))
-
-        klant_id = bepaal_klant(conn, request.form)
-        past_niet = regels_passen_bij_klant(conn, regels, klant_id)
-        if past_niet is None:
-            past_niet = verborgen_uren_melding(conn, regels, factuur_id)
-        if past_niet:
-            conn.close()
-            melding(past_niet, "fout")
-            return redirect(url_for("bewerk", factuur_id=factuur_id))
-        datum = geldige_datum(request.form.get("datum"), factuur["datum"])
-        conn.execute(
-            """UPDATE facturen SET datum=?, vervalt_op=?, klant_id=?, klant_naam=?,
-               klant_adres=?, klant_email=?, betaalmethode=?, totaal=?, kenmerk=?
-               WHERE id=?""",
-            (
-                datum,
-                lees_vervaldatum(request.form, datum),
-                klant_id,
-                request.form.get("klant_naam", ""),
-                net_adres(request.form.get("klant_adres", "")),
-                request.form.get("klant_email", ""),
-                request.form.get("betaalmethode", "bank"),
-                totaal,
-                request.form.get("kenmerk", "").strip(),
-                factuur_id,
-            ),
-        )
-        uren_meldingen = bewaar_regels(conn, factuur_id, regels)
-        conn.commit()
         conn.close()
 
         # De PDF hoort bij de oude gegevens, dus opnieuw tekenen.
@@ -4122,16 +4628,14 @@ def bewerk(factuur_id):
         # Bewerken mailt niet mee, ook niet als `verstuur=ja` in het formulier staat.
         # Mailen is een aparte stap, na de controle van wat er de deur uitgaat.
         melding(f"Rekening {factuurnaam(factuur)} bijgewerkt.")
-        for tekst in uren_meldingen:
+        for tekst in list(uren_meldingen) + list(meldingen):
             melding(tekst, "fout")
-        if dubbel:
-            melding(DUBBELE_DAG, "fout")
 
         return redirect(url_for("index"))
 
-    regels = conn.execute(
+    regels = met_minuten(conn, conn.execute(
         "SELECT * FROM regels WHERE factuur_id=? ORDER BY id", (factuur_id,)
-    ).fetchall()
+    ).fetchall())
     conn.close()
     return render_template(
         "nieuw.html", vandaag=factuur["datum"], actief="nieuw",
@@ -4668,6 +5172,40 @@ def maak_offerte_pdf(offerte_id):
     return _teken_document(os.path.join(PDF_DIR, f"{offerte['nummer']}.pdf"), doc, regels, s)
 
 
+class GenummerdCanvas(canvas.Canvas):
+    """Zet 'Pagina 1 van 5' erop als het aantal pagina's bekend is.
+
+    Dat is pas bij het opslaan. De pagina's worden daarom bewaard en daarna
+    pas echt geschreven. De lijst moet vóór de lus gekopieerd: het terugzetten
+    van een pagina zet ook die lijst terug, en anders raak je de rest kwijt."""
+
+    def __init__(self, *args, **kwargs):
+        canvas.Canvas.__init__(self, *args, **kwargs)
+        self._paginas = []
+
+    def showPage(self):
+        self._paginas.append(dict(self.__dict__))
+        self._startPage()
+
+    def _teken_paginanummer(self, nummer, totaal):
+        self.setFillColor(GRIJS)
+        self.setFont("Helvetica", 8)
+        self.drawRightString(
+            self._pagesize[0] - 18 * mm, 9 * mm,
+            f"Pagina {nummer} van {totaal}",
+        )
+
+    def save(self):
+        self._paginas.append(dict(self.__dict__))
+        paginas = list(self._paginas)
+        totaal = len(paginas)
+        for nummer, staat in enumerate(paginas, start=1):
+            self.__dict__.update(staat)
+            self._teken_paginanummer(nummer, totaal)
+            canvas.Canvas.showPage(self)
+        canvas.Canvas.save(self)
+
+
 class Vel:
     """Eén vel papier met de opmaak van een rekening of offerte.
 
@@ -4680,7 +5218,7 @@ class Vel:
         self.pad = pad
         self.titel = titel
         self.nummer = nummer
-        self.c = canvas.Canvas(pad, pagesize=A4)
+        self.c = GenummerdCanvas(pad, pagesize=A4)
         self.c.setTitle(f"{titel} {nummer}")
         self.breedte, self.hoogte = A4
         self.links = 26 * mm
@@ -4763,7 +5301,10 @@ def _teken_merkregel(vel, s):
 
 def _teken_titel(vel, kopregel):
     """'Rekening' of 'Offerte' in het groot, met het nummer en de datum eronder."""
-    vel.y -= 30 * mm
+    # Krapper dan 30 mm: op de eerste pagina bleef er een leeg vlak tussen
+    # de merkregel en de titel, terwijl een lange rekening juist ruimte nodig
+    # heeft voor de dagen.
+    vel.y -= 22 * mm
     vel.c.setFillColor(ORANJE)
     vel.c.setFont("Helvetica", 30)
     vel.c.drawString(vel.links, vel.y, vel.titel)
@@ -4779,7 +5320,7 @@ def _teken_partijen(vel, s, doc):
     c = vel.c
     tweede = vel.links + 68 * mm
 
-    vel.y -= 16 * mm
+    vel.y -= 12 * mm
     vel.label("Van", vel.links, vel.y)
     vel.label("Voor", tweede, vel.y)
     vel.y -= 5.5 * mm
@@ -4804,7 +5345,7 @@ def _teken_partijen(vel, s, doc):
         c.drawString(tweede, rechts_y, vel.kort(doc["klant_email"], "Helvetica", 9, 62 * mm))
         rechts_y -= 4.4 * mm
 
-    vel.y = min(links_y, rechts_y) - 12 * mm
+    vel.y = min(links_y, rechts_y) - 8 * mm
 
 
 def _teken_kolomkoppen(vel):
@@ -4817,7 +5358,7 @@ def _teken_kolomkoppen(vel):
     vel.c.setStrokeColor(INKT)
     vel.c.setLineWidth(0.8)
     vel.c.line(vel.links, vel.y, vel.rechts, vel.y)
-    vel.y -= 8 * mm
+    vel.y -= 6 * mm
 
 
 def _teken_regels(vel, regels):
@@ -4832,7 +5373,10 @@ def _teken_regels(vel, regels):
     """
     c = vel.c
     _teken_kolomkoppen(vel)
-    omschrijfbreedte = vel.kolom_aantal - vel.links - 6 * mm
+    # Het aantal staat rechts uitgelijnd en steekt dus naar links. 6 mm was
+    # krapper dan "10,33 u", waardoor een afgebroken omschrijving in de
+    # cijfers liep.
+    omschrijfbreedte = vel.kolom_aantal - vel.links - 18 * mm
 
     for r in regels:
         soort_info = soort(r["type"])

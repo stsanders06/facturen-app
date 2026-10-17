@@ -217,6 +217,11 @@ def test_oude_eindtijd_blijft_bewaard_als_de_kolom_optioneel_wordt(db):
             factuur_id INTEGER
         )"""
     )
+    # De klus hoort te bestaan: de foreign key op de dag geldt nu echt.
+    db.execute(
+        """INSERT INTO klussen (id, naam, uurtarief, gestart)
+           VALUES (1, 'Oud', 45, '2026-08-01')"""
+    )
     db.execute(
         """INSERT INTO uren (klus_id, datum, van, tot, notitie)
            VALUES (1, '2026-08-14', '09:00', '17:00', 'voegen')"""

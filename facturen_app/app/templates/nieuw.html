@@ -420,7 +420,12 @@
           </div>
           <div class="field aantal-veld">
             <label class="aantal-label">Aantal</label>
+            {#- Een dagregel volgt de gewerkte dag. Een lager aantal hier zou
+                uren stil van de rekening halen; een korting is een aparte regel. -#}
             <input type="number" step="any" name="aantal"
+                   {% if r and r.uur_id %}readonly
+                   title="Het aantal volgt de dag. Een korting zet je op een aparte regel."
+                   {% endif %}
                    value="{{ '%g'|format(r.aantal) if r else '1' }}">
           </div>
           <div class="field prijs-veld">
@@ -431,6 +436,12 @@
           <input type="hidden" name="regel_klus" value="{{ r.klus_id if r and r.klus_id else '' }}">
           <input type="hidden" name="regel_inkoop" value="{{ r.inkoop_id if r and r.inkoop_id else '' }}">
           <input type="hidden" name="regel_uur" value="{{ r.uur_id if r and r.uur_id else '' }}">
+          {#- Het opgeslagen bedrag gaat mee terug. Opnieuw uitrekenen bij het
+              openen zou een oude rekening van centen laten verschuiven. -#}
+          <input type="hidden" name="regel_subtotaal"
+                 {% if r and (r.bewaard or factuur) %}data-bewaard="1"{% endif %}
+                 value="{% if r and r.subtotaal is not none %}{{ '%.2f'|format(r.subtotaal) }}{% endif %}">
+          <input type="hidden" name="regel_minuten" value="{{ r.minuten if r and r.minuten else '' }}">
         </div>
       </div>
       {% endfor %}
@@ -509,7 +520,7 @@
 
     <div class="totaalbalk">
       <span class="label">Totaal</span>
-      <span class="som" id="totaal">&euro; 0,00</span>
+      <span class="som" id="totaal">&euro; {{ (factuur.totaal if factuur else 0)|bedrag }}</span>
     </div>
   </section>
 
@@ -608,22 +619,103 @@
       if (!keuze.metAantal) {
         regel.querySelector('[name="aantal"]').value = '1';
       }
+      pasDagAantal(regel);
       pasSamenvattingAan(regel);
     }
 
-    function rondCenten(bedrag) {
-      return Math.round(bedrag * 100) / 100;
+    // Het aantal van een dagregel komt van de dag. Anders zet iemand 1 uur
+    // op een dag van 8 en verdwijnt de rest zonder dat het ergens staat.
+    function pasDagAantal(regel) {
+      var uur = regel.querySelector('[name="regel_uur"]');
+      var veld = regel.querySelector('[name="aantal"]');
+      if (!veld) return;
+      if (uur && uur.value) {
+        veld.readOnly = true;
+        veld.title = 'Het aantal volgt de dag. Een korting zet je op een aparte regel.';
+      } else {
+        veld.readOnly = false;
+        veld.title = '';
+      }
+    }
+
+    // Een halve cent gaat omhoog. Math.round kiest bij .5 naar even, en een
+    // float maal 100 zit er soms naast. Daarom hele centen, uit de tekst.
+    function normaliseerGetal(tekst) {
+      tekst = String(tekst == null ? '' : tekst).trim().replace(/\s/g, '');
+      if (tekst.indexOf(',') !== -1) {
+        tekst = tekst.replace(/\./g, '').replace(',', '.');
+      }
+      return tekst;
+    }
+
+    function parseVast(tekst) {
+      tekst = normaliseerGetal(tekst);
+      var negatief = tekst.charAt(0) === '-';
+      if (negatief) tekst = tekst.slice(1);
+      if (!/^\d*(\.\d*)?$/.test(tekst) || tekst === '' || tekst === '.') {
+        return { negatief: false, cijfers: 0, schaal: 0 };
+      }
+      var punt = tekst.indexOf('.');
+      var heel = punt === -1 ? tekst : tekst.slice(0, punt);
+      var frac = punt === -1 ? '' : tekst.slice(punt + 1);
+      heel = heel.replace(/^0+/, '') || '0';
+      var cijfers = parseInt(heel + frac, 10);
+      if (!isFinite(cijfers)) cijfers = 0;
+      return { negatief: negatief, cijfers: cijfers, schaal: frac.length };
+    }
+
+    function halfUpDelen(teller, deler) {
+      if (!deler) return 0;
+      var negatief = teller < 0;
+      var abs = negatief ? -teller : teller;
+      var quot = Math.floor((abs + Math.floor(deler / 2)) / deler);
+      return negatief ? -quot : quot;
+    }
+
+    function productCenten(aantalTekst, prijsTekst) {
+      var a = parseVast(aantalTekst);
+      var p = parseVast(prijsTekst);
+      var teller = a.cijfers * p.cijfers;
+      var schaal = a.schaal + p.schaal;
+      if (schaal > 2) teller = halfUpDelen(teller, Math.pow(10, schaal - 2));
+      else if (schaal < 2) teller *= Math.pow(10, 2 - schaal);
+      if (a.negatief !== p.negatief) teller = -teller;
+      return teller;
+    }
+
+    function centenVanMinuten(minuten, prijsTekst) {
+      var p = parseVast(prijsTekst);
+      var min = parseInt(minuten, 10) || 0;
+      if (min < 0) min = 0;
+      // minuten × tarief / 60, naar centen. Niet het afgeronde aantal uren.
+      var teller = min * p.cijfers * 100;
+      var deler = Math.pow(10, p.schaal) * 60;
+      var centen = halfUpDelen(teller, deler);
+      return p.negatief ? -centen : centen;
     }
 
     function berekenTotaal() {
       var som = 0;
       container.querySelectorAll('.regel').forEach(function (regel) {
-        var aantal = parseFloat(regel.querySelector('[name="aantal"]').value) || 0;
-        var prijs = parseFloat(regel.querySelector('[name="prijs"]').value) || 0;
-        // Zelfde afronding als op de server: eerst de regel, dan de som.
-        som += rondCenten(aantal * prijs);
+        var aantalVeld = regel.querySelector('[name="aantal"]');
+        var prijsVeld = regel.querySelector('[name="prijs"]');
+        var sub = regel.querySelector('[name="regel_subtotaal"]');
+        var minuten = regel.querySelector('[name="regel_minuten"]');
+        var uur = regel.querySelector('[name="regel_uur"]');
+        var bewaard = sub && sub.dataset.bewaard === '1' && String(sub.value).trim() !== '';
+        var centen;
+        if (bewaard) {
+          centen = productCenten('1', sub.value);
+        } else if (uur && uur.value && minuten && String(minuten.value).trim() !== '') {
+          centen = centenVanMinuten(minuten.value, prijsVeld.value);
+          if (sub) sub.value = (centen / 100).toFixed(2);
+        } else {
+          centen = productCenten(aantalVeld.value, prijsVeld.value);
+          if (sub) sub.value = (centen / 100).toFixed(2);
+        }
+        som += centen;
       });
-      totaalveld.textContent = euro(rondCenten(som));
+      totaalveld.textContent = euro(som / 100);
     }
 
     function regelErbij() {
@@ -631,7 +723,13 @@
       nieuw.hidden = false;
       nieuw.querySelectorAll('input').forEach(function (veld) {
         veld.value = veld.name === 'aantal' ? '1' : '';
+        if (veld.name === 'regel_subtotaal') delete veld.dataset.bewaard;
       });
+      var aantalVeld = nieuw.querySelector('[name="aantal"]');
+      if (aantalVeld) {
+        aantalVeld.readOnly = false;
+        aantalVeld.title = '';
+      }
       var soort = nieuw.querySelector('.soort');
       if (soort) soort.value = 'materiaal';
       zetOpen(nieuw, false);
@@ -857,10 +955,16 @@
           regel.querySelector('[name="aantal"]').value = dag.uren;
           regel.querySelector('[name="prijs"]').value = optie.dataset.tarief || '';
           // De dag zelf, niet alleen het aantal uren: opnieuw opslaan moet
-          // dezelfde dag houden.
+          // dezelfde dag houden. Het bedrag komt uit de minuten, niet uit
+          // het afgeronde aantal.
           regel.querySelector('[name="regel_klus"]').value = optie.dataset.klus;
           var uur = regel.querySelector('[name="regel_uur"]');
           if (uur) uur.value = dag.id;
+          var minuten = regel.querySelector('[name="regel_minuten"]');
+          if (minuten) minuten.value = dag.minuten || '';
+          var sub = regel.querySelector('[name="regel_subtotaal"]');
+          if (sub) delete sub.dataset.bewaard;
+          pasDagAantal(regel);
           al[String(dag.id)] = true;
           toegevoegd++;
         });
@@ -947,7 +1051,13 @@
         if (container.children.length === 1) {
           regel.querySelectorAll('input').forEach(function (veld) {
             veld.value = veld.name === 'aantal' ? '1' : '';
+            if (veld.name === 'regel_subtotaal') delete veld.dataset.bewaard;
           });
+          var aantalLeeg = regel.querySelector('[name="aantal"]');
+          if (aantalLeeg) {
+            aantalLeeg.readOnly = false;
+            aantalLeeg.title = '';
+          }
           var soort = regel.querySelector('.soort');
           if (soort) soort.value = 'materiaal';
           pasRegelAan(regel);
@@ -977,6 +1087,12 @@
 
     container.addEventListener('input', function (e) {
       var regel = e.target.closest('.regel');
+      if (regel && (e.target.name === 'prijs' || e.target.name === 'aantal')) {
+        var sub = regel.querySelector('[name="regel_subtotaal"]');
+        // Een gewijzigd tarief of aantal is een nieuw bedrag. Het oude
+        // laten staan zou de wijziging op het scherm verbergen.
+        if (sub) delete sub.dataset.bewaard;
+      }
       if (regel) pasSamenvattingAan(regel);
       berekenTotaal();
     });

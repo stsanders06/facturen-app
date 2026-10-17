@@ -22,6 +22,9 @@ def test_verwijderde_rekening_levert_geen_bestaand_nummer_op(db, maak_factuur):
     maak_factuur(nummer=f"{jaar}-001")
     factuur_id = maak_factuur(nummer=f"{jaar}-002")
     maak_factuur(nummer=f"{jaar}-003")
+    # De regels wijzen naar de rekening. Die gaan eerst weg, anders houdt de
+    # foreign key de rekening tegen.
+    db.execute("DELETE FROM regels WHERE factuur_id=?", (factuur_id,))
     db.execute("DELETE FROM facturen WHERE id=?", (factuur_id,))
     db.commit()
     assert facturen.volgend_nummer(db) == f"{jaar}-004"
