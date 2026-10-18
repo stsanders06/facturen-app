@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.41.2
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **De regels op een offerte vullen de pagina.** Ze stopten te vroeg, met een
+  leeg vlak onder de laatste regel. Nu lopen ze door tot onderaan, net als op
+  een rekening. Alleen het totaal en de toelichting gaan samen naar de volgende
+  pagina als ze er niet meer onder passen. De laatste regel blijft staan.
+
 ## 1.41.1
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
