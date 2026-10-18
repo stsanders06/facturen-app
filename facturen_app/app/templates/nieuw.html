@@ -103,27 +103,71 @@
     .regel {
       background: var(--bg);
       border-radius: var(--radius-sm);
-      padding: 4px 8px 8px;
+      /* Overal dezelfde rand. 4px boven en 8px onder liet de laatste
+         kaart, via padding-bottom: 0, ook nog eens korter uitvallen. */
+      padding: 8px;
       border-bottom: none;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
     }
+    .regel:last-child { margin-bottom: 0; padding: 8px; }
     .regel-samenvatting:hover { background: transparent; }
     .regel[data-open="true"] .regel-samenvatting { background: var(--card); }
     .regel-detail {
-      grid-template-columns: 1fr 1fr;
-      padding: 4px 4px 4px;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      padding: 8px 0 0;
     }
+    .regel-detail .field { min-width: 0; }
+    .regel-detail input,
+    .regel-detail select { min-width: 0; max-width: 100%; }
     .regel .omschrijving-veld { grid-column: 1 / -1; }
     .regel.vaste-prijs .prijs-veld { grid-column: auto; }
-    /* Een dagregel noemt datum en tijden. Op één regel naast uren, prijs en
-       het kruisje lopen die over elkaar heen; de tekst krijgt daarom een
-       eigen regel en de bedragen de volgende. */
-    .regel-samenvatting { flex-wrap: wrap; align-items: flex-start; }
+    /* Een dagregel noemt datum en tijden. Op één rij naast uren, prijs en
+       het kruisje lopen die over elkaar heen. Flex-wrap zette het kruisje,
+       het laatste element, op een eigen rij en het bedrag er scheef boven.
+       Twee vaste rijen: tekst met de uren op de eerste basislijn, en
+       daaronder het bedrag links en het kruisje rechts. */
+    .regel-samenvatting {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas: "tekst qty" "prijs weg";
+      column-gap: 8px;
+      row-gap: 0;
+      align-items: baseline;
+      padding: 0;
+      min-height: 0;
+    }
     .regel-tekst {
-      flex: 1 1 calc(100% - 52px);
+      grid-area: tekst;
+      align-self: baseline;
       white-space: normal;
       overflow: visible;
       text-overflow: clip;
+      min-width: 0;
+    }
+    .regel-qty {
+      grid-area: qty;
+      align-self: baseline;
+      justify-self: end;
+    }
+    .regel-eenheidsprijs {
+      grid-area: prijs;
+      align-self: center;
+      justify-self: start;
+      text-align: left;
+      min-width: 0;
+    }
+    .regel .weg {
+      grid-area: weg;
+      align-self: center;
+      justify-self: end;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 44px;
+      height: 44px;
+      min-width: 44px;
+      min-height: 44px;
+      padding: 0;
     }
   }
   .letop {

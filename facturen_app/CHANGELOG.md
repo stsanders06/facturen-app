@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.39.1
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **De regels op een rekening staan op een telefoon netter.** De omschrijving
+  staat bovenaan, met de uren rechts op dezelfde regel. Daaronder staat het
+  bedrag links en het kruisje rechts, op één lijn. Elke kaart heeft dezelfde
+  ruimte, en tussen de kaarten zit overal evenveel wit.
+
 ## 1.39.0
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
