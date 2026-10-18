@@ -3,6 +3,7 @@
 Een PDF blijft een gewone link. Verwijderen en meesturen zijn knoppen buiten
 de link, dus een tik daarop opent de foto niet.
 """
+import base64
 import io
 
 import pytest
@@ -12,6 +13,9 @@ PNG = bytes.fromhex(
     "01f15c4890000000a49444154789c6300010000050001"
     "0d0a2db40000000049454e44ae426082"
 )
+# Zodat de lichtbak in de test een echte foto laadt. Een relatieve /bijlage-link
+# doet dat niet als de pagina los wordt gezet, en dan verschijnt de HEIC-terugval.
+PNG_URL = "data:image/png;base64," + base64.b64encode(PNG).decode()
 
 
 def _vul(post, db, client):
@@ -43,6 +47,14 @@ def _browser(html):
     browser = p.webkit.launch()
     pagina = browser.new_page(viewport={"width": 390, "height": 844}, device_scale_factor=1)
     pagina.set_content(html)
+    # HEIC blijft naar /bijlage wijzen, zodat die de terugval laat zien.
+    pagina.evaluate("""(url) => {
+      document.querySelectorAll('a[data-soort="foto"]').forEach(function (a) {
+        var naam = (a.getAttribute('data-naam') || '').toLowerCase();
+        if (naam.endsWith('.heic') || naam.endsWith('.heif')) return;
+        a.setAttribute('href', url);
+      });
+    }""", PNG_URL)
     return p, browser, pagina
 
 
@@ -53,6 +65,16 @@ def _dicht(p, browser):
 
 def _label(pagina):
     return pagina.locator("#lichtbak").get_attribute("aria-label")
+
+
+def _wacht_op_foto(pagina):
+    pagina.wait_for_function(
+        """() => {
+          const img = document.getElementById('lichtbak-foto');
+          const mis = document.getElementById('lichtbak-mislukt');
+          return img && img.complete && img.naturalWidth > 0 && mis && mis.hidden;
+        }"""
+    )
 
 
 def test_een_notitiefoto_opent_in_de_lichtbak(post, db, client):
@@ -72,10 +94,13 @@ def test_een_notitiefoto_opent_in_de_lichtbak(post, db, client):
         link = pagina.locator('a[data-naam="voeg-links.png"]')
         link.click()
         bak = pagina.locator("#lichtbak")
+        _wacht_op_foto(pagina)
         assert bak.get_attribute("hidden") is None
         assert bak.get_attribute("role") == "dialog"
         assert bak.get_attribute("aria-modal") == "true"
         assert _label(pagina) == "voeg-links.png"
+        assert pagina.locator("#lichtbak-teller").inner_text() == "Foto 1 van 4"
+        assert pagina.locator("#lichtbak-teller").get_attribute("aria-live") == "polite"
         assert pagina.evaluate(
             "() => document.activeElement.classList.contains('lichtbak-sluit')")
         doos = pagina.locator(".lichtbak-volgende").bounding_box()
@@ -84,6 +109,7 @@ def test_een_notitiefoto_opent_in_de_lichtbak(post, db, client):
 
         pagina.locator(".lichtbak-volgende").click()
         assert _label(pagina) == "voeg-rechts.png"
+        assert pagina.locator("#lichtbak-teller").inner_text() == "Foto 2 van 4"
         pagina.keyboard.press("ArrowRight")
         assert _label(pagina) == "bon-gamma.png"
         pagina.keyboard.press("ArrowLeft")
@@ -132,9 +158,7 @@ def test_een_notitiefoto_opent_in_de_lichtbak(post, db, client):
         pagina.keyboard.press("Escape")
         assert bak.get_attribute("hidden") is not None
         assert pagina.evaluate(
-            """() => document.activeElement.getAttribute('data-naam')""") in {
-            "voeg-links.png", "voeg-rechts.png",
-        }
+            "() => document.activeElement.getAttribute('data-naam') === 'voeg-links.png'")
 
         pagina.locator('a[data-soort="pdf"]').evaluate(
             "el => el.addEventListener('click', e => e.preventDefault(), true)")
@@ -169,7 +193,14 @@ def test_een_bonfoto_en_een_heic_openen_in_de_lichtbak(post, db, client):
 
         pagina.locator('a[data-naam="scherm.heic"]').click()
         assert _label(pagina) == "scherm.heic"
-        pagina.locator("#lichtbak-foto").click()
+        pagina.wait_for_selector("#lichtbak-mislukt:not([hidden])")
+        assert "Deze foto kan hier niet getoond worden" in pagina.locator(
+            "#lichtbak-mislukt").inner_text()
+        openen = pagina.locator("#lichtbak-openen")
+        assert openen.inner_text() == "Openen"
+        assert openen.get_attribute("target") == "_blank"
+        assert "noopener" in (openen.get_attribute("rel") or "")
+        assert (openen.get_attribute("href") or "").startswith("/bijlage/")
         pagina.keyboard.press("Escape")
         assert bak.get_attribute("hidden") is not None
         assert pagina.evaluate(
@@ -211,3 +242,63 @@ def test_een_heic_op_het_mailscherm_is_een_foto(post, db, client):
     )
     assert 'data-soort="foto"' in regel
     assert 'data-soort="pdf"' in pagina
+
+
+def test_sluiten_houdt_de_pagina_bij_de_foto_die_opende(post, db, client):
+    """Bladeren naar een foto verderop mag na sluiten niet daarheen springen."""
+    html = _vul(post, db, client)
+    p, browser, pagina = _browser(html)
+    try:
+        pagina.evaluate(
+            """() => {
+              const bon = document.querySelector('a[data-naam="bon-gamma.png"]');
+              const ruimte = document.createElement('div');
+              ruimte.style.height = '4000px';
+              bon.closest('figure').before(ruimte);
+            }"""
+        )
+        link = pagina.locator('a[data-naam="voeg-links.png"]')
+        link.scroll_into_view_if_needed()
+        link.click()
+        _wacht_op_foto(pagina)
+        pagina.keyboard.press("ArrowRight")
+        pagina.keyboard.press("ArrowRight")
+        assert _label(pagina) == "bon-gamma.png"
+        pagina.keyboard.press("Escape")
+        # De focus hoort op de link die opende, niet op de bon een stuk lager.
+        # focus() mag de link iets bijschuiven; hij mag niet naar die bon springen.
+        plek = pagina.evaluate(
+            """() => {
+              const bon = document.querySelector('a[data-naam="bon-gamma.png"]');
+              const r = document.activeElement.getBoundingClientRect();
+              return {
+                naam: document.activeElement.getAttribute('data-naam'),
+                scroll: window.scrollY,
+                inBeeld: r.top >= -1 && r.bottom <= window.innerHeight + 1,
+                bonTop: bon.getBoundingClientRect().top + window.scrollY,
+              };
+            }"""
+        )
+        assert plek["naam"] == "voeg-links.png"
+        assert plek["inBeeld"]
+        assert plek["scroll"] < plek["bonTop"] - 1500
+    finally:
+        _dicht(p, browser)
+
+
+def test_bidi_staat_niet_in_de_naam_op_de_klus(post, db, client):
+    """U+202E in de opgeslagen naam mag de titel en data-naam niet omdraaien."""
+    post("/klussen/nieuw", {"naam": "Badkamer Voorbeeldstraat", "uurtarief": "45"})
+    klus_id = db.execute("SELECT id FROM klussen").fetchone()[0]
+    post(f"/klus/{klus_id}/notitie", {
+        "tekst": "Voeg",
+        "foto": (io.BytesIO(PNG), "voeg.png"),
+    }, content_type="multipart/form-data")
+    db.execute("UPDATE bijlagen SET naam=?", ("voeg\u202e\u200e\u202a\u2066.png",))
+    db.commit()
+    html = client.get(f"/klus/{klus_id}").data.decode()
+    assert "\u202e" not in html
+    assert "\u200e" not in html
+    assert "\u202a" not in html
+    assert "\u2066" not in html
+    assert 'data-naam="voeg.png"' in html

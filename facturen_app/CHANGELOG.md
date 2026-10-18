@@ -7,8 +7,10 @@ genoeg; anders blijft de vorige versie draaien.
 
 - **Een foto opent overal groot in beeld.** Bij een notitie en bij een bon op
   de klus, net als op het mailscherm. Staan er meer foto's op de pagina, dan
-  ga je met de pijlen of een veeg naar de vorige en de volgende. Een PDF opent
-  nog steeds in een tabblad.
+  ga je met de pijlen of een veeg naar de vorige en de volgende. Onderaan staat
+  welke het is, bijvoorbeeld «Foto 2 van 4». Kan de browser een HEIC-foto niet
+  tonen, dan staat er een zin en een link om het bestand alsnog te openen.
+  Een PDF opent nog steeds in een tabblad.
 
 ## 1.38.0
 

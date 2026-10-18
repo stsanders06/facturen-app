@@ -47,9 +47,44 @@
   .lichtbak-volgende { right: 8px; top: 50%; margin-top: -22px; }
   .lichtbak-sluit:focus,
   .lichtbak-vorige:focus,
-  .lichtbak-volgende:focus {
+  .lichtbak-volgende:focus,
+  .lichtbak-openen:focus {
     outline: 2px solid #fff;
     outline-offset: 2px;
+  }
+  .lichtbak-mislukt {
+    color: #fff;
+    text-align: center;
+    max-width: 280px;
+  }
+  .lichtbak-mislukt[hidden] { display: none; }
+  .lichtbak-mislukt p { margin: 0 0 16px; font-size: 17px; line-height: 1.4; }
+  .lichtbak-openen {
+    color: #fff;
+    font-size: 17px;
+    min-height: 44px;
+    min-width: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 18px;
+    border: 1px solid rgba(255, 255, 255, .45);
+    border-radius: 22px;
+    text-decoration: none;
+  }
+  .lichtbak-teller {
+    position: absolute;
+    left: 50%;
+    bottom: 12px;
+    transform: translateX(-50%);
+    z-index: 2;
+    margin: 0;
+    padding: 6px 12px;
+    border-radius: 14px;
+    background: rgba(0, 0, 0, .55);
+    color: #fff;
+    font-size: 15px;
+    white-space: nowrap;
   }
 </style>
 
@@ -58,6 +93,13 @@
   <button type="button" class="lichtbak-vorige" data-stap="-1" aria-label="Vorige foto" hidden>‹</button>
   <button type="button" class="lichtbak-volgende" data-stap="1" aria-label="Volgende foto" hidden>›</button>
   <img id="lichtbak-foto" alt="">
+  <div id="lichtbak-mislukt" class="lichtbak-mislukt" hidden>
+    <p>Deze foto kan hier niet getoond worden</p>
+    {# Op poort 8099 een nieuw tabblad. In de zijbalk niet: dat venster heeft
+       de cookie van Ingress niet. Zelfde regel als de andere bestandslinks. #}
+    <a id="lichtbak-openen" class="lichtbak-openen" href="" {{ nieuw_tabblad }}>Openen</a>
+  </div>
+  <p id="lichtbak-teller" class="lichtbak-teller" aria-live="polite"></p>
 </div>
 
 <script>
@@ -67,8 +109,15 @@
     var sluitknop = bak && bak.querySelector('[data-sluit]');
     var vorige = bak && bak.querySelector('[data-stap="-1"]');
     var volgende = bak && bak.querySelector('[data-stap="1"]');
-    if (!bak || !img || !sluitknop || !vorige || !volgende) return;
+    var mislukt = document.getElementById('lichtbak-mislukt');
+    var openen = document.getElementById('lichtbak-openen');
+    var teller = document.getElementById('lichtbak-teller');
+    if (!bak || !img || !sluitknop || !vorige || !volgende || !mislukt || !openen || !teller) return;
+    // De link die de lichtbak opende. Bladeren verandert die niet: anders
+    // springt de pagina na sluiten naar een foto verderop.
     var geopendVanaf = null;
+    var huidige = null;
+    var poging = 0;
     var raak = null;
 
     function fotos() {
@@ -80,7 +129,11 @@
         bak.querySelectorAll(
           'button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
         ),
-        function (el) { return !el.hidden; }
+        function (el) {
+          // hidden op een voorouder telt niet via el.hidden. De link «Openen»
+          // zit in een verborgen blok zolang de foto wél laadt.
+          return !el.hidden && !(el.closest && el.closest('[hidden]'));
+        }
       );
     }
 
@@ -88,14 +141,27 @@
       if (bak.hidden) return;
       // Weghalen, anders blijft Escape de lichtbak claimen terwijl die al
       // dicht is en de menu's niet meer sluit.
+      poging += 1;
       document.removeEventListener('keydown', opToets, true);
       bak.hidden = true;
       img.removeAttribute('src');
+      img.hidden = false;
+      mislukt.hidden = true;
       vorige.hidden = true;
       volgende.hidden = true;
+      teller.textContent = '';
       var terug = geopendVanaf;
       geopendVanaf = null;
+      huidige = null;
       if (terug) terug.focus();
+    }
+
+    // Chrome en Firefox tekenen geen HEIC. Zonder deze terugval blijft een
+    // kapot icoon staan en is het bestand niet meer te openen.
+    function toonMislukt(link) {
+      img.hidden = true;
+      mislukt.hidden = false;
+      openen.href = link.getAttribute('href') || '';
     }
 
     function zetFoto(link, focusSluiten) {
@@ -106,14 +172,26 @@
         index = 0;
       }
       var gekozen = lijst[index];
-      geopendVanaf = gekozen;
+      huidige = gekozen;
       var naam = gekozen.getAttribute('data-naam') || 'Foto';
       bak.setAttribute('aria-label', naam);
       img.alt = naam;
-      img.src = gekozen.getAttribute('href');
+      teller.textContent = 'Foto ' + (index + 1) + ' van ' + lijst.length;
       var meer = lijst.length > 1;
       vorige.hidden = !meer;
       volgende.hidden = !meer;
+      img.hidden = false;
+      mislukt.hidden = true;
+      var deze = ++poging;
+      img.onload = function () {
+        if (deze !== poging) return;
+        if (!img.naturalWidth) toonMislukt(gekozen);
+      };
+      img.onerror = function () {
+        if (deze !== poging) return;
+        toonMislukt(gekozen);
+      };
+      img.src = gekozen.getAttribute('href');
       if (bak.hidden) {
         bak.hidden = false;
         document.removeEventListener('keydown', opToets, true);
@@ -124,8 +202,8 @@
 
     function stap(delta) {
       var lijst = fotos();
-      if (lijst.length < 2 || !geopendVanaf) return;
-      var index = lijst.indexOf(geopendVanaf);
+      if (lijst.length < 2 || !huidige) return;
+      var index = lijst.indexOf(huidige);
       if (index < 0) index = 0;
       var nieuw = (index + delta) % lijst.length;
       if (nieuw < 0) nieuw += lijst.length;
@@ -169,6 +247,7 @@
       link.addEventListener('click', function (ev) {
         if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || ev.button !== 0) return;
         ev.preventDefault();
+        geopendVanaf = link;
         zetFoto(link, true);
       });
     });
