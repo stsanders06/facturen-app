@@ -184,62 +184,21 @@
      display:contents zodat de knop zelf in de rij blijft staan: een extra
      div eromheen brak de volle breedte op telefoon. */
   .bon-keuze[hidden],
-  .klus-keuze[hidden],
   .dag-keuze[hidden],
   #alle-dagen[hidden],
   #alle-bonnen[hidden] { display: none; }
   #bon-menu,
-  #klus-menu { display: contents; }
+  #dag-menu { display: contents; }
   #bon-menu[hidden],
-  #klus-menu[hidden] { display: none; }
+  #dag-menu[hidden] { display: none; }
+  /* Zelfde raakvlak als de knop erboven. Geldt voor dagen én bonnen, anders
+     wijkt het ene menu af van het andere. */
+  .regelknoppen .menu-item { min-height: 44px; box-sizing: border-box; }
   .menu-uitleg {
     margin: 4px 12px 8px;
     font-size: 12px;
     color: var(--text-secondary);
     max-width: 24ch;
-  }
-  /* De dagen komen pas tevoorschijn als je een klus kiest. Op de telefoon is
-     dat een lijst in de pagina, niet een tweede menu dat over de regels valt. */
-  .keuze-paneel {
-    margin-top: 12px;
-    padding: 10px 12px 12px;
-    background: var(--bg);
-    border-radius: var(--radius-sm);
-  }
-  .keuze-paneel[hidden] { display: none; }
-  .keuze-kop {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    margin-bottom: 8px;
-  }
-  .keuze-kop p { margin: 0; font-weight: 500; }
-  .keuze-lijst { display: flex; flex-direction: column; gap: 6px; }
-  .dag-keuze {
-    display: block;
-    width: 100%;
-    min-height: 44px;
-    text-align: left;
-    padding: 10px 12px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--card);
-    color: var(--text);
-    font: inherit;
-    font-size: 14px;
-    line-height: 1.35;
-    cursor: pointer;
-    white-space: normal;
-  }
-  .keuze-leeg {
-    margin: 0;
-    font-size: 13px;
-    color: var(--text-secondary);
-  }
-  @media (max-width: 620px) {
-    .keuze-kop .btn { width: 100%; min-height: 44px; justify-content: center; }
   }
 
   @media (max-width: 620px) {
@@ -522,22 +481,27 @@
       {#- De twee manieren om regels ergens vandaan te halen staan rechts, in
           dezelfde vorm als de knop links: anders leest de rij als een rommeltje. -#}
       <span class="haal-op">
-        {% if klussen %}
-        {#- Alle open klussen staan in de pagina, ook die van een andere klant: die
-            zijn verborgen. Wissel je van klant, dan kan het script ze tonen zonder
-            opnieuw te laden. Zonder klant alleen klussen die ook geen klant hebben. -#}
-        <div id="klus-menu" {% if not klussen|selectattr('past')|list %}hidden{% endif %}>
-        {% call menu('Dagen van een klus toevoegen', 'Dagen van een klus') %}
-          {% for kl in klussen %}
-          <button type="button" class="menu-item klus-keuze"
-                  data-klus="{{ kl.id }}"
-                  data-naam="{{ kl.naam }}"
-                  data-uren="{{ kl.uren_open }}"
-                  data-dagen="{{ kl.dagen|tojson|forceescape }}"
-                  data-tarief="{{ '%.2f'|format(kl.uurtarief or 0) }}"
-                  data-klant="{{ kl.klant_id or '' }}"
-                  {% if not kl.past %}hidden{% endif %}>
-            {{ kl.naam }} · {{ kl.uren_open|uren }} u{% if kl.klant_naam %} · {{ kl.klant_naam }}{% endif %}
+        {% if open_dagen %}
+        {#- Alle gesloten dagen staan in de pagina, ook die van een andere klant:
+            die zijn verborgen. Zelfde menu als de bonnen: één regel per dag, met
+            de klusnaam erop. Een dag die al op déze rekening staat begint
+            verborgen; het script zet hem terug als je de regel weghaalt. -#}
+        <div id="dag-menu" {% if not open_dagen|selectattr('past')|list %}hidden{% endif %}>
+        {% call menu('Dag van een klus toevoegen', 'Dag van een klus') %}
+          {% set gebruikte_dagen = (regels or [])|map(attribute='uur_id')|list %}
+          <button type="button" class="menu-item" id="alle-dagen">Alle dagen toevoegen</button>
+          {% for d in open_dagen %}
+          <button type="button" class="menu-item dag-keuze"
+                  data-uur="{{ d.id }}"
+                  data-klus="{{ d.klus_id }}"
+                  data-klusnaam="{{ d.klus_naam }}"
+                  data-omschrijving="{{ d.omschrijving }}"
+                  data-uren="{{ d.uren }}"
+                  data-minuten="{{ d.minuten }}"
+                  data-prijs="{{ '%.2f'|format(d.uurtarief or 0) }}"
+                  data-klant="{{ d.klant_id or '' }}"
+                  {% if not d.past or d.id in gebruikte_dagen %}hidden{% endif %}>
+            {{ d.label }}{% if d.klus_naam %} · {{ d.klus_naam }}{% endif %}
           </button>
           {% endfor %}
         {% endcall %}
@@ -574,7 +538,7 @@
           <p class="menu-uitleg">Kopjes op de eerste regel: omschrijving, aantal,
             prijs en eventueel soort.</p>
         {% endcall %}
-        {#- Zelfde rij als CSV inlezen en Uren van een klus. Op een telefoon
+        {#- Zelfde rij als CSV inlezen en Dag van een klus. Op een telefoon
             stapelt die rij onder + Regel; een losse knop erbuiten werd afgekapt. -#}
         <a class="btn btn-outline csv-dagen" id="csv-dagen"
            href="{{ url_for('gewerkte_dagen_csv') }}"
@@ -582,14 +546,6 @@
           Gewerkte dagen</a>
       </span>
       <input type="file" id="regels_csv" accept=".csv,text/csv,text/plain" hidden>
-    </div>
-    <div id="dag-paneel" class="keuze-paneel" hidden>
-      <div class="keuze-kop">
-        <p id="dag-paneel-titel">Dagen</p>
-        <button type="button" class="btn btn-outline" id="alle-dagen">Alle dagen toevoegen</button>
-      </div>
-      <div id="dag-lijst" class="keuze-lijst"></div>
-      <p class="keuze-leeg" id="dag-leeg" hidden>Deze dagen staan al op de rekening.</p>
     </div>
     <p class="hint" id="regelmelding" hidden></p>
 
@@ -1038,155 +994,79 @@
       }
     }
 
-    function zetDagOpRekening(dag, optie) {
-      if (!dag || !dag.id) return false;
-      if (idsOpHetFormulier('regel_uur')[String(dag.id)]) return false;
+    function zetDagOpRekening(knop) {
+      if (!knop || !knop.dataset.uur) return false;
+      if (idsOpHetFormulier('regel_uur')[knop.dataset.uur]) return false;
       allesTonen = true;
       var regel = regelErbij();
       regel.querySelector('.soort').value = 'arbeid_uur';
       pasRegelAan(regel);
-      regel.querySelector('[name="omschrijving"]').value = dag.omschrijving || '';
-      regel.querySelector('[name="aantal"]').value = dag.uren;
-      regel.querySelector('[name="prijs"]').value = optie.dataset.tarief || dag.prijs || '';
+      regel.querySelector('[name="omschrijving"]').value = knop.dataset.omschrijving || '';
+      regel.querySelector('[name="aantal"]').value = knop.dataset.uren || '';
+      regel.querySelector('[name="prijs"]').value = knop.dataset.prijs || '';
       // De dag zelf, niet alleen het aantal uren: opnieuw opslaan moet
       // dezelfde dag houden. Het bedrag komt uit de minuten, niet uit
       // het afgeronde aantal.
-      regel.querySelector('[name="regel_klus"]').value = optie.dataset.klus;
+      regel.querySelector('[name="regel_klus"]').value = knop.dataset.klus || '';
       var uur = regel.querySelector('[name="regel_uur"]');
-      if (uur) uur.value = dag.id;
+      if (uur) uur.value = knop.dataset.uur;
       var minuten = regel.querySelector('[name="regel_minuten"]');
-      if (minuten) minuten.value = dag.minuten || '';
+      if (minuten) minuten.value = knop.dataset.minuten || '';
       var sub = regel.querySelector('[name="regel_subtotaal"]');
       if (sub) delete sub.dataset.bewaard;
       pasDagAantal(regel);
+      legeBeginregelWeg();
+      klantVanOptie(knop);
       zetOpen(regel, false);
       pasSamenvattingAan(regel);
+      pasInklappenAan();
+      berekenTotaal();
+      verversDagen();
+      verversBonnen();
       return true;
     }
 
-    var gekozenKlus = null;
-
-    function dagenVan(optie) {
-      if (!optie) return [];
-      try { return JSON.parse(optie.dataset.dagen || '[]'); }
-      catch (e) { return []; }
+    // Dagen en bonnen delen één verversing: verkeerde klant weg, en wat al op
+    // het formulier staat ook. Anders gedraagt het dagenmenu zich anders dan
+    // het bonnenmenu zodra je een regel weghaalt of van klant wisselt.
+    function verversKeuzes(selector, veld, sleutel, allesId, menuId) {
+      var gekozen = klantKeuze ? klantKeuze.value : '';
+      var bezet = idsOpHetFormulier(veld);
+      var zichtbaar = 0;
+      document.querySelectorAll(selector).forEach(function (knop) {
+        var past = bonPastBijKlant(knop.dataset.klant || '', gekozen);
+        var al = !!bezet[knop.dataset[sleutel]];
+        knop.hidden = !past || al;
+        if (past && !al) zichtbaar += 1;
+      });
+      var alles = document.getElementById(allesId);
+      if (alles) alles.hidden = zichtbaar === 0;
+      var menu = document.getElementById(menuId);
+      if (menu) menu.hidden = zichtbaar === 0;
     }
 
-    function verversDaglijst() {
-      var paneel = document.getElementById('dag-paneel');
-      var lijst = document.getElementById('dag-lijst');
-      var leeg = document.getElementById('dag-leeg');
-      var alles = document.getElementById('alle-dagen');
-      if (!paneel || !lijst) return;
-      if (!gekozenKlus || gekozenKlus.hidden) {
-        paneel.hidden = true;
-        return;
-      }
-      var bezet = idsOpHetFormulier('regel_uur');
-      var dagen = dagenVan(gekozenKlus);
-      lijst.textContent = '';
-      var vrij = 0;
-      dagen.forEach(function (dag) {
-        if (!dag || bezet[String(dag.id)]) return;
-        var knop = document.createElement('button');
-        knop.type = 'button';
-        knop.className = 'dag-keuze';
-        knop.dataset.uur = String(dag.id);
-        var uren = fmtAantal(parseFloat(dag.uren) || 0);
-        knop.textContent = (dag.omschrijving || 'Dag') + (uren ? ' · ' + uren + ' u' : '');
-        knop.addEventListener('click', function () {
-          if (zetDagOpRekening(dag, gekozenKlus)) {
-            legeBeginregelWeg();
-            klantVanOptie(gekozenKlus);
-            pasInklappenAan();
-            berekenTotaal();
-            verversDaglijst();
-            verversBonnen();
-          }
-        });
-        lijst.appendChild(knop);
-        vrij += 1;
-      });
-      paneel.hidden = false;
-      if (!dagen.length) {
-        if (alles) alles.hidden = true;
-        if (leeg) {
-          leeg.hidden = false;
-          leeg.textContent = 'Er zijn geen afgesloten dagen. Een dag die nog bezig is telt niet mee.';
-        }
-        return;
-      }
-      if (alles) alles.hidden = vrij === 0;
-      if (leeg) {
-        leeg.hidden = vrij !== 0;
-        leeg.textContent = 'Deze dagen staan al op de rekening.';
-      }
+    function verversDagen() {
+      verversKeuzes('.dag-keuze', 'regel_uur', 'uur', 'alle-dagen', 'dag-menu');
     }
 
-    var zetKlusOpRekening = function (optie) {
-        if (!optie || !optie.dataset.klus) return;
-        var dagen = dagenVan(optie).filter(function (dag) {
-          return dag && !idsOpHetFormulier('regel_uur')[String(dag.id)];
-        });
-        if (!dagenVan(optie).length) {
-          melding.textContent = 'Er zijn geen afgesloten dagen om op de rekening '
-            + 'te zetten. Een dag die nog bezig is telt niet mee.';
-          melding.style.color = 'var(--danger)';
-          melding.hidden = false;
-          return;
-        }
-        if (!dagen.length) {
-          melding.textContent = 'Deze dagen staan al op de rekening.';
-          melding.style.color = '';
-          melding.hidden = false;
-          verversDaglijst();
-          return;
-        }
-        dagen.forEach(function (dag) { zetDagOpRekening(dag, optie); });
-        legeBeginregelWeg();
-        klantVanOptie(optie);
-        container.querySelectorAll('.regel').forEach(function (regel) {
-          zetOpen(regel, false);
-          pasSamenvattingAan(regel);
-        });
-        pasInklappenAan();
-        berekenTotaal();
-        verversDaglijst();
-        verversBonnen();
-    };
+    function verversBonnen() {
+      verversKeuzes('.bon-keuze', 'regel_inkoop', 'inkoop', 'alle-bonnen', 'bon-menu');
+    }
 
-    document.querySelectorAll('.klus-keuze').forEach(function (knop) {
-      knop.addEventListener('click', function () {
-        gekozenKlus = knop;
-        var titel = document.getElementById('dag-paneel-titel');
-        if (titel) titel.textContent = 'Dagen van ' + (knop.dataset.naam || 'deze klus');
-        var menu = knop.closest('details');
-        if (menu) menu.open = false;
-        verversDaglijst();
-      });
+    document.querySelectorAll('.dag-keuze').forEach(function (knop) {
+      knop.addEventListener('click', function () { zetDagOpRekening(knop); });
     });
 
     var alleDagen = document.getElementById('alle-dagen');
     if (alleDagen) {
       alleDagen.addEventListener('click', function () {
-        zetKlusOpRekening(gekozenKlus);
+        var knoppen = Array.prototype.filter.call(
+          document.querySelectorAll('.dag-keuze'),
+          function (knop) { return !knop.hidden; }
+        );
+        if (!knoppen.length) return;
+        knoppen.forEach(function (knop) { zetDagOpRekening(knop); });
       });
-    }
-
-    function verversBonnen() {
-      var gekozen = klantKeuze ? klantKeuze.value : '';
-      var bezet = idsOpHetFormulier('regel_inkoop');
-      var zichtbaar = 0;
-      document.querySelectorAll('.bon-keuze').forEach(function (knop) {
-        var past = bonPastBijKlant(knop.dataset.klant || '', gekozen);
-        var al = !!bezet[knop.dataset.inkoop];
-        knop.hidden = !past || al;
-        if (past && !al) zichtbaar += 1;
-      });
-      var alles = document.getElementById('alle-bonnen');
-      if (alles) alles.hidden = zichtbaar === 0;
-      var menu = document.getElementById('bon-menu');
-      if (menu) menu.hidden = zichtbaar === 0;
     }
 
     var zetBonOpRekening = function (optie) {
@@ -1269,7 +1149,7 @@
         }
         pasInklappenAan();
         berekenTotaal();
-        verversDaglijst();
+        verversDagen();
         verversBonnen();
         return;
       }
@@ -1368,25 +1248,12 @@
       return !klantVanBon;
     }
 
-    function pasLijstAan(keuze, menuId) {
-      var gekozen = klantKeuze ? klantKeuze.value : '';
-      var zichtbaar = 0;
-      document.querySelectorAll(keuze).forEach(function (knop) {
-        var past = bonPastBijKlant(knop.dataset.klant || '', gekozen);
-        knop.hidden = !past;
-        if (past) zichtbaar += 1;
-      });
-      var menu = document.getElementById(menuId);
-      if (menu) menu.hidden = zichtbaar === 0;
-    }
-
     function pasBonnenAan() {
       verversBonnen();
     }
 
     function pasKlussenAan() {
-      pasLijstAan('.klus-keuze', 'klus-menu');
-      verversDaglijst();
+      verversDagen();
     }
 
     document.getElementById('klant-bewerken').addEventListener('click', function () {
@@ -1423,7 +1290,7 @@
         if (!container.querySelector('.regel')) regelErbij();
         pasInklappenAan();
         berekenTotaal();
-        verversDaglijst();
+        verversDagen();
         verversBonnen();
       }
       vorigeKlant = klantKeuze.value;
@@ -1432,12 +1299,25 @@
     });
     pasKlantAan(false);
 
-    // Kom je vanaf een klus binnen ("Op rekening zetten"), dan staat hij er al op.
-    // Dit gebeurt als laatste, want het vult ook de klant in.
+    // Kom je vanaf een klus binnen ("Op rekening zetten") en de server heeft de
+    // dagen niet al op het formulier gezet, dan zijn er geen afgesloten dagen.
+    // Met dagen erop is het veld leeg, anders zou elke dag er dubbel op komen.
     var voorafKlus = document.getElementById('vooraf-klus');
     if (voorafKlus && voorafKlus.value) {
-      zetKlusOpRekening(
-        document.querySelector('.klus-keuze[data-klus="' + voorafKlus.value + '"]'));
+      var vanDezeKlus = Array.prototype.filter.call(
+        document.querySelectorAll('.dag-keuze'),
+        function (knop) {
+          return knop.dataset.klus === voorafKlus.value && !knop.hidden;
+        }
+      );
+      if (!vanDezeKlus.length) {
+        melding.textContent = 'Er zijn geen afgesloten dagen om op de rekening '
+          + 'te zetten. Een dag die nog bezig is telt niet mee.';
+        melding.style.color = 'var(--danger)';
+        melding.hidden = false;
+      } else {
+        vanDezeKlus.forEach(function (knop) { zetDagOpRekening(knop); });
+      }
     }
 
     // Een lege rekening of offerte levert een PDF van € 0,00 op en verbruikt wel een

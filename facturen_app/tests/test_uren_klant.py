@@ -24,7 +24,7 @@ def _klus_met_uren(post, db, naam, klant_id=None):
 
 
 def _knop(html, naam):
-    plek = html.find(f'data-naam="{naam}"')
+    plek = html.find(f'data-klusnaam="{naam}"')
     assert plek != -1, naam
     begin = html.rfind("<button", 0, plek)
     einde = html.find(">", plek)
@@ -32,7 +32,7 @@ def _knop(html, naam):
 
 
 def _menu_kop(html):
-    return html.split('id="klus-menu"', 1)[1].split(">", 1)[0]
+    return html.split('id="dag-menu"', 1)[1].split(">", 1)[0]
 
 
 def test_geboekte_klussen_markeert_wie_bij_de_klant_hoort(post, db):
@@ -95,7 +95,7 @@ def test_rekening_voor_klant_toont_alleen_diens_uren(post, db, client):
     assert "hidden" in _knop(pagina, "Losse klus")
     # Piet blijft in de pagina, met zijn klant, zodat een wissel hem kan tonen.
     assert f'data-klant="{piet}"' in _knop(pagina, "Dak Piet")
-    assert 'id="klus-menu"' in pagina
+    assert 'id="dag-menu"' in pagina
     assert "hidden" not in _menu_kop(pagina)
 
 
@@ -146,16 +146,20 @@ def test_een_klantwissel_filtert_de_uren_opnieuw(client):
     klant_fn = pagina.split("function pasKlantAan", 1)[1].split("function bonPastBijKlant", 1)[0]
     assert "pasKlussenAan();" in klant_fn
 
-    lijst = pagina.split("function pasLijstAan", 1)[1].split("function pasBonnenAan", 1)[0]
+    lijst = pagina.split("function verversKeuzes", 1)[1].split("function verversDagen", 1)[0]
     assert "bonPastBijKlant" in lijst
-    assert "knop.hidden = !past" in lijst
+    assert "knop.hidden = !past || al" in lijst
     assert "menu.hidden = zichtbaar === 0" in lijst
 
     klus_fn = pagina.split("function pasKlussenAan()", 1)[1].split("document.getElementById('klant-bewerken')", 1)[0]
-    assert "'.klus-keuze'" in klus_fn
-    assert "'klus-menu'" in klus_fn
+    assert "verversDagen();" in klus_fn
+    dagen_fn = pagina.split("function verversDagen()", 1)[1].split("function verversBonnen", 1)[0]
+    assert "'.dag-keuze'" in dagen_fn
+    assert "'dag-menu'" in dagen_fn
 
     # .menu-item zet display:block en dat wint van het hidden-attribuut.
-    assert ".klus-keuze[hidden]" in pagina
-    assert "#klus-menu[hidden]" in pagina
-    assert "display: none" in pagina.split(".klus-keuze[hidden]", 1)[1].split("}", 1)[0]
+    assert ".dag-keuze[hidden]" in pagina
+    assert "#dag-menu[hidden]" in pagina
+    assert "display: none" in pagina.split(".dag-keuze[hidden]", 1)[1].split("}", 1)[0]
+    # Zelfde raakvlak als de bonnen in dit menu.
+    assert "min-height: 44px" in pagina.split(".regelknoppen .menu-item", 1)[1].split("}", 1)[0]

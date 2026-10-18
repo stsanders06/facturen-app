@@ -48,8 +48,8 @@ with sync_playwright() as p:
 
     print("\n== Uren van een klus ==")
     pg.goto(BASIS + "/nieuw", wait_until="networkidle")
-    pg.locator("details.menu > summary", has_text="Dagen van een klus").click()
-    pg.locator(".klus-keuze").first.click()
+    pg.locator("details.menu > summary", has_text="Dag van een klus").click()
+    pg.locator(".dag-keuze").first.click()
     pg.wait_for_timeout(150)
     ingevuld = pg.locator("#regels .regel").last.locator("[name=omschrijving]").input_value()
     zeg("een klus zet zichzelf als regel neer", ingevuld != "", ingevuld)
