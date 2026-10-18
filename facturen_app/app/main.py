@@ -21,7 +21,8 @@ from urllib.request import Request, urlopen
 from urllib.error import URLError
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from flask import (
-    Flask, abort, request, redirect, url_for, render_template, send_file, flash, session
+    Flask, abort, make_response, request, redirect, url_for, render_template,
+    send_file, flash, session,
 )
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
@@ -29,13 +30,14 @@ from reportlab.lib import colors
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
 from markupsafe import Markup, escape
+from werkzeug.exceptions import NotFound
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.37.2"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.38.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -140,6 +142,69 @@ BIJLAGE_TYPES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".heic", ".heif", ".p
 
 # Wat een browser zelf als plaatje kan laten zien; de rest krijgt een bestandsicoon.
 BIJLAGE_PLAATJES = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+
+# Zelfde lijst, maar dan het type dat de browser bij het openen verwacht. Zonder
+# dit gokt de server het aan de hand van de naam, en een PDF die als plaatje
+# binnenkomt opent op een iPhone niet.
+BIJLAGE_MIMES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".heic": "image/heic",
+    ".heif": "image/heif",
+    ".pdf": "application/pdf",
+}
+
+
+def veilig_pad(map_, naam):
+    """Alleen een kale bestandsnaam binnen deze map.
+
+    De naam in de database is een willekeurig voorvoegsel plus de extensie.
+    Staat er toch een map of .. in, dan wijst het pad naar buiten de app en
+    mag niemand dat bestand opvragen of meesturen. Een NUL of een regeleinde
+    in de naam laat het bestandssysteem of de antwoordkop stuklopen; dat is
+    geen bestand, dus ook geen pad."""
+    if not naam or any(teken in naam for teken in ("\x00", "\r", "\n")):
+        return None
+    kale = os.path.basename(naam)
+    if not kale or kale != naam or kale in {".", ".."}:
+        return None
+    wortel = os.path.realpath(map_)
+    pad = os.path.realpath(os.path.join(wortel, kale))
+    try:
+        if os.path.commonpath([wortel, pad]) != wortel:
+            return None
+    except ValueError:
+        return None
+    return pad
+
+
+def formaat_grootte(pad):
+    """Bestandsgrootte in gewone taal, voor onder de bestandsnaam."""
+    try:
+        aantal = os.path.getsize(pad)
+    except OSError:
+        return ""
+    if aantal < 1024:
+        return "1 byte" if aantal == 1 else f"{aantal} bytes"
+    if aantal < 1024 * 1024:
+        waarde, eenheid = aantal / 1024, "kB"
+    else:
+        waarde, eenheid = aantal / (1024 * 1024), "MB"
+    tekst = f"{waarde:.0f}" if waarde >= 10 else f"{waarde:.1f}".replace(".", ",")
+    return f"{tekst} {eenheid}"
+
+
+def soort_bijlage(ext):
+    if ext in BIJLAGE_PLAATJES:
+        return "Foto"
+    if ext == ".pdf":
+        return "PDF"
+    if ext in {".heic", ".heif"}:
+        return "HEIC"
+    return "Bestand"
 
 
 def csrf_token():
@@ -368,6 +433,48 @@ def via_ingress():
     except ValueError:
         return False
     return any(afzender in netwerk for netwerk in INGRESS_NETWERKEN)
+
+
+def zet_bestandskoppen(antwoord):
+    """Nosniff en no-store op een foto, een PDF, of de 404 die daarbij hoort.
+
+    nosniff: de browser houdt zich aan het type dat we meesturen en gaat niet
+    zelf raden. no-store: het hoort bij een ingelogde sessie en mag niet in
+    een gedeelde of blijvende cache. send_file zet anders alleen no-cache,
+    en dat mag een cache nog wel bewaren. Een 404 van dezelfde route krijgt
+    dezelfde koppen, anders is juist de lege pagina te cachen."""
+    antwoord.headers["X-Content-Type-Options"] = "nosniff"
+    antwoord.headers["Cache-Control"] = "private, no-store"
+    return antwoord
+
+
+def niet_gevonden():
+    """Geen bestand. Ook deze lege pagina niet bewaren of laten raden."""
+    return zet_bestandskoppen(make_response("Niet gevonden", 404))
+
+
+def veilige_downloadnaam(naam):
+    """Weergavenaam voor Content-Disposition.
+
+    Een regeleinde in die kop laat de server met 500 stuklopen, of smokkelt
+    een tweede kop mee. De tekens gaan eruit; het bestand zelf blijft
+    gewoon te openen."""
+    schoon = "".join(
+        teken for teken in (naam or "") if ord(teken) >= 32 and teken != "\x7f"
+    ).strip()
+    return schoon or "bijlage"
+
+
+def toon_bestand(pad, mimetype, download_name):
+    """Stuur een foto of PDF om te bekijken, niet om te bewaren in een cache."""
+    antwoord = send_file(
+        pad,
+        mimetype=mimetype,
+        as_attachment=als_download(),
+        download_name=veilige_downloadnaam(download_name),
+        max_age=0,
+    )
+    return zet_bestandskoppen(antwoord)
 
 
 def als_download():
@@ -3816,16 +3923,24 @@ def bijlage_erbij(klus_id):
 
 @app.route("/bijlage/<int:bijlage_id>")
 def bijlage(bijlage_id):
-    """Toont de foto of het bonnetje in de browser."""
+    """Toont de foto of het bonnetje in de browser.
+
+    Zelfde route als op de kluspagina: ingelogd zijn is verplicht, en het bestand
+    moet in de bijlagenmap staan. Inline, zodat een iPhone hem in het tabblad
+    laat zien in plaats van hem alleen te downloaden. In de zijbalk van Home
+    Assistant blijft het een download, zie als_download()."""
     conn = get_db()
     rij = conn.execute("SELECT * FROM bijlagen WHERE id=?", (bijlage_id,)).fetchone()
     conn.close()
     if rij is None:
-        abort(404)
-    pad = os.path.join(BIJLAGE_DIR, rij["bestand"])
-    if not os.path.exists(pad):
-        abort(404)
-    return send_file(pad, as_attachment=als_download(), download_name=rij["naam"])
+        return niet_gevonden()
+    pad = veilig_pad(BIJLAGE_DIR, rij["bestand"])
+    if pad is None or not os.path.isfile(pad):
+        return niet_gevonden()
+    mime = BIJLAGE_MIMES.get(os.path.splitext(pad)[1].lower())
+    if mime is None:
+        return niet_gevonden()
+    return toon_bestand(pad, mime, rij["naam"])
 
 
 @app.route("/bijlage/<int:bijlage_id>/meesturen", methods=["POST"])
@@ -5881,15 +5996,19 @@ def _offerte_pdf_pad(offerte_id):
 
 @app.route("/offerte/<int:offerte_id>/bekijk")
 def bekijk_offerte(offerte_id):
-    pad, nummer = _offerte_pdf_pad(offerte_id)
-    return send_file(pad, mimetype="application/pdf", as_attachment=als_download(),
-                     download_name=f"{nummer}.pdf")
+    try:
+        pad, nummer = _offerte_pdf_pad(offerte_id)
+    except NotFound:
+        return niet_gevonden()
+    return toon_bestand(pad, "application/pdf", f"{nummer}.pdf")
 
 
 @app.route("/offerte/<int:offerte_id>/pdf")
 def download_offerte(offerte_id):
     pad, nummer = _offerte_pdf_pad(offerte_id)
-    return send_file(pad, as_attachment=True, download_name=f"{nummer}.pdf")
+    return zet_bestandskoppen(
+        send_file(pad, as_attachment=True, download_name=f"{nummer}.pdf")
+    )
 
 
 @app.route("/offerte/<int:offerte_id>/vernieuw", methods=["POST"])
@@ -5908,12 +6027,13 @@ def offerte_mail(offerte_id):
     conn = get_db()
     offerte = offerte_of_404(conn, offerte_id)
     conn.close()
-    maak_offerte_pdf(offerte_id)
+    pdf_pad = maak_offerte_pdf(offerte_id)
     return render_template(
         "mailen.html",
         wie=offerte["klant_naam"],
         inhoud=mailinhoud_offerte(offerte),
         pdf_url=url_for("bekijk_offerte", offerte_id=offerte_id),
+        document_grootte=formaat_grootte(pdf_pad),
         concept=False,
         voorlopig_nummer=False,
         al_verzonden=offerte["status"] != "concept",
@@ -6742,15 +6862,55 @@ def gekozen_bon_ids(form):
     return {int(x) for x in form.getlist("mee") if str(x).isdigit()}
 
 
+def _bon_dict(rij):
+    """Eén meegestuurde bijlage, met wat het mailscherm onder de naam zet.
+
+    `pad` en `naam` zijn wat de mail zelf gebruikt. De rest is alleen voor het
+    voorbeeld: een onveilig pad komt hier niet uit, anders zou een kapotte naam
+    in de database een bestand buiten de map kunnen meesturen."""
+    pad = veilig_pad(BIJLAGE_DIR, rij["bestand"])
+    if pad is None:
+        return None
+    ext = os.path.splitext(rij["bestand"] or "")[1].lower()
+    soort = soort_bijlage(ext)
+    grootte = formaat_grootte(pad) if os.path.isfile(pad) else ""
+    bon = (rij["bon"] or "").strip()
+    klus = (rij["klus"] or "").strip()
+    # De bestandsnaam staat al als titel. Dezelfde tekst nog eens als bon
+    # (dat is de omschrijving die een upload automatisch krijgt) voegt niets toe
+    # en maakt van een lange naam alsnog drie regels.
+    delen = [soort]
+    if grootte:
+        delen.append(grootte)
+    if bon and bon != (rij["naam"] or ""):
+        delen.append(bon)
+    if klus:
+        delen.append(klus)
+    return {
+        "id": rij["id"],
+        "pad": pad,
+        "naam": rij["naam"],
+        "plaatje": ext in BIJLAGE_PLAATJES,
+        "soort": soort,
+        "grootte": grootte,
+        "bon": bon,
+        "klus": klus,
+        "info": " · ".join(delen),
+    }
+
+
 def bonnen_bij_factuur(conn, factuur_id):
     """Bestanden van bonnen die op díéze rekening staan en op 'meesturen' staan.
 
     Een urenregel van dezelfde klus haalt niet alle foto's van die klus mee.
     Notitiefoto's gaan nooit mee, ook niet als `meesturen` per ongeluk aan staat."""
     rijen = conn.execute(
-        """SELECT DISTINCT b.id AS id, b.bestand AS bestand, b.naam AS naam
+        """SELECT DISTINCT b.id AS id, b.bestand AS bestand, b.naam AS naam,
+                  COALESCE(i.omschrijving, '') AS bon, COALESCE(k.naam, '') AS klus
            FROM bijlagen b
            JOIN regels r ON r.inkoop_id = b.inkoop_id
+           LEFT JOIN inkopen i ON i.id = b.inkoop_id
+           LEFT JOIN klussen k ON k.id = b.klus_id
            WHERE r.factuur_id = ?
              AND b.meesturen = 1
              AND b.inkoop_id IS NOT NULL
@@ -6758,8 +6918,7 @@ def bonnen_bij_factuur(conn, factuur_id):
            ORDER BY b.id""",
         (factuur_id,),
     ).fetchall()
-    return [{"id": r["id"], "pad": os.path.join(BIJLAGE_DIR, r["bestand"]),
-             "naam": r["naam"]} for r in rijen]
+    return [bon for bon in (_bon_dict(rij) for rij in rijen) if bon is not None]
 
 
 def meegestuurde_bonnen(conn, factuur_id, alleen_ids=None):
@@ -7052,9 +7211,11 @@ def _pdf_pad(factuur_id):
 @app.route("/factuur/<int:factuur_id>/bekijk")
 def bekijk_pdf(factuur_id):
     """Toont de rekening in de browser zelf; in de zijbalk wordt het een download."""
-    pad, bestandsnaam = _pdf_pad(factuur_id)
-    return send_file(pad, mimetype="application/pdf", as_attachment=als_download(),
-                     download_name=bestandsnaam)
+    try:
+        pad, bestandsnaam = _pdf_pad(factuur_id)
+    except NotFound:
+        return niet_gevonden()
+    return toon_bestand(pad, "application/pdf", bestandsnaam)
 
 
 @app.route("/factuur/<int:factuur_id>/vernieuw", methods=["POST"])
@@ -7091,7 +7252,9 @@ def vernieuw_alles():
 @app.route("/factuur/<int:factuur_id>/pdf")
 def download_pdf(factuur_id):
     pad, bestandsnaam = _pdf_pad(factuur_id)
-    return send_file(pad, as_attachment=True, download_name=bestandsnaam)
+    return zet_bestandskoppen(
+        send_file(pad, as_attachment=True, download_name=bestandsnaam)
+    )
 
 
 @app.route("/factuur/<int:factuur_id>/mail")
@@ -7108,19 +7271,20 @@ def mail_voorbeeld(factuur_id):
     bonnen = meegestuurde_bonnen(conn, factuur_id)
     conn.close()
     if factuur["nummer"]:
-        maak_pdf(factuur_id)
+        pdf_pad = maak_pdf(factuur_id)
         pdf_url = url_for("bekijk_pdf", factuur_id=factuur_id)
     else:
         # Los bestand: de opgeslagen concept-PDF blijft "CONCEPT" zeggen. Het
         # voorbeeld toont het voorlopige nummer, zonder dat nummer vast te leggen.
-        maak_pdf(factuur_id, weergavenummer=zoals_gemaild["nummer"],
-                 pad=os.path.join(PDF_DIR, f"voorbeeld-{factuur_id}.pdf"))
+        pdf_pad = os.path.join(PDF_DIR, f"voorbeeld-{factuur_id}.pdf")
+        maak_pdf(factuur_id, weergavenummer=zoals_gemaild["nummer"], pad=pdf_pad)
         pdf_url = url_for("mail_pdf", factuur_id=factuur_id)
     return render_template(
         "mailen.html",
         wie=factuur["klant_naam"],
         inhoud=mailinhoud_rekening(zoals_gemaild, bonnen),
         pdf_url=pdf_url,
+        document_grootte=formaat_grootte(pdf_pad),
         concept=not factuur["nummer"],
         voorlopig_nummer=not factuur["nummer"],
         al_verzonden=factuur["status"] != "concept",
@@ -7141,7 +7305,7 @@ def mail_pdf(factuur_id):
     factuur = conn.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
     if factuur is None:
         conn.close()
-        abort(404)
+        return niet_gevonden()
     zoals = factuur_zoals_in_de_mail(conn, factuur)
     conn.close()
     if factuur["nummer"]:
@@ -7151,8 +7315,7 @@ def mail_pdf(factuur_id):
         pad = os.path.join(PDF_DIR, f"voorbeeld-{factuur_id}.pdf")
         maak_pdf(factuur_id, weergavenummer=zoals["nummer"], pad=pad)
         naam = f"{zoals['nummer']}.pdf"
-    return send_file(pad, mimetype="application/pdf", as_attachment=als_download(),
-                     download_name=naam)
+    return toon_bestand(pad, "application/pdf", naam)
 
 
 @app.route("/factuur/<int:factuur_id>/verstuur", methods=["POST"])
@@ -7379,7 +7542,9 @@ def herinnering(factuur_id):
         else:
             reden = waarom_mailen_niet_kan("facturen", factuur_id)
         if factuur["nummer"]:
-            maak_pdf(factuur_id)
+            pdf_pad = maak_pdf(factuur_id)
+        else:
+            pdf_pad = ""
         return render_template(
             "mailen.html",
             wie=factuur["klant_naam"],
@@ -7391,6 +7556,7 @@ def herinnering(factuur_id):
                 "bonnen": [],
             },
             pdf_url=url_for("bekijk_pdf", factuur_id=factuur_id) if factuur["nummer"] else "",
+            document_grootte=formaat_grootte(pdf_pad) if pdf_pad else "",
             concept=False,
             voorlopig_nummer=False,
             al_verzonden=False,
