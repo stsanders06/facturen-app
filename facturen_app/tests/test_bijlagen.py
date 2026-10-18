@@ -93,6 +93,22 @@ def test_bijlage_zonder_inlog_gaat_naar_inloggen(post, db, uitgelogde_client, kl
     assert antwoord.data != PNG
 
 
+def test_een_regeleinde_in_de_weergavenaam_opent_de_bijlage_toch(post, db, client, klus_id):
+    """De weergavenaam komt in Content-Disposition. Een regeleinde daarin
+    liet de server met 500 stuklopen; de foto zelf is wel gewoon te tonen."""
+    upload(post, klus_id)
+    db.execute("UPDATE bijlagen SET naam=?", ("bon\r\n.png",))
+    db.commit()
+    bijlage_id = db.execute("SELECT id FROM bijlagen").fetchone()[0]
+    antwoord = client.get(f"/bijlage/{bijlage_id}")
+    assert antwoord.status_code == 200
+    assert antwoord.data == PNG
+    beschikking = antwoord.headers["Content-Disposition"]
+    assert "\r" not in beschikking
+    assert "\n" not in beschikking
+    assert "bon.png" in beschikking
+
+
 def test_stuurtekens_in_de_bestandsnaam_geven_404(client, db, klus_id):
     """Een NUL of een regeleinde in de opgeslagen naam mag geen 500 geven.
     Zo'n naam wijst niet naar een bestand dat we willen tonen."""
@@ -108,6 +124,8 @@ def test_stuurtekens_in_de_bestandsnaam_geven_404(client, db, klus_id):
         bijlage_id = db.execute("SELECT id FROM bijlagen").fetchone()[0]
         antwoord = client.get(f"/bijlage/{bijlage_id}")
         assert antwoord.status_code == 404, naam
+        assert antwoord.headers["X-Content-Type-Options"] == "nosniff"
+        assert antwoord.headers["Cache-Control"] == "private, no-store"
 
 
 def test_een_pad_buiten_de_bijlagenmap_geeft_404(client, db, klus_id):
@@ -248,4 +266,7 @@ def test_de_bonnen_gaan_echt_als_bijlage_mee(monkeypatch, post, db, klus_id):
 
 
 def test_onbekende_bijlage_geeft_404(client, db):
-    assert client.get("/bijlage/9999").status_code == 404
+    antwoord = client.get("/bijlage/9999")
+    assert antwoord.status_code == 404
+    assert antwoord.headers["X-Content-Type-Options"] == "nosniff"
+    assert antwoord.headers["Cache-Control"] == "private, no-store"

@@ -145,6 +145,34 @@ def test_de_rekening_pdf_zonder_inlog_gaat_naar_inloggen(maak_factuur, uitgelogd
     assert bekijk.headers["Cache-Control"] == "private, no-store"
 
 
+def _koppen_van_een_bestand(antwoord):
+    assert antwoord.headers["X-Content-Type-Options"] == "nosniff"
+    assert antwoord.headers["Cache-Control"] == "private, no-store"
+
+
+def test_mail_pdf_en_offerte_bekijken_sturen_nosniff(client, maak_factuur, maak_offerte):
+    """Ook de download en een lege 404. Een cache mag die pagina's niet bewaren."""
+    factuur_id = maak_factuur()
+    offerte_id = maak_offerte()
+    for pad in (
+        f"/factuur/{factuur_id}/mail-pdf",
+        f"/offerte/{offerte_id}/bekijk",
+        f"/factuur/{factuur_id}/pdf",
+        f"/offerte/{offerte_id}/pdf",
+    ):
+        antwoord = client.get(pad)
+        assert antwoord.status_code == 200, pad
+        _koppen_van_een_bestand(antwoord)
+    for pad in (
+        "/factuur/9999/mail-pdf",
+        "/factuur/9999/bekijk",
+        "/offerte/9999/bekijk",
+    ):
+        antwoord = client.get(pad)
+        assert antwoord.status_code == 404, pad
+        _koppen_van_een_bestand(antwoord)
+
+
 def test_bijlagen_zijn_een_voorbeeld_en_het_vinkje_opent_ze_niet(post, db, client):
     """Het vinkje staat buiten de link. Een tik erop wisselt alleen of het
     bestand meegaat; het voorbeeld en de naam wijzen naar de bijlage zelf."""
@@ -224,7 +252,8 @@ def test_bijlagen_zijn_een_voorbeeld_en_het_vinkje_opent_ze_niet(post, db, clien
 
 def test_de_lichtbak_houdt_de_focus_en_geeft_hem_terug(post, db, client):
     """Een foto opent als dialoog. Tab blijft daar, Escape sluit, en de focus
-    keert terug naar de link die hem opende."""
+    keert terug naar de link die hem opende. Een tik op de foto zelf zet de
+    focus op de pagina; Escape moet hem dan nog steeds sluiten."""
     pytest.importorskip("playwright.sync_api")
     from playwright.sync_api import sync_playwright
 
@@ -266,6 +295,17 @@ def test_de_lichtbak_houdt_de_focus_en_geeft_hem_terug(post, db, client):
         pagina.keyboard.press("Shift+Tab")
         assert pagina.evaluate(
             "() => document.activeElement.classList.contains('lichtbak-sluit')")
+        pagina.keyboard.press("Escape")
+        assert bak.get_attribute("hidden") is not None
+        assert pagina.evaluate(
+            "() => document.activeElement.getAttribute('data-soort') === 'foto'")
+
+        # De foto is geen knop. Een tik erop haalt de focus uit de lichtbak;
+        # Escape moet hem dan nog steeds dichtdoen en de focus terugzetten.
+        link.click()
+        assert bak.get_attribute("hidden") is None
+        pagina.locator("#lichtbak-foto").click()
+        assert bak.get_attribute("hidden") is None
         pagina.keyboard.press("Escape")
         assert bak.get_attribute("hidden") is not None
         assert pagina.evaluate(

@@ -21,7 +21,8 @@ from urllib.request import Request, urlopen
 from urllib.error import URLError
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from flask import (
-    Flask, abort, request, redirect, url_for, render_template, send_file, flash, session
+    Flask, abort, make_response, request, redirect, url_for, render_template,
+    send_file, flash, session,
 )
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
@@ -29,6 +30,7 @@ from reportlab.lib import colors
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
 from markupsafe import Markup, escape
+from werkzeug.exceptions import NotFound
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
@@ -433,23 +435,46 @@ def via_ingress():
     return any(afzender in netwerk for netwerk in INGRESS_NETWERKEN)
 
 
-def toon_bestand(pad, mimetype, download_name):
-    """Stuur een foto of PDF om te bekijken, niet om te bewaren in een cache.
+def zet_bestandskoppen(antwoord):
+    """Nosniff en no-store op een foto, een PDF, of de 404 die daarbij hoort.
 
     nosniff: de browser houdt zich aan het type dat we meesturen en gaat niet
-    zelf raden. no-store: het bestand hoort bij een ingelogde sessie en mag
-    niet in een gedeelde of blijvende cache terechtkomen. send_file zet
-    anders alleen no-cache, en dat mag een cache nog wel bewaren."""
+    zelf raden. no-store: het hoort bij een ingelogde sessie en mag niet in
+    een gedeelde of blijvende cache. send_file zet anders alleen no-cache,
+    en dat mag een cache nog wel bewaren. Een 404 van dezelfde route krijgt
+    dezelfde koppen, anders is juist de lege pagina te cachen."""
+    antwoord.headers["X-Content-Type-Options"] = "nosniff"
+    antwoord.headers["Cache-Control"] = "private, no-store"
+    return antwoord
+
+
+def niet_gevonden():
+    """Geen bestand. Ook deze lege pagina niet bewaren of laten raden."""
+    return zet_bestandskoppen(make_response("Niet gevonden", 404))
+
+
+def veilige_downloadnaam(naam):
+    """Weergavenaam voor Content-Disposition.
+
+    Een regeleinde in die kop laat de server met 500 stuklopen, of smokkelt
+    een tweede kop mee. De tekens gaan eruit; het bestand zelf blijft
+    gewoon te openen."""
+    schoon = "".join(
+        teken for teken in (naam or "") if ord(teken) >= 32 and teken != "\x7f"
+    ).strip()
+    return schoon or "bijlage"
+
+
+def toon_bestand(pad, mimetype, download_name):
+    """Stuur een foto of PDF om te bekijken, niet om te bewaren in een cache."""
     antwoord = send_file(
         pad,
         mimetype=mimetype,
         as_attachment=als_download(),
-        download_name=download_name,
+        download_name=veilige_downloadnaam(download_name),
         max_age=0,
     )
-    antwoord.headers["X-Content-Type-Options"] = "nosniff"
-    antwoord.headers["Cache-Control"] = "private, no-store"
-    return antwoord
+    return zet_bestandskoppen(antwoord)
 
 
 def als_download():
@@ -3908,13 +3933,13 @@ def bijlage(bijlage_id):
     rij = conn.execute("SELECT * FROM bijlagen WHERE id=?", (bijlage_id,)).fetchone()
     conn.close()
     if rij is None:
-        abort(404)
+        return niet_gevonden()
     pad = veilig_pad(BIJLAGE_DIR, rij["bestand"])
     if pad is None or not os.path.isfile(pad):
-        abort(404)
+        return niet_gevonden()
     mime = BIJLAGE_MIMES.get(os.path.splitext(pad)[1].lower())
     if mime is None:
-        abort(404)
+        return niet_gevonden()
     return toon_bestand(pad, mime, rij["naam"])
 
 
@@ -5971,14 +5996,19 @@ def _offerte_pdf_pad(offerte_id):
 
 @app.route("/offerte/<int:offerte_id>/bekijk")
 def bekijk_offerte(offerte_id):
-    pad, nummer = _offerte_pdf_pad(offerte_id)
+    try:
+        pad, nummer = _offerte_pdf_pad(offerte_id)
+    except NotFound:
+        return niet_gevonden()
     return toon_bestand(pad, "application/pdf", f"{nummer}.pdf")
 
 
 @app.route("/offerte/<int:offerte_id>/pdf")
 def download_offerte(offerte_id):
     pad, nummer = _offerte_pdf_pad(offerte_id)
-    return send_file(pad, as_attachment=True, download_name=f"{nummer}.pdf")
+    return zet_bestandskoppen(
+        send_file(pad, as_attachment=True, download_name=f"{nummer}.pdf")
+    )
 
 
 @app.route("/offerte/<int:offerte_id>/vernieuw", methods=["POST"])
@@ -7181,7 +7211,10 @@ def _pdf_pad(factuur_id):
 @app.route("/factuur/<int:factuur_id>/bekijk")
 def bekijk_pdf(factuur_id):
     """Toont de rekening in de browser zelf; in de zijbalk wordt het een download."""
-    pad, bestandsnaam = _pdf_pad(factuur_id)
+    try:
+        pad, bestandsnaam = _pdf_pad(factuur_id)
+    except NotFound:
+        return niet_gevonden()
     return toon_bestand(pad, "application/pdf", bestandsnaam)
 
 
@@ -7219,7 +7252,9 @@ def vernieuw_alles():
 @app.route("/factuur/<int:factuur_id>/pdf")
 def download_pdf(factuur_id):
     pad, bestandsnaam = _pdf_pad(factuur_id)
-    return send_file(pad, as_attachment=True, download_name=bestandsnaam)
+    return zet_bestandskoppen(
+        send_file(pad, as_attachment=True, download_name=bestandsnaam)
+    )
 
 
 @app.route("/factuur/<int:factuur_id>/mail")
@@ -7270,7 +7305,7 @@ def mail_pdf(factuur_id):
     factuur = conn.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
     if factuur is None:
         conn.close()
-        abort(404)
+        return niet_gevonden()
     zoals = factuur_zoals_in_de_mail(conn, factuur)
     conn.close()
     if factuur["nummer"]:

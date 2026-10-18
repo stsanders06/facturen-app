@@ -371,11 +371,40 @@
 
     function sluit() {
       if (bak.hidden) return;
+      // Weghalen, anders blijft Escape de lichtbak claimen terwijl die al
+      // dicht is en de menu's niet meer sluit.
+      document.removeEventListener('keydown', opToets, true);
       bak.hidden = true;
       img.removeAttribute('src');
       var terug = geopendVanaf;
       geopendVanaf = null;
       if (terug) terug.focus();
+    }
+
+    // De toetsen horen bij het document, niet bij de lichtbak. Een tik op de
+    // foto zelf zet de focus op de pagina: een plaatje is niet te focussen,
+    // en dan bereikt Escape een listener op de lichtbak niet meer. De
+    // listener staat er alleen zolang de foto open is.
+    function opToets(ev) {
+      if (ev.key === 'Escape') {
+        ev.preventDefault();
+        ev.stopPropagation();
+        sluit();
+        return;
+      }
+      if (ev.key !== 'Tab') return;
+      var lijst = focusbaar();
+      if (!lijst.length) return;
+      var eerste = lijst[0];
+      var laatste = lijst[lijst.length - 1];
+      var binnen = bak.contains(document.activeElement);
+      if (ev.shiftKey && (!binnen || document.activeElement === eerste)) {
+        ev.preventDefault();
+        laatste.focus();
+      } else if (!ev.shiftKey && (!binnen || document.activeElement === laatste)) {
+        ev.preventDefault();
+        eerste.focus();
+      }
     }
 
     function focusbaar() {
@@ -396,33 +425,13 @@
         img.alt = naam;
         img.src = link.getAttribute('href');
         bak.hidden = false;
+        document.removeEventListener('keydown', opToets, true);
+        document.addEventListener('keydown', opToets, true);
         sluitknop.focus();
       });
     });
     bak.addEventListener('click', function (ev) {
       if (ev.target === bak || ev.target.closest('[data-sluit]')) sluit();
-    });
-    // Tab blijft in de lichtbak. Er is nu één knop; die vangt beide richtingen,
-    // zodat de focus niet naar de pagina erachter gaat terwijl de foto open is.
-    bak.addEventListener('keydown', function (ev) {
-      if (ev.key === 'Escape') {
-        ev.preventDefault();
-        ev.stopPropagation();
-        sluit();
-        return;
-      }
-      if (ev.key !== 'Tab') return;
-      var lijst = focusbaar();
-      if (!lijst.length) return;
-      var eerste = lijst[0];
-      var laatste = lijst[lijst.length - 1];
-      if (ev.shiftKey && document.activeElement === eerste) {
-        ev.preventDefault();
-        laatste.focus();
-      } else if (!ev.shiftKey && document.activeElement === laatste) {
-        ev.preventDefault();
-        eerste.focus();
-      }
     });
   })();
 </script>
