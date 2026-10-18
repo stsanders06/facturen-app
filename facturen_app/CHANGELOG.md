@@ -13,10 +13,11 @@ genoeg; anders blijft de vorige versie draaien.
   (geen eindtijd) staat er niet tussen.
 - **Hetzelfde voor bonnen.** Per bon, of "Alle bonnen toevoegen". Een bon die
   al op een rekening staat verdwijnt uit de lijst en komt terug als je hem
-  eraf haalt.
+  eraf haalt. Het bedrag in die lijst staat met een komma, net als op de
+  rest van de rekening.
 - **Een dag of een bon kan niet op twee rekeningen tegelijk**, ook niet als
-  je twee schermen open hebt. Je krijgt een melding en het formulier blijft
-  staan zoals je het had ingevuld.
+  je twee schermen open hebt. De melding noemt de datum van die dag, en het
+  formulier blijft staan zoals je het had ingevuld.
 
 ## 1.36.1
 

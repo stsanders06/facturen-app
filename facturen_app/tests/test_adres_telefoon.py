@@ -106,7 +106,7 @@ def test_het_adres_bij_een_rekening_ook(post, db):
 
 
 def test_je_eigen_gegevens_ook(post, db):
-    post("/instellingen", {"naam": "Stone", "adres": "kerkstraat 1 5932ch tegelen",
+    post("/instellingen", {"naam": "Testbedrijf", "adres": "kerkstraat 1 5932ch tegelen",
                            "telefoon": "0773512244"})
     rij = db.execute("SELECT adres, telefoon FROM settings").fetchone()
     assert rij["adres"] == "Kerkstraat 1\n5932 CH Tegelen"

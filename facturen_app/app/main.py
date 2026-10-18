@@ -1617,7 +1617,7 @@ def _crash_op(stap):
 
 
 def zin_van_rekening(rij):
-    """'rekening 2026-014' of 'een conceptrekening (Stone, 16 okt 2026)'.
+    """'rekening 2026-014' of 'een conceptrekening (Testklant A, 16 okt 2026)'.
 
     'rekening CONCEPT' leest alsof CONCEPT het nummer is. Een concept heeft
     nog geen nummer; de klant en de datum zijn wel te herkennen."""
@@ -4820,7 +4820,7 @@ def zonder_bezette_dagen(conn, regels, eigen_factuur_id):
             houden.append(regel)
             continue
         dag = conn.execute(
-            "SELECT factuur_id FROM uren WHERE id=?", (uur_id,)
+            "SELECT factuur_id, datum FROM uren WHERE id=?", (uur_id,)
         ).fetchone()
         bezet = (
             dag is not None
@@ -4831,10 +4831,7 @@ def zonder_bezette_dagen(conn, regels, eigen_factuur_id):
             houden.append(regel)
             continue
         titel = _nummer_van_rekening(conn, dag["factuur_id"])
-        tekst = (
-            f"Deze dag staat al op {titel}. "
-            "Hij is niet nog een keer op deze rekening gezet."
-        )
+        tekst = _tekst_dag_bezet(dag["datum"], titel)
         if tekst not in gezien:
             gezien.add(tekst)
             meldingen.append(tekst)
@@ -5003,10 +5000,22 @@ def regels_voor_opslaan(conn, form, klant_id, eigen_factuur_id=None):
     return regels, som_van(regels), meldingen, None
 
 
-DAG_AL_ELDERS = (
-    "Deze dag staat al op een andere rekening. "
-    "Hij is niet nog een keer op deze rekening gezet."
-)
+def _tekst_dag_bezet(datum, titel=None):
+    """De weigering noemt de dag. 'Deze dag' zegt niets als er meerdere regels zijn."""
+    wanneer = filter_datum_nl(datum) if datum else ""
+    waar = titel or "een andere rekening"
+    if wanneer:
+        return (
+            f"De dag van {wanneer} staat al op {waar}. "
+            "Hij is niet nog een keer op deze rekening gezet."
+        )
+    return (
+        f"Deze dag staat al op {waar}. "
+        "Hij is niet nog een keer op deze rekening gezet."
+    )
+
+
+DAG_AL_ELDERS = _tekst_dag_bezet(None)
 
 BON_AL_ELDERS = (
     "Deze bon staat al op een andere rekening. "
@@ -5014,12 +5023,37 @@ BON_AL_ELDERS = (
 )
 
 
-def _melding_bij_conflict(exc, bestaand=False):
+def _bezette_dag_uit_form(conn, form, eigen_factuur_id):
+    """De eerste dag uit het formulier die al op een andere rekening staat."""
+    if conn is None or form is None:
+        return None
+    for ruw in form.getlist("regel_uur"):
+        if not str(ruw).isdigit():
+            continue
+        dag = conn.execute(
+            "SELECT datum, factuur_id FROM uren WHERE id=?", (int(ruw),)
+        ).fetchone()
+        if dag and dag["factuur_id"] and dag["factuur_id"] != eigen_factuur_id:
+            return dag
+    return None
+
+
+def _melding_bij_conflict(exc, conn=None, form=None, bestaand=False,
+                          eigen_factuur_id=None):
     """Tekst als het opslaan botst op een dag of bon die net bezet raakte.
 
     De controle ervoor ziet het meestal al. Dit is de rest: twee schermen
-    die op hetzelfde moment opslaan."""
-    kern = BON_AL_ELDERS if "inkoop_id" in str(exc) else DAG_AL_ELDERS
+    die op hetzelfde moment opslaan. De datum erbij, anders weet je niet
+    welke dag uit het formulier het was."""
+    if "inkoop_id" in str(exc):
+        kern = BON_AL_ELDERS
+    else:
+        dag = _bezette_dag_uit_form(conn, form, eigen_factuur_id)
+        if dag is not None:
+            kern = _tekst_dag_bezet(
+                dag["datum"], _nummer_van_rekening(conn, dag["factuur_id"]))
+        else:
+            kern = DAG_AL_ELDERS
     if bestaand:
         return kern + " Er is niets gewijzigd."
     return kern + " De rekening is niet aangemaakt."
@@ -5446,8 +5480,9 @@ def nieuw():
             # volgende leesopdracht tot de transactie weg is.
             conn.rollback()
             ingevuld = formulier_van_post(conn, request.form)
+            tekst = _melding_bij_conflict(exc, conn, request.form)
             conn.close()
-            melding(_melding_bij_conflict(exc), "fout")
+            melding(tekst, "fout")
             return _render_nieuw_ingevuld(ingevuld)
         conn.close()
 
@@ -5541,8 +5576,11 @@ def bewerk(factuur_id):
         except sqlite3.IntegrityError as exc:
             conn.rollback()
             ingevuld = formulier_van_post(conn, request.form, factuur_id)
+            tekst = _melding_bij_conflict(
+                exc, conn, request.form, bestaand=True,
+                eigen_factuur_id=factuur_id)
             conn.close()
-            melding(_melding_bij_conflict(exc, bestaand=True), "fout")
+            melding(tekst, "fout")
             return _render_bewerk_ingevuld(factuur, ingevuld)
         conn.close()
 

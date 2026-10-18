@@ -116,9 +116,9 @@ def test_offerte_met_einddatum_noemt_hem_bovenaan(db, maak_offerte):
 
 
 def test_tenaamstelling_wint_van_de_bedrijfsnaam(db, maak_factuur):
-    zet_bedrijf(db, tenaamstelling="S. Sanders")
+    zet_bedrijf(db, tenaamstelling="Test Gebruiker")
     tekst = tekst_uit_pdf(facturen.maak_pdf(maak_factuur()))
-    assert "S. Sanders" in tekst
+    assert "Test Gebruiker" in tekst
 
 
 def test_veel_regels_lopen_door_op_een_vervolgpagina(db, maak_factuur):

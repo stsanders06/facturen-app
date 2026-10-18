@@ -56,7 +56,7 @@ def test_elke_gesloten_dag_wordt_een_eigen_regel(post, client, db):
         "SELECT id, datum FROM uren WHERE tot IS NOT NULL ORDER BY datum"
     ).fetchall()
     antwoord = post("/nieuw", {
-        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "klant_naam": "Testklant A", "klant_id": str(klant_id), "datum": "2026-10-16",
         "omschrijving": verwacht,
         "type": ["arbeid_uur", "arbeid_uur", "arbeid_uur"],
         "aantal": ["8.5", "3.5", "4"],
@@ -109,7 +109,7 @@ def test_tijden_blijven_staan_na_opnieuw_opslaan(post, db):
         "wo 14 okt 2026, 09:00–13:00 · Gevel",
     ]
     formulier = {
-        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "klant_naam": "Testklant A", "klant_id": str(klant_id), "datum": "2026-10-16",
         "omschrijving": omschrijvingen,
         "type": ["arbeid_uur"] * 3,
         "aantal": ["8.5", "4", "4"],
@@ -159,7 +159,7 @@ def test_een_dagregel_weghalen_koppelt_alleen_die_dag_los(post, db):
         post(f"/klus/{klus_id}/dag", {"datum": datum, "van": van, "tot": tot})
     dagen = list(db.execute("SELECT id, datum FROM uren ORDER BY datum"))
     post("/nieuw", {
-        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "klant_naam": "Testklant A", "klant_id": str(klant_id), "datum": "2026-10-16",
         "omschrijving": ["eerste", "tweede", "derde"],
         "type": ["arbeid_uur"] * 3,
         "aantal": ["8", "4", "4"],
@@ -170,7 +170,7 @@ def test_een_dagregel_weghalen_koppelt_alleen_die_dag_los(post, db):
     factuur_id = db.execute("SELECT id FROM facturen").fetchone()[0]
     # De oudste dag (8 uur) gaat van de rekening af. 13 en 14 blijven.
     post(f"/factuur/{factuur_id}/bewerk", {
-        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "klant_naam": "Testklant A", "klant_id": str(klant_id), "datum": "2026-10-16",
         "omschrijving": ["tweede", "derde"],
         "type": ["arbeid_uur", "arbeid_uur"],
         "aantal": ["4", "4"],
@@ -195,7 +195,7 @@ def test_dezelfde_dag_wordt_niet_twee_keer_gerekend(post, db):
     })
     uur_id = db.execute("SELECT id FROM uren").fetchone()[0]
     antwoord = post("/nieuw", {
-        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "klant_naam": "Testklant A", "klant_id": str(klant_id), "datum": "2026-10-16",
         "omschrijving": ["eerste", "tweede"],
         "type": ["arbeid_uur", "arbeid_uur"],
         "aantal": ["4", "4"],
@@ -217,7 +217,7 @@ def test_een_oude_samengevoegde_regel_blijft_ongewijzigd(post, client, db):
     for datum in ("2026-10-12", "2026-10-13", "2026-10-14"):
         post(f"/klus/{klus_id}/dag", {"datum": datum, "van": "08:00", "tot": "12:00"})
     post("/nieuw", {
-        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "klant_naam": "Testklant A", "klant_id": str(klant_id), "datum": "2026-10-16",
         "omschrijving": "Uren gevel", "type": "arbeid_uur", "aantal": "12",
         "prijs": "45", "regel_klus": str(klus_id),
     })
@@ -232,7 +232,7 @@ def test_een_oude_samengevoegde_regel_blijft_ongewijzigd(post, client, db):
     assert "ma 12 okt 2026" not in pagina
 
     post(f"/factuur/{factuur_id}/bewerk", {
-        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "klant_naam": "Testklant A", "klant_id": str(klant_id), "datum": "2026-10-16",
         "omschrijving": "Uren gevel", "type": "arbeid_uur", "aantal": "12",
         "prijs": "45", "regel_klus": str(klus_id),
     })
@@ -247,7 +247,7 @@ def test_totaal_is_de_som_van_de_afgeronde_regels(post, db):
     """Drie keer 10,333 is 30,99, niet 31,00."""
     klant_id, _klus_id = _klus(post, db)
     post("/nieuw", {
-        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "klant_naam": "Testklant A", "klant_id": str(klant_id), "datum": "2026-10-16",
         "omschrijving": ["een", "twee", "drie"],
         "type": ["materiaal"] * 3,
         "aantal": ["1", "1", "1"],
@@ -291,7 +291,7 @@ def test_veel_dagen_lopen_door_op_de_pdf(post, db):
         for rij in dagen
     ]
     post("/nieuw", {
-        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-02-20",
+        "klant_naam": "Testklant A", "klant_id": str(klant_id), "datum": "2026-02-20",
         "omschrijving": omschrijvingen,
         "type": ["arbeid_uur"] * len(dagen),
         "aantal": ["8.5"] * len(dagen),
@@ -329,7 +329,7 @@ def test_twee_tabbladen_zetten_de_dag_niet_dubbel(post, client, db):
         post(f"/klus/{klus_id}/dag", {"datum": datum, "van": van, "tot": tot})
     dagen = db.execute("SELECT id FROM uren ORDER BY datum").fetchall()
     formulier = {
-        "klant_naam": "Stone", "klant_id": str(klant_id),
+        "klant_naam": "Testklant A", "klant_id": str(klant_id),
         "datum": facturen.vandaag().isoformat(),
         "omschrijving": ["dag een", "dag twee", "dag drie"],
         "type": ["arbeid_uur"] * 3,
@@ -361,7 +361,7 @@ def test_half_omhoog_bij_een_halve_cent(post, db):
     """1,5 en 3,5 maal 45,55 mogen niet naar de even cent."""
     klant_id, _klus_id = _klus(post, db)
     post("/nieuw", {
-        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "klant_naam": "Testklant A", "klant_id": str(klant_id), "datum": "2026-10-16",
         "omschrijving": ["acht", "anderhalf", "drie"],
         "type": ["arbeid_uur"] * 3,
         "aantal": ["8.5", "1.5", "3.5"],
@@ -387,7 +387,7 @@ def test_dagbedrag_rekent_met_de_minuten(post, client, db):
     assert 'value="334.03"' in formulier
 
     post("/nieuw", {
-        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "klant_naam": "Testklant A", "klant_id": str(klant_id), "datum": "2026-10-16",
         "omschrijving": "ma 12 okt 2026, 07:00–14:20 · Gevel",
         "type": "arbeid_uur", "aantal": "7.33", "prijs": "45.55",
         "regel_klus": str(klus_id), "regel_uur": str(uur_id),
@@ -405,7 +405,7 @@ def test_oude_rekening_van_774_35_blijft_staan(post, client, db):
     Openen en opslaan mag dat niet naar 68,33 en 774,36 trekken."""
     factuur_id = db.execute(
         """INSERT INTO facturen (nummer, datum, klant_naam, status, totaal)
-           VALUES ('2026-090', ?, 'Stone', 'definitief', 774.35)""",
+           VALUES ('2026-090', ?, 'Testklant A', 'definitief', 774.35)""",
         (facturen.vandaag().isoformat(),),
     ).lastrowid
     db.execute(
@@ -426,7 +426,7 @@ def test_oude_rekening_van_774_35_blijft_staan(post, client, db):
     assert 'data-bewaard="1"' in pagina
 
     post(f"/factuur/{factuur_id}/bewerk", {
-        "klant_naam": "Stone", "datum": facturen.vandaag().isoformat(),
+        "klant_naam": "Testklant A", "datum": facturen.vandaag().isoformat(),
         "omschrijving": ["Oude uren", "Rest"],
         "type": ["arbeid_uur", "materiaal"],
         "aantal": ["1.5", "1"],
@@ -456,7 +456,7 @@ def test_dag_van_een_andere_klant_weigert_de_rekening(post, db):
     hun_klus = db.execute(
         "SELECT id FROM klussen WHERE naam='Hun klus'"
     ).fetchone()[0]
-    # De regel noemt een klus van deze klant, maar de dag is van Stone.
+    # De regel noemt een klus van deze klant, maar de dag is van Testklant A.
     antwoord = post("/nieuw", {
         "klant_naam": "Iemand anders", "klant_id": str(ander), "datum": "2026-10-16",
         "omschrijving": "dag", "type": "arbeid_uur", "aantal": "4", "prijs": "45",
@@ -476,7 +476,7 @@ def test_dag_van_een_andere_klus_weigert_de_rekening(post, db):
     post(f"/klus/{klus_id}/dag", {"datum": "2026-10-12", "van": "08:00", "tot": "12:00"})
     uur_id = db.execute("SELECT id FROM uren").fetchone()[0]
     antwoord = post("/nieuw", {
-        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "klant_naam": "Testklant A", "klant_id": str(klant_id), "datum": "2026-10-16",
         "omschrijving": "dag", "type": "arbeid_uur", "aantal": "4", "prijs": "45",
         "regel_klus": str(dak_id), "regel_uur": str(uur_id),
     }, follow_redirects=True)
@@ -489,7 +489,7 @@ def test_gefactureerde_dag_verwijderen_lukt_niet(post, db):
     post(f"/klus/{klus_id}/dag", {"datum": "2026-10-12", "van": "08:00", "tot": "12:00"})
     uur_id = db.execute("SELECT id FROM uren").fetchone()[0]
     post("/nieuw", {
-        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "klant_naam": "Testklant A", "klant_id": str(klant_id), "datum": "2026-10-16",
         "omschrijving": "dag", "type": "arbeid_uur", "aantal": "4", "prijs": "45",
         "regel_klus": str(klus_id), "regel_uur": str(uur_id),
     })
@@ -511,7 +511,7 @@ def test_tijden_van_een_gefactureerde_dag_wijzigen_lukt_niet(post, db):
     })
     uur_id = db.execute("SELECT id FROM uren").fetchone()[0]
     post("/nieuw", {
-        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "klant_naam": "Testklant A", "klant_id": str(klant_id), "datum": "2026-10-16",
         "omschrijving": "dag", "type": "arbeid_uur", "aantal": "4", "prijs": "45",
         "regel_klus": str(klus_id), "regel_uur": str(uur_id),
     })
@@ -543,7 +543,7 @@ def test_lager_aantal_op_een_dagregel_wordt_niet_opgeslagen(post, db):
     post(f"/klus/{klus_id}/dag", {"datum": "2026-10-12", "van": "08:00", "tot": "16:00"})
     uur_id = db.execute("SELECT id FROM uren").fetchone()[0]
     antwoord = post("/nieuw", {
-        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "klant_naam": "Testklant A", "klant_id": str(klant_id), "datum": "2026-10-16",
         "omschrijving": "dag", "type": "arbeid_uur", "aantal": "1", "prijs": "45",
         "regel_klus": str(klus_id), "regel_uur": str(uur_id),
     }, follow_redirects=True)
@@ -563,7 +563,7 @@ def test_uur_id_is_uniek_en_valt_weg_als_de_dag_weggaat(db):
     ).lastrowid
     factuur_id = db.execute(
         """INSERT INTO facturen (nummer, datum, klant_naam, status, totaal)
-           VALUES ('2026-001', '2026-10-16', 'Stone', 'concept', 180)"""
+           VALUES ('2026-001', '2026-10-16', 'Testklant A', 'concept', 180)"""
     ).lastrowid
     db.execute(
         """INSERT INTO regels (factuur_id, omschrijving, type, aantal, prijs, subtotaal, uur_id)
@@ -616,11 +616,11 @@ def test_migratie_bewaart_beide_bedragen_bij_een_dubbele_dag(db):
     ).lastrowid
     eerste = db.execute(
         """INSERT INTO facturen (nummer, datum, klant_naam, status, totaal)
-           VALUES ('2026-001', '2026-10-16', 'Stone', 'concept', 180)"""
+           VALUES ('2026-001', '2026-10-16', 'Testklant A', 'concept', 180)"""
     ).lastrowid
     tweede = db.execute(
         """INSERT INTO facturen (nummer, datum, klant_naam, status, totaal)
-           VALUES ('2026-002', '2026-10-16', 'Stone', 'concept', 180)"""
+           VALUES ('2026-002', '2026-10-16', 'Testklant A', 'concept', 180)"""
     ).lastrowid
     uur_id = db.execute(
         """INSERT INTO uren (klus_id, datum, van, tot, factuur_id)
@@ -694,7 +694,7 @@ def _oude_regeltabel(db):
     db.execute("DROP TABLE regels_los")
     factuur_id = db.execute(
         """INSERT INTO facturen (nummer, datum, klant_naam, status, totaal)
-           VALUES ('2026-040', '2026-10-16', 'Stone', 'definitief', 111)"""
+           VALUES ('2026-040', '2026-10-16', 'Testklant A', 'definitief', 111)"""
     ).lastrowid
     db.execute(
         """INSERT INTO regels
@@ -803,11 +803,11 @@ def test_migratie_laat_alleen_de_regel_van_de_dag_gekoppeld(db, client, caplog):
     ).lastrowid
     eerste = db.execute(
         """INSERT INTO facturen (nummer, datum, klant_naam, status, totaal)
-           VALUES ('2026-001', '2026-10-16', 'Stone', 'definitief', 400)"""
+           VALUES ('2026-001', '2026-10-16', 'Testklant A', 'definitief', 400)"""
     ).lastrowid
     tweede = db.execute(
         """INSERT INTO facturen (nummer, datum, klant_naam, status, totaal)
-           VALUES ('2026-002', '2026-10-17', 'Stone', 'definitief', 795.63)"""
+           VALUES ('2026-002', '2026-10-17', 'Testklant A', 'definitief', 795.63)"""
     ).lastrowid
     dag1 = db.execute(
         """INSERT INTO uren (klus_id, datum, van, tot, factuur_id)
@@ -950,7 +950,7 @@ def test_oude_bedragen_van_387_175_blijven_na_openen_en_opslaan(post, client, db
     database niet naar 774,34 trekken."""
     factuur_id = db.execute(
         """INSERT INTO facturen (nummer, datum, klant_naam, status, totaal)
-           VALUES ('2026-091', ?, 'Stone', 'definitief', 774.35)""",
+           VALUES ('2026-091', ?, 'Testklant A', 'definitief', 774.35)""",
         (facturen.vandaag().isoformat(),),
     ).lastrowid
     for _ in range(2):
@@ -991,12 +991,12 @@ def test_prijs_wijzigen_rekent_het_subtotaal_opnieuw(post, db):
     """Zonder script blijft het oude subtotaal in het formulier staan."""
     klant_id, _klus_id = _klus(post, db)
     post("/nieuw", {
-        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "klant_naam": "Testklant A", "klant_id": str(klant_id), "datum": "2026-10-16",
         "omschrijving": "Kit", "type": "materiaal", "aantal": "1", "prijs": "12.50",
     })
     factuur_id = db.execute("SELECT id FROM facturen").fetchone()[0]
     post(f"/factuur/{factuur_id}/bewerk", {
-        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "klant_naam": "Testklant A", "klant_id": str(klant_id), "datum": "2026-10-16",
         "omschrijving": "Kit", "type": "materiaal", "aantal": "1", "prijs": "20",
         "regel_subtotaal": "12.50",
     })
@@ -1009,12 +1009,12 @@ def test_prijs_wijzigen_rekent_het_subtotaal_opnieuw(post, db):
 def test_aantal_wijzigen_rekent_het_subtotaal_opnieuw(post, db):
     klant_id, _klus_id = _klus(post, db)
     post("/nieuw", {
-        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "klant_naam": "Testklant A", "klant_id": str(klant_id), "datum": "2026-10-16",
         "omschrijving": "Kit", "type": "materiaal", "aantal": "1", "prijs": "12.50",
     })
     factuur_id = db.execute("SELECT id FROM facturen").fetchone()[0]
     post(f"/factuur/{factuur_id}/bewerk", {
-        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "klant_naam": "Testklant A", "klant_id": str(klant_id), "datum": "2026-10-16",
         "omschrijving": "Kit", "type": "materiaal", "aantal": "3", "prijs": "12.50",
         "regel_subtotaal": "12.50",
     })
@@ -1027,12 +1027,12 @@ def test_soort_per_klus_rekent_niet_met_het_oude_aantal(post, db):
     """2 × 12,50 en daarna 'Arbeid per klus' is 1 × 12,50, niet € 25,00."""
     klant_id, _klus_id = _klus(post, db)
     post("/nieuw", {
-        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "klant_naam": "Testklant A", "klant_id": str(klant_id), "datum": "2026-10-16",
         "omschrijving": "Werk", "type": "arbeid_uur", "aantal": "2", "prijs": "12.50",
     })
     factuur_id = db.execute("SELECT id FROM facturen").fetchone()[0]
     post(f"/factuur/{factuur_id}/bewerk", {
-        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "klant_naam": "Testklant A", "klant_id": str(klant_id), "datum": "2026-10-16",
         "omschrijving": "Werk", "type": "arbeid_klus", "aantal": "1", "prijs": "12.50",
         "regel_subtotaal": "25.00",
     })
@@ -1047,7 +1047,7 @@ def test_tweede_tabblad_met_materiaal_maakt_geen_rekening(post, db):
     post(f"/klus/{klus_id}/dag", {"datum": "2026-10-12", "van": "08:00", "tot": "12:00"})
     uur_id = db.execute("SELECT id FROM uren").fetchone()[0]
     formulier = {
-        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "klant_naam": "Testklant A", "klant_id": str(klant_id), "datum": "2026-10-16",
         "omschrijving": ["dag", "kit"],
         "type": ["arbeid_uur", "materiaal"],
         "aantal": ["4", "1"],
@@ -1076,7 +1076,7 @@ def test_verouderde_omschrijving_volgt_de_dag(post, db):
         "datum": "2026-10-12", "van": "09:00", "tot": "15:00",
     })
     post("/nieuw", {
-        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "klant_naam": "Testklant A", "klant_id": str(klant_id), "datum": "2026-10-16",
         "omschrijving": "ma 12 okt 2026, 08:00–12:00 · Gevel",
         "type": "arbeid_uur", "aantal": "4", "prijs": "45",
         "regel_klus": str(klus_id), "regel_uur": str(uur_id),
@@ -1122,7 +1122,7 @@ def test_klus_met_gefactureerde_dag_verwijderen_lukt_niet(post, db):
     post(f"/klus/{klus_id}/dag", {"datum": "2026-10-12", "van": "08:00", "tot": "12:00"})
     uur_id = db.execute("SELECT id FROM uren").fetchone()[0]
     post("/nieuw", {
-        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "klant_naam": "Testklant A", "klant_id": str(klant_id), "datum": "2026-10-16",
         "omschrijving": "dag", "type": "arbeid_uur", "aantal": "4", "prijs": "45",
         "regel_klus": str(klus_id), "regel_uur": str(uur_id),
     })
@@ -1131,7 +1131,7 @@ def test_klus_met_gefactureerde_dag_verwijderen_lukt_niet(post, db):
     tekst = antwoord.data.decode()
     assert "Deze klus kan niet weg." in tekst
     assert "conceptrekening" in tekst
-    assert "Stone" in tekst
+    assert "Testklant A" in tekst
     assert "rekening CONCEPT" not in tekst
     assert "Naar de rekening" in tekst
     assert f"/factuur/{factuur_id}/bewerk" in tekst
@@ -1157,7 +1157,7 @@ def test_terughalen_zet_de_dag_weer_op_de_regel(post, db):
     post(f"/klus/{klus_id}/dag", {"datum": "2026-10-12", "van": "08:00", "tot": "12:00"})
     uur_id = db.execute("SELECT id FROM uren").fetchone()[0]
     post("/nieuw", {
-        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "klant_naam": "Testklant A", "klant_id": str(klant_id), "datum": "2026-10-16",
         "omschrijving": "dag", "type": "arbeid_uur", "aantal": "4", "prijs": "45",
         "regel_klus": str(klus_id), "regel_uur": str(uur_id),
     })
@@ -1196,7 +1196,7 @@ def test_rekening_terughalen_weigert_als_de_dag_elders_staat(post, client, db):
     post(f"/klus/{klus_id}/dag", {"datum": "2026-10-13", "van": "08:00", "tot": "12:00"})
     dagen = db.execute("SELECT id FROM uren ORDER BY datum").fetchall()
     formulier = {
-        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "klant_naam": "Testklant A", "klant_id": str(klant_id), "datum": "2026-10-16",
         "omschrijving": ["eerste", "tweede"],
         "type": ["arbeid_uur", "arbeid_uur"],
         "aantal": ["8", "4"],
@@ -1248,7 +1248,7 @@ def _pdf_met_dagen(n, post, db):
         for rij in dagen
     ]
     post("/nieuw", {
-        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-03-01",
+        "klant_naam": "Testklant A", "klant_id": str(klant_id), "datum": "2026-03-01",
         "omschrijving": omschrijvingen,
         "type": ["arbeid_uur"] * n,
         "aantal": ["7.33"] * n,
@@ -1290,7 +1290,7 @@ def test_geweigerde_opslag_houdt_het_formulier(post, db):
     post(f"/klus/{klus_id}/dag", {"datum": "2026-10-12", "van": "08:00", "tot": "12:00"})
     uur_id = db.execute("SELECT id FROM uren").fetchone()[0]
     formulier = {
-        "klant_naam": "Stone",
+        "klant_naam": "Testklant A",
         "klant_id": str(klant_id),
         "klant_adres": "Straat 1",
         "datum": "2026-10-16",
@@ -1310,7 +1310,7 @@ def test_geweigerde_opslag_houdt_het_formulier(post, db):
     tekst = tweede.data.decode()
     assert "niet nog een keer" in tekst
     assert "niet aangemaakt" in tekst
-    assert 'value="Stone"' in tekst
+    assert 'value="Testklant A"' in tekst
     assert 'value="2026-10-16"' in tekst
     assert 'value="2026-10-30"' in tekst
     assert 'value="tweede scherm"' in tekst
@@ -1333,7 +1333,7 @@ def test_geweigerde_opslag_blijft_staan_met_script(post, db):
     post(f"/klus/{klus_id}/dag", {"datum": "2026-10-12", "van": "08:00", "tot": "12:00"})
     uur_id = db.execute("SELECT id FROM uren").fetchone()[0]
     formulier = {
-        "klant_naam": "Stone",
+        "klant_naam": "Testklant A",
         "klant_id": str(klant_id),
         "datum": "2026-10-16",
         "betaaltermijn": "ja",

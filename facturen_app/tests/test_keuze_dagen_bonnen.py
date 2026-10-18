@@ -154,6 +154,7 @@ def test_dezelfde_dag_op_twee_rekeningen_wordt_geweigerd(post, db):
     assert db.execute("SELECT COUNT(*) FROM facturen").fetchone()[0] == 1
     tweede = post("/nieuw", formulier)
     tekst = tweede.data.decode()
+    assert "De dag van 12 okt 2026 staat al op" in tekst
     assert "niet nog een keer" in tekst
     assert "niet aangemaakt" in tekst
     assert 'value="Test Klant BV"' in tekst
@@ -172,6 +173,12 @@ def test_bonnen_per_stuk_en_de_lijst_zonder_wat_al_op_een_rekening_staat(post, d
     assert "Alle bonnen toevoegen" in pagina
     assert "hidden" not in _bon_knop(pagina, "Kitvoeg")
     assert "hidden" not in _bon_knop(pagina, "Buis 32 mm")
+    # Zichtbare tekst met een komma. data-bedrag houdt de punt: dat leest het
+    # script als getal, de gebruiker ziet 12,50.
+    start = pagina.find(_bon_knop(pagina, "Kitvoeg"))
+    zichtbaar = pagina[pagina.find(">", start) + 1:pagina.find("</button>", start)]
+    assert "12,50" in zichtbaar
+    assert "12.50" not in zichtbaar
 
     kit = db.execute(
         "SELECT id FROM inkopen WHERE omschrijving='Kitvoeg'"

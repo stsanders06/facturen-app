@@ -561,7 +561,7 @@
                   data-bedrag="{{ '%.2f'|format(b.bedrag or 0) }}"
                   data-klant="{{ b.klant_id or '' }}"
                   {% if not b.past or b.id in gebruikte_bonnen %}hidden{% endif %}>
-            {{ b.omschrijving }} · €&nbsp;{{ '%.2f'|format(b.bedrag or 0) }}{% if b.klus_naam %} · {{ b.klus_naam }}{% endif %}
+            {{ b.omschrijving }} · €&nbsp;{{ b.bedrag|bedrag }}{% if b.klus_naam %} · {{ b.klus_naam }}{% endif %}
           </button>
           {% endfor %}
         {% endcall %}
