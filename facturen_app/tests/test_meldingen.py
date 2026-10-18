@@ -5,6 +5,8 @@ opgeslagen" las alsof er iets fout was gegaan. De kleur draagt nu de betekenis.
 """
 import re
 
+import pytest
+
 from test_smalle_weergave import css_van, regel_met
 
 
@@ -200,7 +202,84 @@ def test_een_melding_is_weg_te_vegen_en_dicht_te_tikken(post, client, maak_factu
     assert "closest('button, a, input, textarea, select')" in inhoud
 
     css = css_van(inhoud)
-    blok = css[css.index(".meldingen .melding { font-size: 16px"):]
-    assert "width: 44px" in regel_met(blok, ".melding .sluit")
-    assert "height: 44px" in regel_met(blok, ".melding .sluit")
+    sluit = regel_met(css, ".melding .sluit")
+    # Rechtsboven, niet meelopend in de rij: daar zakte het kruisje onder de tekst.
+    assert "position: absolute" in sluit
+    assert "top: 0" in sluit
+    assert "right: 0" in sluit
+    assert "width: 44px" in sluit
+    assert "height: 44px" in sluit
+    assert "padding-right: 36px" in regel_met(css, ".melding .woorden")
     assert "touch-action: pan-y" in regel_met(css, ".melding")
+
+
+def _kruisje_zit_rechtsboven(pagina, soort):
+    """Het kruisje deelt de hoogte van het icoon en de tekst blijft er links van."""
+    maten = pagina.evaluate(
+        """(soort) => {
+            const melding = document.querySelector('.melding.' + soort);
+            const knop = melding.querySelector('.sluit');
+            const teken = melding.querySelector('.teken');
+            const woorden = melding.querySelector('.woorden');
+            const tekst = document.createRange();
+            tekst.selectNodeContents(woorden);
+            const regels = [...tekst.getClientRects()];
+            const mb = melding.getBoundingClientRect();
+            const kb = knop.getBoundingClientRect();
+            const tb = teken.getBoundingClientRect();
+            return {
+                knop: {x: kb.x, y: kb.y, w: kb.width, h: kb.height, rechts: kb.right},
+                meldingRechts: mb.right,
+                meldingBoven: mb.top,
+                tekenMidden: tb.top + tb.height / 2,
+                regels: regels.map(r => ({links: r.left, rechts: r.right, midden: r.top + r.height / 2}))
+            };
+        }""",
+        soort,
+    )
+    knop = maten["knop"]
+    assert knop["w"] >= 44 and knop["h"] >= 44, maten
+    assert abs(knop["rechts"] - maten["meldingRechts"]) <= 2, maten
+    assert abs(knop["y"] - maten["meldingBoven"]) <= 2, maten
+    knop_midden = knop["y"] + knop["h"] / 2
+    assert abs(knop_midden - maten["tekenMidden"]) <= 8, maten
+    assert abs(knop_midden - maten["regels"][0]["midden"]) <= 8, maten
+    for regel in maten["regels"]:
+        assert regel["rechts"] <= knop["x"] + 1, maten
+
+
+def test_het_sluitkruisje_staat_rechtsboven_op_een_telefoon(post, db):
+    """Op 320 en 390 px zakte het kruisje onder de tekst, links. Het hoort
+    rechtsboven, naast het icoon, bij een gelukte én een mislukte melding."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    gelukt = post("/nieuw", {
+        "klant_naam": "Voorbeeld Klant",
+        "klant_email": "klant@example.com",
+        "datum": "2026-08-14",
+        "omschrijving": "Kit",
+        "type": "materiaal",
+        "aantal": "1",
+        "prijs": "12",
+    }, follow_redirects=True).data.decode()
+    db.execute("INSERT INTO klanten (naam) VALUES ('Voorbeeld Klant')")
+    db.commit()
+    klant_id = db.execute("SELECT id FROM klanten").fetchone()[0]
+    fout = post(f"/klant/{klant_id}/bewerk", {"naam": ""},
+                follow_redirects=True).data.decode()
+    assert 'class="melding gelukt"' in gelukt
+    assert 'class="melding fout"' in fout
+
+    with sync_playwright() as p:
+        browser = p.webkit.launch()
+        for breedte in (390, 320):
+            for soort, html in (("gelukt", gelukt), ("fout", fout)):
+                pagina = browser.new_page(
+                    viewport={"width": breedte, "height": 700},
+                    device_scale_factor=1,
+                )
+                pagina.set_content(html)
+                _kruisje_zit_rechtsboven(pagina, soort)
+                pagina.close()
+        browser.close()

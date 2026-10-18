@@ -9,6 +9,8 @@ genoeg; anders blijft de vorige versie draaien.
   regel met een vinkje, een voorbeeld en de naam. Een foto opent groot in beeld,
   een PDF in een nieuw tabblad. Het vinkje zelf opent niets. Wat aangevinkt is
   gaat mee, en notitiefoto's gaan nooit mee.
+- **Het kruisje van een melding staat rechtsboven**, op de hoogte van het
+  icoon. De tekst loopt er niet meer onderdoor.
 
 ## 1.37.2
 

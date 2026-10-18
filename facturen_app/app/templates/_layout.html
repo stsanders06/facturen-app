@@ -402,24 +402,40 @@
   /* De tekst krijgt de resterende breedte en breekt op woorden. flex:none op
      de link ernaast drukte die tekst op een telefoon tot een kolom van een
      paar letters. De link staat daarom op een eigen regel, over de volle
-     breedte, met een tikvlak van 44px. */
-  .melding .woorden { flex: 1 1 auto; min-width: 0; overflow-wrap: break-word; }
+     breedte, met een tikvlak van 44px.
+     basis 0, niet auto: bij auto is de basis de hele zin, en die past niet
+     naast het icoon, dus de zin zakte er in zijn geheel onder. */
+  /* Het kruisje staat los rechtsboven, niet in de rij. In de rij zakte het
+     op een telefoon onder de tekst, links uitgelijnd. De padding houdt de
+     zin uit dat vak; zonder die ruimte liep de eerste regel eronderdoor. */
+  .melding .woorden {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow-wrap: break-word;
+    padding-right: 36px;
+  }
   /* Zelf weghalen: een gewone bevestiging verdwijnt vanzelf, maar een knop
      om iets terug te halen blijft staan tot je hem gebruikt. Die mag je óók
-     wegvegen of dichttikken als je hem al gelezen hebt. */
+     wegvegen of dichttikken als je hem al gelezen hebt. 44px is het tikvlak;
+     het teken zelf staat in het midden, op de hoogte van het icoon. */
   .melding .sluit {
-    flex: none;
-    width: 32px;
-    height: 32px;
-    margin: -4px -6px -4px 0;
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 44px;
+    height: 44px;
+    margin: 0;
     border: none;
     border-radius: 50%;
     background: transparent;
     color: var(--text-secondary);
-    font-size: 22px;
+    font-size: 26px;
     line-height: 1;
     cursor: pointer;
     padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
   .melding .sluit:hover { background: var(--neutral-soft); color: var(--text); }
   .melding .sluit:focus-visible {
@@ -431,7 +447,6 @@
      knijpen leest. Het kruisje is 44px, dezelfde duimmaat als de andere knoppen. */
   @media (pointer: coarse), (max-width: 620px) {
     .meldingen .melding { font-size: 16px; }
-    .melding .sluit { width: 44px; height: 44px; margin: -8px -8px -8px 0; font-size: 26px; }
   }
   .melding.fout { border-left-color: var(--danger); }
   .melding.fout .teken { background: var(--danger); }
@@ -462,7 +477,8 @@
     display: flex;
     align-items: center;
   }
-  .melding form { margin: 0; flex: none; }
+  /* Naast de tekst, niet onder het kruisje dat rechtsboven vastzit. */
+  .melding form { margin: 0 36px 0 0; flex: none; }
   .melding .terugknop {
     background: transparent;
     border: 1px solid var(--border);
