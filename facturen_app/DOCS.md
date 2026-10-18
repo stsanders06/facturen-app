@@ -204,7 +204,7 @@ goed bij, dan haal je die regel met het kruisje weg.
 
 ## Uren bijhouden
 
-Onder het tabblad **Uren** maak je een klus aan, bijvoorbeeld "badkamer Kerkstraat". Geef
+Onder het tabblad **Uren** maak je een klus aan, bijvoorbeeld "badkamer Voorbeeldstraat". Geef
 er eventueel een klant en een uurtarief bij. Op de kluspagina zet je per gewerkte dag een
 regel neer: de datum, van hoe laat tot hoe laat en een notitie voor jezelf. De uren worden
 opgeteld; werk je door tot na middernacht, dan telt dat gewoon door. Bovenaan staat wat

@@ -16,7 +16,7 @@ PNG = bytes.fromhex(
 
 @pytest.fixture
 def klus_id(post, db):
-    post("/klussen/nieuw", {"naam": "Badkamer Kerkstraat", "uurtarief": "45"})
+    post("/klussen/nieuw", {"naam": "Badkamer Voorbeeldstraat", "uurtarief": "45"})
     return db.execute("SELECT id FROM klussen").fetchone()[0]
 
 

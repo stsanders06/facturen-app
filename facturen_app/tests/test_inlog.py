@@ -109,18 +109,18 @@ def test_zonder_account_kom_je_op_het_instelscherm(zonder_account):
 
 def test_account_aanmaken(zonder_account, db):
     antwoord = zonder_account.post("/instellen", data={
-        "csrf_token": "test-token", "naam": "stone",
+        "csrf_token": "test-token", "naam": "testgebruiker",
         "wachtwoord": "een-goed-wachtwoord", "nogmaals": "een-goed-wachtwoord",
     })
     assert antwoord.status_code == 302
-    assert db.execute("SELECT naam FROM gebruikers").fetchone()[0] == "stone"
+    assert db.execute("SELECT naam FROM gebruikers").fetchone()[0] == "testgebruiker"
     # En je bent meteen ingelogd.
     assert zonder_account.get("/").status_code == 200
 
 
 def test_wachtwoord_moet_lang_genoeg_zijn(zonder_account, db):
     zonder_account.post("/instellen", data={
-        "csrf_token": "test-token", "naam": "stone",
+        "csrf_token": "test-token", "naam": "testgebruiker",
         "wachtwoord": "kort", "nogmaals": "kort",
     })
     assert db.execute("SELECT COUNT(*) FROM gebruikers").fetchone()[0] == 0
@@ -128,7 +128,7 @@ def test_wachtwoord_moet_lang_genoeg_zijn(zonder_account, db):
 
 def test_de_twee_wachtwoorden_moeten_gelijk_zijn(zonder_account, db):
     zonder_account.post("/instellen", data={
-        "csrf_token": "test-token", "naam": "stone",
+        "csrf_token": "test-token", "naam": "testgebruiker",
         "wachtwoord": "een-goed-wachtwoord", "nogmaals": "iets-anders",
     })
     assert db.execute("SELECT COUNT(*) FROM gebruikers").fetchone()[0] == 0

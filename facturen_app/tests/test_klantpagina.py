@@ -148,8 +148,8 @@ def test_bewerken_houdt_de_klant_van_de_klus(post, client, db):
 def test_een_adres_opent_een_keuze_voor_de_route(client, db):
     from conftest import facturen
 
-    adres = "Nachtegaalstraat 212\n5932 CH Tegelen"
-    bestemming = "Nachtegaalstraat%20212%2C%205932%20CH%20Tegelen"
+    adres = "Voorbeeldstraat 1\n1234 AB Voorbeeldstad"
+    bestemming = "Voorbeeldstraat%201%2C%201234%20AB%20Voorbeeldstad"
     links = dict(facturen.navigatie_voor(adres))
     assert links == {
         "Google Maps":
@@ -158,7 +158,7 @@ def test_een_adres_opent_een_keuze_voor_de_route(client, db):
         "Waze": f"https://waze.com/ul?q={bestemming}&navigate=yes",
     }
     # Alleen de straat: geen lege postcode erachter plakken.
-    assert facturen.navigatie_voor("Molenstraat 14")[0][1].endswith("Molenstraat%2014")
+    assert facturen.navigatie_voor("Voorbeeldstraat 14")[0][1].endswith("Voorbeeldstraat%2014")
     assert facturen.navigatie_voor("") == []
     assert facturen.navigatie_voor("  \n  ") == []
 
@@ -175,7 +175,7 @@ def test_een_adres_opent_een_keuze_voor_de_route(client, db):
     assert f"q={bestemming}&amp;navigate=yes" in inhoud
     assert 'target="_blank" rel="noopener"' in inhoud
     # Het adres zelf is de knop, niet een losse zin ernaast.
-    assert "Nachtegaalstraat 212" in inhoud
+    assert "Voorbeeldstraat 1" in inhoud
     assert inhoud.count("Google Maps") == 1
 
 
@@ -192,13 +192,13 @@ def test_zonder_adres_is_er_niets_om_aan_te_tikken(client, db):
 def test_een_notitie_bij_de_klant_maakt_een_adres_aanklikbaar(client, db):
     klant_id = db.execute(
         """INSERT INTO klanten (naam, notitie)
-           VALUES ('Jan Jansen', 'Foto''s: https://example.com/pad\nwww.voorbeeld.nl')"""
+           VALUES ('Jan Jansen', 'Foto''s: https://example.com/pad\nwww.example.org')"""
     ).lastrowid
     db.commit()
     inhoud = client.get(f"/klant/{klant_id}").data.decode()
     assert 'href="https://example.com/pad"' in inhoud
-    assert 'href="https://www.voorbeeld.nl"' in inhoud
+    assert 'href="https://www.example.org"' in inhoud
     assert 'class="externe-link"' in inhoud
     assert 'target="_blank" rel="noopener"' in inhoud
     assert db.execute("SELECT notitie FROM klanten").fetchone()[0] == \
-        "Foto's: https://example.com/pad\nwww.voorbeeld.nl"
+        "Foto's: https://example.com/pad\nwww.example.org"

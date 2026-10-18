@@ -82,7 +82,7 @@ def test_klant_bekijken_en_bewerken(post, client, db):
 
 
 def test_uren_op_een_klus_worden_opgeteld(post, db):
-    post("/klussen/nieuw", {"naam": "Badkamer Kerkstraat", "uurtarief": "45"})
+    post("/klussen/nieuw", {"naam": "Badkamer Voorbeeldstraat", "uurtarief": "45"})
     klus_id = db.execute("SELECT id FROM klussen").fetchone()[0]
 
     post(f"/klus/{klus_id}/dag", {"datum": "2026-08-14", "van": "09:00", "tot": "17:00"})

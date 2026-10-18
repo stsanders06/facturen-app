@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.37.1
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **De voorbeelden in de app zijn verzonnen.** Adressen, telefoonnummers,
+  e-mailadressen en de voorbeeld-IBAN horen nergens bij een echt bedrijf of
+  een echt persoon.
+
+## 1.37.0
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **Dagen van een klus zet je één voor één op de rekening**, of allemaal
+  tegelijk met "Alle dagen toevoegen". Elke dag blijft een eigen regel, met
+  datum, begin, eind en een eventuele pauze.
+- **Een dag die al op een rekening staat, zie je niet meer in die lijst.**
+  Haal je de regel eraf, dan komt de dag terug. Een dag die nog bezig is
+  (geen eindtijd) staat er niet tussen.
+- **Hetzelfde voor bonnen.** Per bon, of "Alle bonnen toevoegen". Een bon die
+  al op een rekening staat verdwijnt uit de lijst en komt terug als je hem
+  eraf haalt. Het bedrag in die lijst staat met een komma, net als op de
+  rest van de rekening.
+- **Een dag of een bon kan niet op twee rekeningen tegelijk**, ook niet als
+  je twee schermen open hebt. De melding noemt de datum van die dag, en het
+  formulier blijft staan zoals je het had ingevuld.
+
 ## 1.36.1
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
@@ -407,17 +435,17 @@ ook nog niet; de app boekt nu hele dagen die in het aantal passen.
 
 ## 1.17.0
 
-- **Adressen krijgen overal dezelfde vorm.** Typ je "nachtegaalstraat 212, 5932ch
-  tegelen", dan staat er zodra je het veld verlaat:
+- **Adressen krijgen overal dezelfde vorm.** Typ je "voorbeeldstraat 1, 1234ab
+  voorbeeldstad", dan staat er zodra je het veld verlaat:
 
-      Nachtegaalstraat 212
-      5932 CH Tegelen
+      Voorbeeldstraat 1
+      1234 AB Voorbeeldstad
 
   Straat en huisnummer op de eerste regel, postcode en plaats op de tweede.
-  Tussenvoegsels blijven klein ("Alphen aan den Rijn") en wat je zelf met hoofdletters
+  Tussenvoegsels blijven klein ("Dorp aan den Berg") en wat je zelf met hoofdletters
   schrijft blijft staan. Een buitenlands adres wordt met rust gelaten.
 - **Telefoonnummers ook.** "06-12345678" wordt "06 12345678", "+31612345678" wordt
-  "+31 6 12345678", en een vast nummer als "0773512244" wordt "077 3512244". Een
+  "+31 6 12345678", en een vast nummer als "0101234567" wordt "010 1234567". Een
   nummer uit een ander land blijft zoals het is.
 - Dit geldt ook voor wat er uit een CSV komt, en **wat er al in de app stond is
   eenmalig meegenomen** — dat hoor je één keer bij het opstarten.

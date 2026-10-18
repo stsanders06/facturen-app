@@ -150,16 +150,16 @@ def test_een_oud_adres_met_lege_regels_komt_netjes_op_de_pagina(client, db):
     """pre-line tekent witregels in het adres als lege ruimte. Op WebKit werd
     de adresrij daardoor een hoog vlak. De pagina toont alleen gevulde regels,
     bijgesneden; wat er is opgeslagen blijft zoals het was."""
-    ruw = "\n  Willem van Gulikstraat 11 \n\n\n  5991 CW Baarlo  \n"
+    ruw = "\n  Voorbeeldstraat 11 \n\n\n  1234 CW Voorbeeldstad  \n"
     klant_id = db.execute(
-        "INSERT INTO klanten (naam, adres) VALUES ('Fons Peeters', ?)", (ruw,)
+        "INSERT INTO klanten (naam, adres) VALUES ('Testklant C', ?)", (ruw,)
     ).lastrowid
     db.commit()
     inhoud = client.get(f"/klant/{klant_id}").data.decode()
     blok = re.search(r'<details class="menu navigatie">(.*?)</details>', inhoud, re.S).group(1)
     summary = re.search(r"<summary[^>]*>(.*?)</summary>", blok, re.S).group(1)
-    assert summary == "Willem van Gulikstraat 11\n5991 CW Baarlo"
-    assert 'aria-label="Route naar Willem van Gulikstraat 11, 5991 CW Baarlo"' in blok
+    assert summary == "Voorbeeldstraat 11\n1234 CW Voorbeeldstad"
+    assert 'aria-label="Route naar Voorbeeldstraat 11, 1234 CW Voorbeeldstad"' in blok
     assert db.execute("SELECT adres FROM klanten").fetchone()[0] == ruw
 
 
@@ -168,7 +168,7 @@ def test_het_adres_blijft_tikbaar_zonder_de_rij_hoger_te_maken(client, db):
     e-mail en telefoon. Het tikvlak zit daarom in ::after en telt niet mee,
     zoals bij het intake-vinkje."""
     klant_id = db.execute(
-        "INSERT INTO klanten (naam, adres) VALUES ('Jan Jansen', 'Kerkstraat 1')"
+        "INSERT INTO klanten (naam, adres) VALUES ('Jan Jansen', 'Voorbeeldstraat 1')"
     ).lastrowid
     db.commit()
     css = css_van(client.get(f"/klant/{klant_id}").data.decode())

@@ -20,8 +20,8 @@ def kadaster(monkeypatch):
 
     def nep(term, aantal=5):
         gevraagd.append(term)
-        return ["Nachtegaalstraat 212\n5932 CH Tegelen",
-                "Nachtegaalstraat 21\n5932 CG Tegelen"]
+        return ["Voorbeeldstraat 1\n1234 AB Voorbeeldstad",
+                "Voorbeeldstraat 21\n1234 AC Voorbeeldstad"]
 
     monkeypatch.setattr(facturen, "zoek_adressen", nep)
     return gevraagd
@@ -33,44 +33,44 @@ def test_er_komt_niets_terug_bij_een_te_korte_term(client, kadaster):
 
 
 def test_de_officiele_adressen_komen_terug(client, kadaster):
-    suggesties = client.get("/adressen?q=nachtegaalstraat 212").get_json()["suggesties"]
+    suggesties = client.get("/adressen?q=voorbeeldstraat 1").get_json()["suggesties"]
     assert [s["adres"] for s in suggesties] == [
-        "Nachtegaalstraat 212\n5932 CH Tegelen",
-        "Nachtegaalstraat 21\n5932 CG Tegelen",
+        "Voorbeeldstraat 1\n1234 AB Voorbeeldstad",
+        "Voorbeeldstraat 21\n1234 AC Voorbeeldstad",
     ]
 
 
 def test_een_eigen_klant_staat_bovenaan(client, db, kadaster):
     """Een adres dat je al eens hebt ingevoerd is meestal degene die je bedoelt."""
     db.execute("""INSERT INTO klanten (naam, adres)
-                  VALUES ('Bakkerij De Korenaar', 'Nachtegaalstraat 9
-5932 AA Tegelen')""")
+                  VALUES ('Voorbeeld Bakkerij', 'Voorbeeldstraat 9
+1234 AA Voorbeeldstad')""")
     db.commit()
 
-    suggesties = client.get("/adressen?q=nachtegaalstraat").get_json()["suggesties"]
-    assert suggesties[0]["bron"] == "Bakkerij De Korenaar"
-    assert suggesties[0]["adres"].startswith("Nachtegaalstraat 9")
+    suggesties = client.get("/adressen?q=voorbeeldstraat").get_json()["suggesties"]
+    assert suggesties[0]["bron"] == "Voorbeeld Bakkerij"
+    assert suggesties[0]["adres"].startswith("Voorbeeldstraat 9")
     assert suggesties[1]["bron"] == ""
 
 
 def test_je_kunt_ook_op_de_klantnaam_zoeken(client, db, kadaster):
     db.execute("""INSERT INTO klanten (naam, adres)
-                  VALUES ('Bakkerij De Korenaar', 'Molenstraat 14
-5911 AB Venlo')""")
+                  VALUES ('Voorbeeld Bakkerij', 'Voorbeeldstraat 14
+1234 AB Voorbeeldstad')""")
     db.commit()
 
-    suggesties = client.get("/adressen?q=korenaar").get_json()["suggesties"]
-    assert suggesties[0]["adres"] == "Molenstraat 14\n5911 AB Venlo"
+    suggesties = client.get("/adressen?q=bakkerij").get_json()["suggesties"]
+    assert suggesties[0]["adres"] == "Voorbeeldstraat 14\n1234 AB Voorbeeldstad"
 
 
 def test_twee_klanten_op_hetzelfde_adres_geven_een_regel(client, db, kadaster):
     """Anders staan er twee regels die er precies hetzelfde uitzien."""
-    for naam in ("Bakkerij De Korenaar", "Kapsalon Anja"):
-        db.execute("INSERT INTO klanten (naam, adres) VALUES (?, 'Molenstraat 14\n5911 AB Venlo')",
+    for naam in ("Voorbeeld Bakkerij", "Voorbeeld Kapper"):
+        db.execute("INSERT INTO klanten (naam, adres) VALUES (?, 'Voorbeeldstraat 14\n1234 AB Voorbeeldstad')",
                    (naam,))
     db.commit()
 
-    suggesties = client.get("/adressen?q=molenstraat").get_json()["suggesties"]
+    suggesties = client.get("/adressen?q=voorbeeldstraat").get_json()["suggesties"]
     eigen = [s for s in suggesties if s["bron"]]
     assert len(eigen) == 1
 
@@ -90,13 +90,13 @@ def test_zonder_internet_krijg_je_gewoon_je_eigen_klanten(client, db, monkeypatc
 
     monkeypatch.setattr(facturen, "urlopen", stuk)
     db.execute("""INSERT INTO klanten (naam, adres)
-                  VALUES ('Bakkerij De Korenaar', 'Molenstraat 14
-5911 AB Venlo')""")
+                  VALUES ('Voorbeeld Bakkerij', 'Voorbeeldstraat 14
+1234 AB Voorbeeldstad')""")
     db.commit()
 
-    antwoord = client.get("/adressen?q=molenstraat")
+    antwoord = client.get("/adressen?q=voorbeeldstraat")
     assert antwoord.status_code == 200
-    assert antwoord.get_json()["suggesties"][0]["bron"] == "Bakkerij De Korenaar"
+    assert antwoord.get_json()["suggesties"][0]["bron"] == "Voorbeeld Bakkerij"
 
 
 def test_dezelfde_term_wordt_maar_een_keer_opgezocht(app, monkeypatch):
@@ -108,7 +108,7 @@ def test_dezelfde_term_wordt_maar_een_keer_opgezocht(app, monkeypatch):
         def read(self):
             keren.append(1)
             return json.dumps({"response": {"docs": [
-                {"weergavenaam": "Molenstraat 14, 5911AB Venlo"}]}}).encode()
+                {"weergavenaam": "Voorbeeldstraat 14, 1234AB Voorbeeldstad"}]}}).encode()
 
         def __enter__(self):
             return self
@@ -118,9 +118,9 @@ def test_dezelfde_term_wordt_maar_een_keer_opgezocht(app, monkeypatch):
 
     monkeypatch.setattr(facturen, "urlopen", lambda *a, **k: NepAntwoord())
 
-    eerst = facturen.zoek_adressen("molenstraat 14")
-    daarna = facturen.zoek_adressen("molenstraat 14")
-    assert eerst == daarna == ["Molenstraat 14\n5911 AB Venlo"]
+    eerst = facturen.zoek_adressen("voorbeeldstraat 14")
+    daarna = facturen.zoek_adressen("voorbeeldstraat 14")
+    assert eerst == daarna == ["Voorbeeldstraat 14\n1234 AB Voorbeeldstad"]
     assert len(keren) == 1
 
 
@@ -136,4 +136,4 @@ def test_een_antwoord_dat_nergens_op_slaat_laat_de_app_niet_klappen(app, monkeyp
             return False
 
     monkeypatch.setattr(facturen, "urlopen", lambda *a, **k: Rommel())
-    assert facturen.zoek_adressen("molenstraat 14") == []
+    assert facturen.zoek_adressen("voorbeeldstraat 14") == []

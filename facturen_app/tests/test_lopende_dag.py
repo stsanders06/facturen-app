@@ -10,7 +10,7 @@ from test_smalle_weergave import css_van, regel_met
 
 
 def _klus(post, db, naam="Gevel", tarief="45"):
-    post("/klanten/nieuw", {"naam": "Stone"})
+    post("/klanten/nieuw", {"naam": "Testklant A"})
     klant_id = db.execute("SELECT id FROM klanten").fetchone()[0]
     post("/klussen/nieuw", {"naam": naam, "uurtarief": tarief, "klant_id": str(klant_id)})
     klus_id = db.execute("SELECT id FROM klussen").fetchone()[0]
@@ -94,7 +94,7 @@ def test_een_lopende_dag_telt_niet_mee_in_totalen_factuur_of_csv(post, client, d
     assert 'data-uren="8.0"' in nieuw
 
     antwoord = post("/nieuw", {
-        "klant_naam": "Stone", "klant_id": str(klant_id),
+        "klant_naam": "Testklant A", "klant_id": str(klant_id),
         "datum": facturen.vandaag().isoformat(),
         "omschrijving": "Uren gevel", "type": "arbeid_uur", "aantal": "8",
         "prijs": "45", "regel_klus": str(klus_id),
@@ -131,7 +131,7 @@ def test_alleen_een_lopende_dag_komt_niet_op_de_rekening(post, db):
     assert facturen.geboekte_klussen() == []
 
     antwoord = post("/nieuw", {
-        "klant_naam": "Stone", "klant_id": str(klant_id),
+        "klant_naam": "Testklant A", "klant_id": str(klant_id),
         "datum": facturen.vandaag().isoformat(),
         "omschrijving": "Uren gevel", "type": "arbeid_uur", "aantal": "3",
         "prijs": "45", "regel_klus": str(klus_id),
@@ -296,7 +296,7 @@ def test_opnieuw_opslaan_laat_gekoppelde_dagen_staan(post, db):
     post(f"/klus/{klus_id}/dag", {"datum": "2026-10-14", "van": "08:00", "tot": "12:00"})
     post(f"/klus/{klus_id}/dag", {"datum": "2026-10-15", "van": "08:00", "tot": "12:00"})
     rekening = {
-        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "klant_naam": "Testklant A", "klant_id": str(klant_id), "datum": "2026-10-16",
         "omschrijving": "Uren gevel", "type": "arbeid_uur", "aantal": "16",
         "prijs": "45", "regel_klus": str(klus_id),
     }

@@ -143,7 +143,7 @@ def maak_factuur(db):
         factuur_id = db.execute(
             """INSERT INTO facturen (nummer, datum, vervalt_op, klant_naam, klant_adres,
                klant_email, status, totaal) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (nummer, datum, vervalt_op, klant, "Kerkstraat 1\n5900 AA Venlo", email,
+            (nummer, datum, vervalt_op, klant, "Voorbeeldstraat 1\n1234 AB Voorbeeldstad", email,
              status, totaal),
         ).lastrowid
         db.execute(

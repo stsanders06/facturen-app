@@ -89,9 +89,9 @@ def test_instellingen_heeft_geen_betaaltermijn_meer(client, post, db):
 
     db.execute("UPDATE settings SET betaaltermijn_dagen=14 WHERE id=1")
     db.commit()
-    post("/instellingen", {"naam": "Stone", "betaaltermijn_dagen": "30"})
+    post("/instellingen", {"naam": "Testbedrijf", "betaaltermijn_dagen": "30"})
     rij = db.execute("SELECT betaaltermijn_dagen, naam FROM settings WHERE id=1").fetchone()
-    assert rij["naam"] == "Stone"
+    assert rij["naam"] == "Testbedrijf"
     assert rij["betaaltermijn_dagen"] == 14
 
 
@@ -103,7 +103,7 @@ def test_herinnering_met_termijn_noemt_dagen_te_laat(monkeypatch, db, maak_factu
         return True, ""
 
     monkeypatch.setattr(facturen, "_mail_pdf", nep_mail)
-    db.execute("UPDATE settings SET smtp_host='smtp.example.com', naam='Hogedruk Venlo' WHERE id=1")
+    db.execute("UPDATE settings SET smtp_host='smtp.example.com', naam='Voorbeeld Bedrijf BV' WHERE id=1")
     db.commit()
 
     factuur_id = maak_factuur(
@@ -123,7 +123,7 @@ def test_herinnering_zonder_termijn_zonder_te_laat_taal(monkeypatch, db, maak_fa
         return True, ""
 
     monkeypatch.setattr(facturen, "_mail_pdf", nep_mail)
-    db.execute("UPDATE settings SET smtp_host='smtp.example.com', naam='Hogedruk Venlo' WHERE id=1")
+    db.execute("UPDATE settings SET smtp_host='smtp.example.com', naam='Voorbeeld Bedrijf BV' WHERE id=1")
     db.commit()
 
     factuur_id = maak_factuur(

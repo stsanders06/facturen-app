@@ -18,7 +18,7 @@ PNG = bytes.fromhex(
 
 @pytest.fixture
 def klus_id(post, db):
-    post("/klussen/nieuw", {"naam": "Gevel Straelseweg", "uurtarief": "55"})
+    post("/klussen/nieuw", {"naam": "Gevel Voorbeeldstraat", "uurtarief": "55"})
     return db.execute("SELECT id FROM klussen").fetchone()[0]
 
 
@@ -271,11 +271,11 @@ def test_een_webadres_in_een_notitie_wordt_een_link(post, client, db, klus_id):
     """Alleen bij het tonen. Het veld om te bewerken houdt de platte tekst."""
     from conftest import facturen
 
-    tekst = 'Kijk op https://example.com/foto\'s?x=1&y=2.\nEn www.voorbeeld.nl'
+    tekst = 'Kijk op https://example.com/foto\'s?x=1&y=2.\nEn www.example.org'
     uit = facturen.met_links(tekst)
     assert 'href="https://example.com/foto&#39;s?x=1&amp;y=2"' in uit
     assert ">https://example.com/foto&#39;s?x=1&amp;y=2</a>." in uit
-    assert 'href="https://www.voorbeeld.nl"' in uit
+    assert 'href="https://www.example.org"' in uit
     assert "\nEn " in uit
     assert "<script>" not in facturen.met_links('<img src=x onerror="alert(1)">')
     assert "&lt;img" in facturen.met_links('<img src=x onerror="alert(1)">')
@@ -287,11 +287,11 @@ def test_een_webadres_in_een_notitie_wordt_een_link(post, client, db, klus_id):
     assert db.execute("SELECT tekst FROM notities").fetchone()[0] == tekst
     notitie_id = db.execute("SELECT id FROM notities").fetchone()[0]
     pagina = client.get(f"/klus/{klus_id}").data.decode()
-    assert 'href="https://www.voorbeeld.nl"' in pagina
+    assert 'href="https://www.example.org"' in pagina
     assert 'target="_blank" rel="noopener"' in pagina
     formulier = pagina.split(f'id="notitie-{notitie_id}-form"')[1].split("</form>")[0]
     assert "<a " not in formulier
-    assert "www.voorbeeld.nl" in formulier
+    assert "www.example.org" in formulier
     assert db.execute("SELECT tekst FROM notities").fetchone()[0] == tekst
 
 
