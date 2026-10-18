@@ -1278,7 +1278,8 @@ def test_totaal_en_betaalstrook_blijven_samen(post, db, aantal):
     """Het totaal en de strook staan op één pagina, ook als de grens kantelt.
 
     Bij 32 en 44 dagen viel het totaal nog op de volle pagina en de strook
-    alleen op de volgende. Die grens schuift mee met het aantal dagen."""
+    alleen op de volgende. Ze gaan nu samen op, ook als dat blad verder leeg
+    is. De dagen blijven op de pagina waar ze passen."""
     paginas = _pdf_met_dagen(aantal, post, db)
     assert len(paginas) >= 2
     # De kopjes staan met spaties tussen de letters: "T O T A A L".
@@ -1286,9 +1287,9 @@ def test_totaal_en_betaalstrook_blijven_samen(post, db, aantal):
     met_strook = [i for i, tekst in enumerate(paginas) if "B E T A L E N" in tekst]
     assert met_totaal == met_strook
     assert len(met_totaal) == 1
-    blad = paginas[met_totaal[0]]
-    # De laatste dagen staan bij het totaal, niet op een blad met alleen de strook.
-    assert "Gevel" in blad
+    # De laatste dag hoeft niet mee naar de pagina van het totaal. Alleen het
+    # totaal en de strook blijven bij elkaar. Een regel meeslepen liet erboven
+    # een leeg vlak, terwijl die regel zelf nog paste.
     assert all("7 u 20 min" not in tekst for tekst in paginas)
     assert any("07:00" in tekst for tekst in paginas)
 

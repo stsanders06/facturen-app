@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.41.1
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien. **Log daarna één keer opnieuw in.**
+
+- **Regels vullen de pagina.** De laatste regel blijft staan als hij nog past.
+  Alleen het totaal en de betaalstrook gaan samen naar de volgende pagina als
+  ze eronder niet meer passen, met «vervolg» bovenaan. Hetzelfde geldt voor een
+  offerte, ook als de rekening al meerdere pagina's telt.
+- **Log één keer opnieuw in na het bijwerken.** De melding «Deze opdracht kwam
+  niet van de app zelf» bij het wisselen tussen deze app en Mijn Overzicht is
+  verholpen.
+
 ## 1.41.0
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet

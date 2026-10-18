@@ -39,7 +39,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.41.0"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.41.1"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -138,6 +138,11 @@ app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024
 # Laat de browser de sessiecookie niet meesturen met verzoeken die van een andere
 # site komen. Het CSRF-kenmerk vangt dat al af; dit is de tweede grendel.
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+# De standaardnaam is "session". Mijn-overzicht draait op dezelfde host, alleen
+# een andere poort. Een browser scheidt cookies niet per poort, dus die app
+# overschreef deze sessie. Inloggen gaf dan "Deze opdracht kwam niet van de app
+# zelf": het CSRF-kenmerk hoorde bij de sessie van de andere app.
+app.config["SESSION_COOKIE_NAME"] = "facturen_app_session"
 
 # Wat je als bonnetje of werkfoto bij een klus mag zetten.
 BIJLAGE_TYPES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".heic", ".heif", ".pdf"}
@@ -6819,18 +6824,19 @@ def _teken_kolomkoppen(vel):
     vel.y -= 4.5 * mm
 
 
-# Een regel mag niet in de voettekst zakken. Het totaal en de betaalstrook
-# hebben meer nodig: de stippellijn staat op 62 mm, het totaal erboven.
-# Onder 80 mm zou alleen de strook naar de volgende pagina gaan.
+# Een regel mag niet in de voettekst zakken. Lager dan dit gaat hij naar de
+# volgende pagina; de pagina ervoor blijft zo vol als die regel toelaat.
 REGEL_BODEM = 72 * mm
+# De betaalstrook staat vast op 62 mm. Het totaal hoort erboven, op hetzelfde
+# vel. Onder 80 mm zakt het bedrag in de strook; dan gaat dat blok samen naar
+# de volgende pagina. De regels blijven liggen: die meenemen liet erboven een
+# leeg vlak, terwijl de regel zelf nog paste.
 STROOK_GRENS = 80 * mm
+# Een offerte heeft geen strook. Het totaal mag daarom lager, tot boven de
+# voettekst op 14 mm. 28 mm houdt het bedrag van 17 pt daar los van.
+TOTAAL_GRENS = 28 * mm
 # Koppen boven de regels: 3 mm tot de streep en 4,5 mm erna.
 KOLOMKOP = 7.5 * mm
-
-
-def _vervolg_y(vel):
-    """Waar de eerste regel op een vervolgpagina begint, onder de koppen."""
-    return vel.hoogte - 28 * mm - KOLOMKOP
 
 
 def _daling_regel(aantal_tekstregels):
@@ -6862,48 +6868,26 @@ def _plaats_regels(items, y, bodem):
 
 
 def _vervolg_y_zonder_vel():
-    """Zelfde hoogte als _vervolg_y, zonder het vel: A4 staat vast."""
+    """Waar de eerste regel op een vervolgpagina begint, onder de koppen.
+
+    A4 staat vast, dus het vel zelf is niet nodig. De aanroeper tekent de
+    kolomkoppen daarna zelf, en alleen als er op dat blad nog regels staan."""
     return A4[1] - 28 * mm - KOLOMKOP
 
 
-def _splits_voor_totaal(items, start_y):
-    """Het langste begin dat boven de strook eindigt, en de regels erna.
+def _plan_regelpaginas(vel, voorbereid):
+    """Pagina's met regels, tot aan de bodem.
 
-    Die laatste regels gaan mee naar de pagina van het totaal. Anders staat
-    het totaal op de ene pagina en de betaalstrook alleen op de volgende."""
-    y = start_y
-    grens = 0
-    for index, item in enumerate(items):
-        nieuw = y - _daling_regel(len(item["tekstregels"]))
-        if nieuw < STROOK_GRENS:
-            break
-        y = nieuw
-        grens = index + 1
-    return items[:grens], items[grens:]
-
-
-def _plan_regelpaginas(vel, voorbereid, met_strook):
-    """Pagina's met regels. De laatste laat ruimte voor totaal én strook."""
+    Het totaal hoort hier niet bij. Past dat blok niet meer onder de laatste
+    regel, dan schuift de aanroeper alleen het blok op. Een regel meenemen
+    liet op de vorige pagina een leeg vlak achter, op een rekening én op een
+    offerte, ook als de rekening al drie pagina's telde."""
     y0 = vel.y - KOLOMKOP
-    paginas, eind = _plaats_regels(voorbereid, y0, REGEL_BODEM)
-    # _plaats_regels kent de hoogte van een vervolgpagina, maar de eerste
-    # aanroep begint op y0. Een latere pagina in die aanroep gebruikt de
-    # vervolgzijde. Dat klopt met het tekenen.
-    veilig = 0
-    while met_strook and paginas and eind < STROOK_GRENS and veilig < 30:
-        veilig += 1
-        laatste = paginas[-1]
-        start = y0 if len(paginas) == 1 else _vervolg_y(vel)
-        prefix, suffix = _splits_voor_totaal(laatste, start)
-        if not prefix or not suffix:
-            break
-        paginas[-1] = prefix
-        extra, eind = _plaats_regels(suffix, _vervolg_y(vel), REGEL_BODEM)
-        paginas.extend(extra)
+    paginas, _eind = _plaats_regels(voorbereid, y0, REGEL_BODEM)
     return paginas
 
 
-def _teken_regels(vel, regels, met_strook=False):
+def _teken_regels(vel, regels):
     """De regels zelf. Past er niets meer op, dan gaat het door op een vervolgvel.
 
     Geen typenaam onder de omschrijving (rekening én offerte): die staat al in
@@ -6913,9 +6897,9 @@ def _teken_regels(vel, regels, met_strook=False):
     Een lange materiaalomschrijving loopt over meerdere regels in plaats van
     afgekapt te worden: de klant moet de hele naam kunnen lezen.
 
-    Bij een rekening blijft onderaan ruimte voor het totaal samen met de
-    betaalstrook. De regels die anders in die ruimte zouden vallen, gaan mee
-    naar die pagina."""
+    De pagina loopt vol tot de bodem. Het totaal — en bij een rekening de
+    betaalstrook — wordt daarna getekend en schuift alleen zelf op als het
+    er niet meer onder past."""
     c = vel.c
     # Het aantal staat rechts uitgelijnd en steekt dus naar links. 6 mm was
     # krapper dan "10,33 u", waardoor een afgebroken omschrijving in de
@@ -6929,7 +6913,7 @@ def _teken_regels(vel, regels, met_strook=False):
             "tekstregels": _regels_afbreken(
                 c, tekst, "Helvetica", 9.5, omschrijfbreedte),
         })
-    paginas = _plan_regelpaginas(vel, voorbereid, met_strook)
+    paginas = _plan_regelpaginas(vel, voorbereid)
     if not paginas:
         _teken_kolomkoppen(vel)
         return
@@ -7088,17 +7072,21 @@ def _teken_document(pad, doc, regels, s):
     _teken_merkregel(vel, s)
     _teken_titel(vel, kopregel)
     _teken_partijen(vel, s, doc)
-    _teken_regels(vel, regels, met_strook=not offerte)
+    _teken_regels(vel, regels)
 
     toelichting = (doc.get("toelichting") or "").strip()
     if offerte:
+        # Alleen het totaal schuift op, niet de laatste regel. De kolomkoppen
+        # horen bij regels; een blad met alleen het totaal heeft ze niet nodig.
+        if vel.y < TOTAAL_GRENS:
+            vel.nieuwe_pagina(vervolg=True)
         _teken_totaal(vel, doc["totaal"])
         if toelichting:
             _teken_toelichting(vel, toelichting)
     else:
-        # Het totaal en de strook blijven op één pagina. De regels daarboven
-        # laten daar al ruimte voor. Zakt een toelichting er toch onder, dan
-        # gaan totaal en strook samen naar het volgende vel.
+        # De toelichting mag de pagina vullen. Het totaal en de strook blijven
+        # daarna bij elkaar: past dat blok niet meer, dan gaan ze samen naar
+        # het volgende vel, onder de vervolgkop. De regels blijven staan.
         if toelichting:
             _teken_toelichting(vel, toelichting)
         if vel.y < STROOK_GRENS:
