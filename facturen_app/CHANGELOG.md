@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.37.2
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **Dagen kies je net als bonnen.** De knop "Dag van een klus" opent hetzelfde
+  menu. Bovenaan staat "Alle dagen toevoegen", daaronder elke afgesloten dag
+  die nog niet op een rekening staat: datum, begin en eind, en de klus.
+  De vroegste dag staat bovenaan. Een dag die je erop zet verdwijnt uit het
+  menu en komt terug als je de regel weghaalt. Het menu gaat daarna dicht,
+  en op een telefoon is het even breed als de knop.
+
 ## 1.37.1
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet

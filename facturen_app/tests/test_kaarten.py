@@ -62,7 +62,7 @@ def test_uren_van_een_klus_staan_achter_een_knop(client, db):
                   VALUES (?, '2026-09-01', '08:00', '12:00')""", (klus_id,))
     db.commit()
     inhoud = client.get("/nieuw").data.decode()
-    assert 'class="menu-item klus-keuze"' in inhoud
+    assert 'class="menu-item dag-keuze"' in inhoud
     assert f'data-klus="{klus_id}"' in inhoud
     # De keuzelijst met een uitlegblok eromheen is weg.
     assert 'id="klus_uren"' not in inhoud
@@ -71,7 +71,7 @@ def test_uren_van_een_klus_staan_achter_een_knop(client, db):
 def test_zonder_klussen_staat_die_knop_er_niet(client):
     """Op de knop zelf zoeken en niet op het woord: dat staat ook in de uitleg en
     in het script eronder."""
-    assert 'class="menu-item klus-keuze"' not in client.get("/nieuw").data.decode()
+    assert 'class="menu-item dag-keuze"' not in client.get("/nieuw").data.decode()
 
 
 def test_bij_meer_dan_tien_regels_komt_er_een_toon_alles_knop(client):

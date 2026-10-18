@@ -35,7 +35,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.37.1"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.37.2"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -859,6 +859,23 @@ def uren_uit_minuten(minuten):
     if minuten <= 0:
         return 0.0
     return rond_centen(Decimal(minuten) / Decimal(60))
+
+
+def label_van_dag(datum, van, tot):
+    """Korte regel in het dagenmenu: datum · begin–eind, zonder duur.
+
+    In het menu hoort dezelfde vorm als een bonregel: een paar stukken met een
+    punt ertussen, en de klusnaam er apart achter. De pauze en een notitie
+    blijven op de rekeningregel zelf, via omschrijving_van_dag."""
+    try:
+        dag = date.fromisoformat(str(datum))
+        wanneer = (
+            f"{WEEKDAGEN[dag.weekday()]} {dag.day} "
+            f"{MAANDEN[dag.month - 1]} {dag.year}"
+        )
+    except (TypeError, ValueError):
+        wanneer = str(datum or "")
+    return f"{wanneer} · {(van or '')[:5]}–{(tot or '')[:5]}"
 
 
 def omschrijving_van_dag(datum, van, tot, pauze_minuten, klusnaam, notitie):
@@ -4455,6 +4472,30 @@ def geboekte_klussen(factuur_id=None, klant_id=None):
     return lijst
 
 
+def geboekte_dagen(factuur_id=None, klant_id=None):
+    """Gesloten dagen voor het menu, één knop per dag.
+
+    Zelfde lijst als de bonnen: alles van deze klant, met de klusnaam op de
+    regel. Je hoeft niet eerst een klus te kiezen. Een dag die al op déze
+    rekening staat blijft erin, zodat hij terugkomt als je de regel weghaalt
+    vóór het opslaan. De koppeling zelf blijft het uur van die dag."""
+    uit = []
+    for klus in geboekte_klussen(factuur_id, klant_id):
+        for dag in klus["dagen"]:
+            uit.append({
+                **dag,
+                "klus_id": klus["id"],
+                "klus_naam": klus["naam"],
+                "klant_id": klus["klant_id"],
+                "past": klus["past"],
+                "uurtarief": klus["uurtarief"] or 0,
+            })
+    # Op datum, en op één dag de vroegste begintijd eerst. Het id houdt twee
+    # gelijke tijden stabiel. Bonnen houden hun eigen volgorde.
+    uit.sort(key=lambda dag: (dag.get("datum") or "", dag.get("van") or "", dag["id"]))
+    return uit
+
+
 def menu_dagen(klus, factuur_id=None):
     """Gesloten dagen die in de keuzelijst mogen.
 
@@ -4496,7 +4537,7 @@ def dagen_voor_keuze(conn, klus, factuur_id=None):
         f"""SELECT id, datum, van, tot, notitie, pauze_minuten, factuur_id
             FROM uren
             WHERE klus_id=? {waar} AND {_GESLOTEN_DAG}
-            ORDER BY datum, id""",
+            ORDER BY datum, van, id""",
         params,
     ).fetchall()
     prijs = float(klus["uurtarief"] or 0)
@@ -4508,6 +4549,9 @@ def dagen_voor_keuze(conn, klus, factuur_id=None):
             continue
         uit.append({
             "id": rij["id"],
+            "datum": rij["datum"],
+            "van": (rij["van"] or "")[:5],
+            "label": label_van_dag(rij["datum"], rij["van"], rij["tot"]),
             "omschrijving": omschrijving_van_dag(
                 rij["datum"], rij["van"], rij["tot"], _pauze(rij),
                 klus["naam"], rij["notitie"],
@@ -4515,7 +4559,6 @@ def dagen_voor_keuze(conn, klus, factuur_id=None):
             "uren": uren,
             "minuten": minuten,
             "prijs": prijs,
-            "op_deze": bool(factuur_id and rij["factuur_id"] == factuur_id),
         })
     return uit
 
@@ -5386,7 +5429,7 @@ def _render_nieuw_ingevuld(ingevuld):
         regels=ingevuld["regels"],
         klanten=klantenlijst(),
         gekozen_klant=gekozen,
-        klussen=geboekte_klussen(klant_id=klant_id),
+        open_dagen=geboekte_dagen(klant_id=klant_id),
         open_inkopen=geboekte_inkopen(klant_id=klant_id),
         vooraf_klus="",
         vervalt=ingevuld["vervalt"],
@@ -5426,7 +5469,7 @@ def _render_bewerk_ingevuld(factuur, ingevuld):
         regels=ingevuld["regels"],
         klanten=klantenlijst(),
         gekozen_klant=None,
-        klussen=geboekte_klussen(factuur["id"], tonen["klant_id"]),
+        open_dagen=geboekte_dagen(factuur["id"], tonen["klant_id"]),
         open_inkopen=geboekte_inkopen(factuur["id"], tonen["klant_id"]),
         vooraf_klus="",
         vervalt=ingevuld["vervalt"],
@@ -5525,7 +5568,7 @@ def nieuw():
     return render_template(
         "nieuw.html", vandaag=vandaag, actief="nieuw",
         factuur=None, regels=regels, klanten=klantenlijst(), gekozen_klant=gekozen,
-        klussen=geboekte_klussen(klant_id=gekozen["id"] if gekozen else None),
+        open_dagen=geboekte_dagen(klant_id=gekozen["id"] if gekozen else None),
         open_inkopen=geboekte_inkopen(klant_id=gekozen["id"] if gekozen else None),
         vooraf_klus=vooraf_klus,
         vervalt=standaard_vervalt(vandaag),
@@ -5606,7 +5649,7 @@ def bewerk(factuur_id):
         "nieuw.html", vandaag=factuur["datum"], actief="nieuw",
         factuur=factuur, regels=regels, klanten=klantenlijst(),
         dagwaarschuwing=waarschuwing["tekst"] if waarschuwing else "",
-        gekozen_klant=None, klussen=geboekte_klussen(factuur_id, factuur["klant_id"]),
+        gekozen_klant=None, open_dagen=geboekte_dagen(factuur_id, factuur["klant_id"]),
         open_inkopen=geboekte_inkopen(factuur_id, factuur["klant_id"]),
         vooraf_klus="",
         vervalt=factuur["vervalt_op"] or "",
@@ -5759,7 +5802,7 @@ def offerte_nieuw():
     return render_template(
         "nieuw.html", mode="offerte", vandaag=vandaag, actief="offertes",
         factuur=None, regels=[], klanten=klantenlijst(), gekozen_klant=gekozen,
-        klussen=[], open_inkopen=[], vooraf_klus="", geldig=geldig_tot(vandaag),
+        open_dagen=[], open_inkopen=[], vooraf_klus="", geldig=geldig_tot(vandaag),
         standaard_geldig=geldig_tot(vandaag),
         # Kwam je hier vanaf een aanvraag, dan gaat de offerte daar straks aan vast.
         voor_klus=request.args.get("voor_klus", ""),
@@ -5820,7 +5863,7 @@ def offerte_bewerk(offerte_id):
     conn.close()
     return render_template("nieuw.html", mode="offerte", vandaag=offerte["datum"],
                            actief="offertes", factuur=offerte, regels=regels,
-                           klanten=klantenlijst(), gekozen_klant=None, klussen=[],
+                           klanten=klantenlijst(), gekozen_klant=None, open_dagen=[],
                            open_inkopen=[], vooraf_klus="",
                            geldig=offerte["geldig_tot"],
                            standaard_geldig=geldig_tot(offerte["datum"]))
