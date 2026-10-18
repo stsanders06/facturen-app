@@ -4,6 +4,9 @@ import os
 import re
 import zlib
 
+import pytest
+from reportlab.lib.units import mm
+
 from conftest import facturen
 
 
@@ -119,6 +122,108 @@ def test_tenaamstelling_wint_van_de_bedrijfsnaam(db, maak_factuur):
     zet_bedrijf(db, tenaamstelling="Test Gebruiker")
     tekst = tekst_uit_pdf(facturen.maak_pdf(maak_factuur()))
     assert "Test Gebruiker" in tekst
+
+
+def _tekstregels_met_y(pad):
+    """Per pagina de tekststukken met hun y, in punten vanaf de onderkant."""
+    paginas = []
+    for data in _stromen_uit_pdf(pad):
+        inhoud = data.decode("latin-1")
+        if "Tj" not in inhoud and "TJ" not in inhoud:
+            continue
+        stukken = []
+        for gevonden in re.finditer(
+            r"1 0 0 1 ([\d.]+) ([\d.]+) Tm \(((?:[^()\\]|\\.)*)\) Tj", inhoud
+        ):
+            stukken.append((
+                float(gevonden.group(2)),
+                _ontsnap(gevonden.group(3)),
+            ))
+        paginas.append(stukken)
+    return paginas
+
+
+# Een volle pagina eindigt hooguit één regel boven de bodem. De basislijn van
+# die regel ligt dan nog zo'n 23 mm erboven. Meer dan 28 mm betekent dat er een
+# regel is meegenomen naar de volgende pagina terwijl hij hier nog paste.
+LEGE_RUIMTE_MAX_MM = 28
+
+
+def _document_met_regels(db, aantal, soort):
+    """Een rekening of offerte met `aantal` korte regels. Korte namen, zodat
+    elke regel één regel tekst is en de lege ruimte niet van het afbreken komt."""
+    zet_bedrijf(db, email="info@example.org", telefoon="012 345 67 89")
+    if soort == "rekening":
+        doc_id = db.execute(
+            """INSERT INTO facturen (nummer, datum, vervalt_op, klant_naam, klant_adres,
+               klant_email, status, totaal)
+               VALUES (?, '2026-10-01', '2026-10-15', 'Voorbeeld Klant',
+               'Voorbeeldstraat 2\n1234 AB Voorbeeldstad', 'klant@example.org',
+               'verzonden', ?)""",
+            (f"2026-{aantal:03d}", aantal * 10),
+        ).lastrowid
+        tabel, sleutel = "regels", "factuur_id"
+        teken = facturen.maak_pdf
+    else:
+        doc_id = db.execute(
+            """INSERT INTO offertes (nummer, datum, geldig_tot, klant_naam, klant_adres,
+               klant_email, status, totaal, toelichting)
+               VALUES (?, '2026-10-01', '2026-11-01', 'Voorbeeld Klant',
+               'Voorbeeldstraat 2\n1234 AB Voorbeeldstad', 'klant@example.org',
+               'concept', ?, 'Inclusief materiaal.')""",
+            (f"OFF-2026-{aantal:03d}", aantal * 10),
+        ).lastrowid
+        tabel, sleutel = "offerte_regels", "offerte_id"
+        teken = facturen.maak_offerte_pdf
+    for nummer in range(1, aantal + 1):
+        db.execute(
+            f"""INSERT INTO {tabel} ({sleutel}, omschrijving, type, aantal, prijs, subtotaal)
+                VALUES (?, ?, 'materiaal', 1, 10, 10)""",
+            (doc_id, f"Voorbeeldregel {nummer:02d}"),
+        )
+    db.commit()
+    return teken(doc_id)
+
+
+@pytest.mark.parametrize("soort", ["rekening", "offerte"])
+@pytest.mark.parametrize("aantal", list(range(8, 31)))
+def test_regels_vullen_de_pagina_het_totaal_schuift_alleen(db, soort, aantal):
+    """Regels lopen door tot de bodem. Het totaal (en de strook) gaat alleen
+    zelf naar de volgende pagina als het er niet meer onder past."""
+    pad = _document_met_regels(db, aantal, soort)
+    paginas = _tekstregels_met_y(pad)
+    assert paginas
+
+    namen = []
+    for index, stukken in enumerate(paginas):
+        van_deze = sorted(
+            deel for _y, deel in stukken if deel.startswith("Voorbeeldregel ")
+        )
+        namen.extend(van_deze)
+        if index == len(paginas) - 1 or not van_deze:
+            continue
+        laagste = min(y for y, deel in stukken if deel.startswith("Voorbeeldregel "))
+        leeg = (laagste - facturen.REGEL_BODEM) / mm
+        assert leeg <= LEGE_RUIMTE_MAX_MM, (
+            f"{soort} met {aantal} regels, pagina {index + 1}: {leeg:.0f} mm leeg"
+        )
+
+    assert namen == [f"Voorbeeldregel {nummer:02d}" for nummer in range(1, aantal + 1)]
+
+    volledig = [" ".join(deel for _y, deel in stukken) for stukken in paginas]
+    met_totaal = [i for i, tekst in enumerate(volledig) if "T O T A A L" in tekst]
+    assert met_totaal == [len(volledig) - 1]
+    if soort == "rekening":
+        met_strook = [i for i, tekst in enumerate(volledig) if "B E T A L E N" in tekst]
+        assert met_strook == met_totaal
+        # Een blad met alleen het totaal heeft de vervolgkop, geen kolomkop:
+        # die hoort bij regels.
+        if not any(deel.startswith("Voorbeeldregel ") for _y, deel in paginas[-1]):
+            assert "vervolg" in volledig[-1]
+            assert "O M S C H R I J V I N G" not in volledig[-1]
+    else:
+        assert "B E T A L E N" not in " ".join(volledig)
+        assert "Inclusief materiaal." in " ".join(volledig)
 
 
 def test_veel_regels_lopen_door_op_een_vervolgpagina(db, maak_factuur):

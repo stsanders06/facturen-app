@@ -281,7 +281,9 @@ Een nagemaakte zijbalk-header vanaf dat netwerk telt niet als de zijbalk.
 
 **"Deze opdracht kwam niet van de app zelf."** Je hebt een pagina gebruikt die al heel
 lang openstond, of de add-on is tussendoor herstart. Ververs de pagina en probeer het
-opnieuw.
+opnieuw. Hetzelfde gebeurde als je wisselde tussen deze app en Mijn Overzicht: die
+draaien op dezelfde computer en de browser houdt hun cookies niet uit elkaar. Vanaf
+1.41.1 heeft deze app een eigen sessie. Na het bijwerken log je één keer opnieuw in.
 
 **De pagina laadt niet in je browser.** Typ het adres voluit inclusief `http://` en met
 een schuine streep aan het eind: `http://192.168.1.50:8099/`. Browsers maken een

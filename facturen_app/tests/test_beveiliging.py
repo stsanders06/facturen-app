@@ -30,6 +30,18 @@ def test_een_nagemaakte_ingress_header_geeft_geen_toegang(uitgelogde_client):
         assert "/inloggen" in antwoord.headers["Location"], pad
 
 
+def test_de_sessiecookie_deelt_niet_de_naam_met_een_andere_app(app):
+    """Mijn-overzicht draait op dezelfde host, andere poort. Een browser scheidt
+    cookies niet per poort, dus de standaardnaam 'session' werd overschreven en
+    inloggen gaf een CSRF-fout."""
+    assert facturen.app.config["SESSION_COOKIE_NAME"] == "facturen_app_session"
+    with app.test_client() as c:
+        antwoord = c.get("/inloggen")
+    koekjes = antwoord.headers.getlist("Set-Cookie")
+    assert any(koek.startswith("facturen_app_session=") for koek in koekjes)
+    assert not any(koek.split("=", 1)[0] == "session" for koek in koekjes)
+
+
 def test_de_echte_zijbalk_komt_er_nog_gewoon_in(uitgelogde_client):
     assert uitgelogde_client.get("/", environ_overrides=ECHTE_ZIJBALK).status_code == 200
 
