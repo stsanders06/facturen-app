@@ -667,9 +667,18 @@ def test_een_lange_dagregel_breekt_op_een_smal_scherm(client):
     # De basisregel houdt de tekst op één regel. Alleen onder 620px mag hij
     # breken, anders staat een datum over de uren en de prijs heen.
     smal = css[css.index("Een dagregel noemt datum"):]
+    assert "display: grid" in regel_met(smal, ".regel-samenvatting")
     blok = regel_met(smal, ".regel-tekst")
     assert "normal" in blok
-    assert "calc(100% - 52px)" in blok
+    assert "grid-area: tekst" in blok
+    assert "grid-area: qty" in regel_met(smal, ".regel-qty")
+    assert "text-align: left" in regel_met(smal, ".regel-eenheidsprijs")
+    kruis = regel_met(smal, ".regel .weg")
+    assert "width: 44px" in kruis
+    assert "height: 44px" in kruis
+    # De rand staat vóór het commentaar, in hetzelfde smalle blok.
+    rand = css[css.index("Overal dezelfde rand"):css.index("Een dagregel noemt datum")]
+    assert "padding: 8px" in rand
 
 
 def _oude_regeltabel(db):
