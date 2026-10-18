@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.40.0
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **Op een regel staat het bedrag van die regel groot.** Daaronder, in het klein,
+  hoe het is opgebouwd, bijvoorbeeld «8,5 u × € 65,00». Wijzig je het aantal of
+  het tarief, dan verandert het bedrag meteen. Bij één stuk of een bon blijft
+  alleen het grote bedrag staan.
+- **De tijden in een dagregel blijven bij elkaar.** Een puntje begint niet meer
+  een nieuwe regel.
+- **Bij een bedrag of een aantal komt het cijfertoetsenbord** naar voren.
+
 ## 1.39.1
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet

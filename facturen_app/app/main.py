@@ -24,12 +24,12 @@ from flask import (
     Flask, abort, make_response, request, redirect, url_for, render_template,
     send_file, flash, session,
 )
+from markupsafe import Markup, escape
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.lib import colors
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
-from markupsafe import Markup, escape
 from werkzeug.exceptions import NotFound
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
@@ -37,7 +37,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.39.1"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.40.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -1126,8 +1126,77 @@ def aantal_tekst(regel):
     return f"{basis}×"
 
 
+# De tijdspanne in een dagregel, met een en-dash of een koppelteken.
+_TIJDSPAN = re.compile(r"\d{1,2}:\d{2}[–-]\d{1,2}:\d{2}")
+
+
+def _puntjes_vast(tekst):
+    """Een harde spatie vóór ·, zodat een regel niet met het puntje begint.
+
+    De spatie erachter blijft zacht: 'plaatsen' mag wel naar de volgende regel."""
+    uit = []
+    for index, deel in enumerate(str(tekst).split(" · ")):
+        if index:
+            uit.append(Markup("\u00a0· "))
+        uit.append(escape(deel))
+    return Markup("").join(uit)
+
+
+def kaart_omschrijving(tekst):
+    """De omschrijving op de kaart, zonder de opgeslagen tekst te wijzigen.
+
+    De tijden horen bij elkaar. Een puntje hoort bij het woord ervoor, anders
+    begint de volgende regel met '· plaatsen'."""
+    if not tekst:
+        return Markup("Nieuwe regel")
+    tekst = str(tekst)
+    stukken = []
+    laatste = 0
+    for gevonden in _TIJDSPAN.finditer(tekst):
+        stukken.append(_puntjes_vast(tekst[laatste:gevonden.start()]))
+        stukken.append(
+            Markup('<span class="regel-tijd">')
+            + escape(gevonden.group())
+            + Markup("</span>")
+        )
+        laatste = gevonden.end()
+    stukken.append(_puntjes_vast(tekst[laatste:]))
+    return Markup("").join(stukken)
+
+
+def tarief_voor_kaart(regel):
+    """Kleine tekst onder het totaal, of leeg als die niets toevoegt.
+
+    Bij één stuk of een vaste prijs is het totaal het tarief zelf. Dan blijft
+    alleen het grote bedrag staan."""
+    if not regel:
+        return ""
+    soort = _veld(regel, "type")
+    if soort in ("arbeid_klus", "bon"):
+        return ""
+    aantal = _veld(regel, "aantal")
+    if aantal is None:
+        return ""
+    try:
+        if als_decimal(aantal) == 0 or als_decimal(aantal) == 1:
+            return ""
+    except ValueError:
+        return ""
+    prijs = _veld(regel, "prijs") or 0
+    basis = filter_uren(aantal)
+    if soort == "arbeid_dag":
+        stuk = f"{basis} dg"
+    elif soort == "arbeid_uur" or _veld(regel, "uur_id"):
+        stuk = f"{basis} u"
+    else:
+        stuk = basis
+    return f"{stuk} × €\u00a0{nl_bedrag(prijs)}"
+
+
 app.jinja_env.globals["tekst_van_getal"] = tekst_van_getal
 app.jinja_env.globals["aantal_tekst"] = aantal_tekst
+app.jinja_env.globals["tarief_voor_kaart"] = tarief_voor_kaart
+app.jinja_env.filters["kaart_tekst"] = kaart_omschrijving
 
 
 @app.template_filter("uren")
