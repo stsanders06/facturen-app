@@ -58,20 +58,39 @@
     white-space: nowrap;
     font-size: 15px;
   }
-  .regel-qty,
-  .regel-eenheidsprijs {
+  .regel-qty {
     flex: none;
     font-variant-numeric: tabular-nums;
     font-size: 13px;
     color: var(--text-secondary);
     white-space: nowrap;
   }
-  .regel-eenheidsprijs {
-    color: var(--text);
-    font-weight: 500;
+  /* Het totaal groot, de opbouw eronder klein. Op een breed scherm rechts
+     uitgelijnd, naast de uren. Op een telefoon neemt het raster het over. */
+  .regel-bedrag {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    flex: none;
     min-width: 4.5rem;
-    text-align: right;
   }
+  .regel-totaal {
+    font-variant-numeric: tabular-nums;
+    font-size: 18px;
+    font-weight: 500;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+  .regel-tarief {
+    font-variant-numeric: tabular-nums;
+    font-size: 12px;
+    line-height: 1.3;
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+  .regel-tarief[hidden] { display: none; }
+  /* De tijden in een dagregel. De rest van de zin mag wel afbreken. */
+  .regel-tijd { white-space: nowrap; }
   .regel .weg {
     flex: none;
     background: transparent;
@@ -121,21 +140,24 @@
     .regel-detail select { min-width: 0; max-width: 100%; }
     .regel .omschrijving-veld { grid-column: 1 / -1; }
     .regel.vaste-prijs .prijs-veld { grid-column: auto; }
-    /* Een dagregel noemt datum en tijden. Op één rij naast uren, prijs en
+    /* Een dagregel noemt datum en tijden. Op één rij naast uren, totaal en
        het kruisje lopen die over elkaar heen. Flex-wrap zette het kruisje,
        het laatste element, op een eigen rij en het bedrag er scheef boven.
-       Twee vaste rijen: tekst met de uren op de eerste basislijn, en
-       daaronder het bedrag links en het kruisje rechts. */
+       Drie vaste rijen: tekst met de uren op de eerste basislijn, daaronder
+       het totaal links en het kruisje rechts, en de opbouw eronder. */
     .regel-samenvatting {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
-      grid-template-areas: "tekst qty" "prijs weg";
+      grid-template-areas: "tekst qty" "totaal weg" "tarief .";
       column-gap: 8px;
       row-gap: 0;
       align-items: baseline;
       padding: 0;
       min-height: 0;
     }
+    /* De kinderen doen mee in het raster, anders centreert het kruisje op
+       totaal én opbouw samen. */
+    .regel-bedrag { display: contents; }
     .regel-tekst {
       grid-area: tekst;
       align-self: baseline;
@@ -149,11 +171,17 @@
       align-self: baseline;
       justify-self: end;
     }
-    .regel-eenheidsprijs {
-      grid-area: prijs;
+    .regel-totaal {
+      grid-area: totaal;
       align-self: center;
       justify-self: start;
       text-align: left;
+    }
+    .regel-tarief {
+      grid-area: tarief;
+      justify-self: start;
+      text-align: left;
+      white-space: normal;
       min-width: 0;
     }
     .regel .weg {
@@ -476,9 +504,16 @@
         <div class="regel-samenvatting" role="button" tabindex="0"
              aria-expanded="{{ 'true' if regel_open else 'false' }}" aria-label="Regel openen of sluiten">
           {#- Geen type-badge: omschrijving + eenheid volstaan (rekening én offerte). -#}
-          <span class="regel-tekst">{{ r.omschrijving if r and r.omschrijving else 'Nieuwe regel' }}</span>
+          <span class="regel-tekst">{{ (r.omschrijving if r and r.omschrijving else '')|kaart_tekst }}</span>
           <span class="regel-qty">{{ aantal_tekst(r) }}</span>
-          <span class="regel-eenheidsprijs">€&nbsp;{% if r and r.prijs %}{{ r.prijs|bedrag }}{% else %}0,00{% endif %}</span>
+          <div class="regel-bedrag">
+            {#- data-pdf is het bedrag zoals de PDF het tekent. Zolang de regel
+                niet wijzigt, toont het script die tekst en rekent het niet
+                opnieuw. -#}
+            <span class="regel-totaal"{% if r and (r.bewaard or factuur) and r.subtotaal is not none %} data-pdf="{{ r.subtotaal|bedrag }}"{% endif %}>€&nbsp;{% if r and r.subtotaal is not none %}{{ r.subtotaal|bedrag }}{% else %}0,00{% endif %}</span>
+            {% set tarief = tarief_voor_kaart(r) %}
+            <span class="regel-tarief"{% if not tarief %} hidden{% endif %}>{{ tarief }}</span>
+          </div>
           <button type="button" class="weg" title="Regel verwijderen"
                   aria-label="Regel verwijderen">&times;</button>
         </div>
@@ -502,7 +537,7 @@
             <label class="aantal-label">Aantal</label>
             {#- Een dagregel volgt de gewerkte dag. Een lager aantal hier zou
                 uren stil van de rekening halen; een korting is een aparte regel. -#}
-            <input type="number" step="any" name="aantal"
+            <input type="number" step="any" inputmode="decimal" name="aantal"
                    {% if r and r.uur_id %}readonly
                    title="Het aantal volgt de dag. Een korting zet je op een aparte regel."
                    {% endif %}
@@ -510,7 +545,7 @@
           </div>
           <div class="field prijs-veld">
             <label class="prijs-label">Prijs</label>
-            <input type="number" step="any" name="prijs" placeholder="0,00"
+            <input type="number" step="any" inputmode="decimal" name="prijs" placeholder="0,00"
                    value="{{ tekst_van_getal(r.prijs) if r else '' }}">
           </div>
           <input type="hidden" name="regel_klus" value="{{ r.klus_id if r and r.klus_id else '' }}">
@@ -671,20 +706,121 @@
       return n + '\u00d7';
     }
 
+    // Zelfde opbouw als kaart_omschrijving op de server. De opgeslagen tekst
+    // in het veld blijft onaangeroerd; alleen de samenvatting plakt de tijden.
+    function zetOmschrijving(el, tekst) {
+      el.replaceChildren();
+      if (!tekst) {
+        el.appendChild(document.createTextNode('Nieuwe regel'));
+        return;
+      }
+      var re = /(\d{1,2}:\d{2}[–-]\d{1,2}:\d{2})/g;
+      var laatste = 0;
+      var match;
+      function puntjes(ruw) {
+        ruw.split(' · ').forEach(function (deel, i) {
+          if (i) el.appendChild(document.createTextNode('\u00a0· '));
+          if (deel) el.appendChild(document.createTextNode(deel));
+        });
+      }
+      while ((match = re.exec(tekst))) {
+        puntjes(tekst.slice(laatste, match.index));
+        var span = document.createElement('span');
+        span.className = 'regel-tijd';
+        span.textContent = match[1];
+        el.appendChild(span);
+        laatste = match.index + match[0].length;
+      }
+      puntjes(tekst.slice(laatste));
+    }
+
+    function isEen(p) {
+      return !p.negatief && p.cijfers === Math.pow(10, p.schaal);
+    }
+
+    function aantalLeesbaar(p) {
+      if (!p.cijfers) return '0';
+      var s = String(p.cijfers);
+      if (p.schaal) {
+        s = s.padStart(p.schaal + 1, '0');
+        var heel = s.slice(0, -p.schaal);
+        var frac = s.slice(-p.schaal).replace(/0+$/, '');
+        s = frac ? heel + ',' + frac : heel;
+      }
+      return (p.negatief ? '-' : '') + s;
+    }
+
+    function euroVanCenten(centen) {
+      var negatief = centen < 0;
+      var abs = negatief ? -centen : centen;
+      var heel = Math.floor(abs / 100);
+      var frac = ('0' + (abs % 100)).slice(-2);
+      var tekst = String(heel).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+      return '€\u00a0' + (negatief ? '-' : '') + tekst + ',' + frac;
+    }
+
+    // Het bedrag van één regel, in centen. De footer telt deze uitkomst op,
+    // zodat het grote getal op de kaart en het totaal onderaan gelijk lopen.
+    // Een bewaard subtotaal, anders minuten × tarief / 60, anders aantal × prijs.
+    function centenVanRegel(regel) {
+      var aantalVeld = regel.querySelector('[name="aantal"]');
+      var prijsVeld = regel.querySelector('[name="prijs"]');
+      var sub = regel.querySelector('[name="regel_subtotaal"]');
+      var minuten = regel.querySelector('[name="regel_minuten"]');
+      var uur = regel.querySelector('[name="regel_uur"]');
+      var bewaard = sub && sub.dataset.bewaard === '1' && String(sub.value).trim() !== '';
+      if (bewaard) return { bewaard: true, tekst: sub.value };
+      var centen;
+      if (uur && uur.value && minuten && String(minuten.value).trim() !== '') {
+        centen = centenVanMinuten(minuten.value, prijsVeld.value);
+      } else {
+        centen = productCenten(aantalVeld.value, prijsVeld.value);
+      }
+      if (sub) sub.value = (centen / 100).toFixed(2);
+      return { bewaard: false, centen: centen };
+    }
+
+    function tariefTekst(regel) {
+      var soort = regel.querySelector('.soort').value;
+      if (soort === 'bon' || soort === 'arbeid_klus') return '';
+      var p = parseVast(regel.querySelector('[name="aantal"]').value);
+      if (!p.cijfers || isEen(p)) return '';
+      var stuk = aantalLeesbaar(p);
+      var uur = regel.querySelector('[name="regel_uur"]');
+      if (soort === 'arbeid_uur' || (uur && uur.value)) stuk += ' u';
+      else if (soort === 'arbeid_dag') stuk += ' dg';
+      var prijs = productCenten('1', regel.querySelector('[name="prijs"]').value);
+      return stuk + ' \u00d7 ' + euroVanCenten(prijs);
+    }
+
     function pasSamenvattingAan(regel) {
       var soort = regel.querySelector('.soort').value;
       var keuze = SOORTEN[soort] || SOORTEN.materiaal;
       var omschrijving = (regel.querySelector('[name="omschrijving"]').value || '').trim();
       var aantal = parseFloat(regel.querySelector('[name="aantal"]').value) || 0;
-      var prijs = parseFloat(regel.querySelector('[name="prijs"]').value) || 0;
       var badge = regel.querySelector('.regel-badge');
       var tekst = regel.querySelector('.regel-tekst');
       var qty = regel.querySelector('.regel-qty');
-      var eenheid = regel.querySelector('.regel-eenheidsprijs');
+      var totaal = regel.querySelector('.regel-totaal');
+      var tarief = regel.querySelector('.regel-tarief');
       if (badge) badge.textContent = keuze.badge;
-      if (tekst) tekst.textContent = omschrijving || 'Nieuwe regel';
+      if (tekst) zetOmschrijving(tekst, omschrijving);
       if (qty) qty.textContent = qtyTekst(soort, aantal);
-      if (eenheid) eenheid.textContent = euro(prijs);
+      var uit = centenVanRegel(regel);
+      if (totaal) {
+        if (uit.bewaard && totaal.dataset.pdf) {
+          totaal.textContent = '€\u00a0' + totaal.dataset.pdf;
+        } else if (uit.bewaard) {
+          totaal.textContent = euroVanCenten(productCenten('1', uit.tekst));
+        } else {
+          totaal.textContent = euroVanCenten(uit.centen);
+        }
+      }
+      if (tarief) {
+        var klein = tariefTekst(regel);
+        tarief.textContent = klein;
+        tarief.hidden = !klein;
+      }
     }
 
     function zetOpen(regel, open) {
@@ -800,23 +936,9 @@
     function berekenTotaal() {
       var micro = 0;
       container.querySelectorAll('.regel').forEach(function (regel) {
-        var aantalVeld = regel.querySelector('[name="aantal"]');
-        var prijsVeld = regel.querySelector('[name="prijs"]');
-        var sub = regel.querySelector('[name="regel_subtotaal"]');
-        var minuten = regel.querySelector('[name="regel_minuten"]');
-        var uur = regel.querySelector('[name="regel_uur"]');
-        var bewaard = sub && sub.dataset.bewaard === '1' && String(sub.value).trim() !== '';
-        if (bewaard) {
-          micro += microVanTekst(sub.value);
-        } else if (uur && uur.value && minuten && String(minuten.value).trim() !== '') {
-          var centen = centenVanMinuten(minuten.value, prijsVeld.value);
-          if (sub) sub.value = (centen / 100).toFixed(2);
-          micro += centen * 10000;
-        } else {
-          var vers = productCenten(aantalVeld.value, prijsVeld.value);
-          if (sub) sub.value = (vers / 100).toFixed(2);
-          micro += vers * 10000;
-        }
+        var uit = centenVanRegel(regel);
+        if (uit.bewaard) micro += microVanTekst(uit.tekst);
+        else micro += uit.centen * 10000;
       });
       totaalveld.textContent = euro(halfUpDelen(micro, 10000) / 100);
     }
@@ -835,6 +957,10 @@
       }
       var soort = nieuw.querySelector('.soort');
       if (soort) soort.value = 'materiaal';
+      // De kloon erft het pdf-bedrag van de eerste kaart. Zonder dit blijft
+      // een nieuwe regel dat bedrag tonen zodra hij als bewaard geldt.
+      var totaal = nieuw.querySelector('.regel-totaal');
+      if (totaal) delete totaal.dataset.pdf;
       zetOpen(nieuw, false);
       container.appendChild(nieuw);
       pasRegelAan(nieuw);

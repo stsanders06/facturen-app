@@ -672,7 +672,7 @@ def test_een_lange_dagregel_breekt_op_een_smal_scherm(client):
     assert "normal" in blok
     assert "grid-area: tekst" in blok
     assert "grid-area: qty" in regel_met(smal, ".regel-qty")
-    assert "text-align: left" in regel_met(smal, ".regel-eenheidsprijs")
+    assert "text-align: left" in regel_met(smal, ".regel-totaal")
     kruis = regel_met(smal, ".regel .weg")
     assert "width: 44px" in kruis
     assert "height: 44px" in kruis

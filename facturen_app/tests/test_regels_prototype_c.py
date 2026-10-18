@@ -104,7 +104,7 @@ def _meet_kaarten(pagina):
             kaarten: kaarten.map((kaart) => {
               const tekst = kaart.querySelector('.regel-tekst');
               const uren = kaart.querySelector('.regel-qty');
-              const prijs = kaart.querySelector('.regel-eenheidsprijs');
+              const prijs = kaart.querySelector('.regel-totaal');
               const kruis = kaart.querySelector('.weg');
               const stijl = getComputedStyle(kaart);
               const doos = kaart.getBoundingClientRect();
