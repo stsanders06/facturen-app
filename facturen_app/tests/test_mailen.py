@@ -166,7 +166,9 @@ def test_mail_pdf_en_offerte_bekijken_sturen_nosniff(client, maak_factuur, maak_
     for pad in (
         "/factuur/9999/mail-pdf",
         "/factuur/9999/bekijk",
+        "/factuur/9999/pdf",
         "/offerte/9999/bekijk",
+        "/offerte/9999/pdf",
     ):
         antwoord = client.get(pad)
         assert antwoord.status_code == 404, pad

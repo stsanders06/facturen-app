@@ -120,45 +120,6 @@
     color: var(--warn-text);
     border-radius: var(--radius-sm);
   }
-  /* Zelfde pagina, zodat het ook in de zijbalk van Home Assistant werkt: een
-     nieuw venster heeft daar de cookie niet. Een PDF gaat wél naar een
-     tabblad, want die wil je bladeren en niet als plaatje in deze lijst. */
-  .lichtbak {
-    position: fixed;
-    inset: 0;
-    z-index: 80;
-    background: rgba(0, 0, 0, .88);
-    /* Ruimte bovenin, anders valt de sluitknop over de foto heen. */
-    padding: 64px 16px 16px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .lichtbak[hidden] { display: none; }
-  .lichtbak img {
-    max-width: 100%;
-    max-height: 100%;
-    object-fit: contain;
-  }
-  .lichtbak-sluit {
-    position: absolute;
-    top: 12px;
-    right: 12px;
-    z-index: 2;
-    width: 44px;
-    height: 44px;
-    border: 0;
-    border-radius: 22px;
-    background: rgba(255, 255, 255, .16);
-    color: #fff;
-    font-size: 28px;
-    line-height: 1;
-    cursor: pointer;
-  }
-  .lichtbak-sluit:focus {
-    outline: 2px solid #fff;
-    outline-offset: 2px;
-  }
 </style>
 {% endblock %}
 {% block content %}
@@ -288,7 +249,7 @@
       </label>
       {% endif %}
       <a class="bijlage-open" href="{{ url_for('bijlage', bijlage_id=bon.id) }}" {{ nieuw_tabblad }}
-         data-soort="{{ 'foto' if bon.plaatje else ('pdf' if bon.soort == 'PDF' else 'bestand') }}"
+         data-soort="{{ 'foto' if bon.plaatje or bon.soort == 'HEIC' else ('pdf' if bon.soort == 'PDF' else 'bestand') }}"
          data-naam="{{ bon.naam }}"
          aria-label="{{ bon.naam }} bekijken, {{ bon.info }}">
         {{ voorbeeld(bon.plaatje, url_for('bijlage', bijlage_id=bon.id), bon.naam) }}
@@ -332,11 +293,6 @@
 
 </div>
 
-<div id="lichtbak" class="lichtbak" hidden role="dialog" aria-modal="true" aria-label="">
-  <button type="button" class="lichtbak-sluit" data-sluit aria-label="Sluiten">×</button>
-  <img id="lichtbak-foto" alt="">
-</div>
-
 {% if not reden %}
 <script>
   (function () {
@@ -360,80 +316,5 @@
   })();
 </script>
 {% endif %}
-
-<script>
-  (function () {
-    var bak = document.getElementById('lichtbak');
-    var img = document.getElementById('lichtbak-foto');
-    var sluitknop = bak && bak.querySelector('[data-sluit]');
-    if (!bak || !img || !sluitknop) return;
-    var geopendVanaf = null;
-
-    function sluit() {
-      if (bak.hidden) return;
-      // Weghalen, anders blijft Escape de lichtbak claimen terwijl die al
-      // dicht is en de menu's niet meer sluit.
-      document.removeEventListener('keydown', opToets, true);
-      bak.hidden = true;
-      img.removeAttribute('src');
-      var terug = geopendVanaf;
-      geopendVanaf = null;
-      if (terug) terug.focus();
-    }
-
-    // De toetsen horen bij het document, niet bij de lichtbak. Een tik op de
-    // foto zelf zet de focus op de pagina: een plaatje is niet te focussen,
-    // en dan bereikt Escape een listener op de lichtbak niet meer. De
-    // listener staat er alleen zolang de foto open is.
-    function opToets(ev) {
-      if (ev.key === 'Escape') {
-        ev.preventDefault();
-        ev.stopPropagation();
-        sluit();
-        return;
-      }
-      if (ev.key !== 'Tab') return;
-      var lijst = focusbaar();
-      if (!lijst.length) return;
-      var eerste = lijst[0];
-      var laatste = lijst[lijst.length - 1];
-      var binnen = bak.contains(document.activeElement);
-      if (ev.shiftKey && (!binnen || document.activeElement === eerste)) {
-        ev.preventDefault();
-        laatste.focus();
-      } else if (!ev.shiftKey && (!binnen || document.activeElement === laatste)) {
-        ev.preventDefault();
-        eerste.focus();
-      }
-    }
-
-    function focusbaar() {
-      return bak.querySelectorAll(
-        'button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-      );
-    }
-
-    // Alleen het voorbeeld en de naam. Het vinkje is geen link en doet hier
-    // niet mee, anders opent een tik om iets uit te vinken meteen de foto.
-    document.querySelectorAll('a.bijlage-open[data-soort="foto"]').forEach(function (link) {
-      link.addEventListener('click', function (ev) {
-        if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || ev.button !== 0) return;
-        ev.preventDefault();
-        geopendVanaf = link;
-        var naam = link.getAttribute('data-naam') || 'Foto';
-        bak.setAttribute('aria-label', naam);
-        img.alt = naam;
-        img.src = link.getAttribute('href');
-        bak.hidden = false;
-        document.removeEventListener('keydown', opToets, true);
-        document.addEventListener('keydown', opToets, true);
-        sluitknop.focus();
-      });
-    });
-    bak.addEventListener('click', function (ev) {
-      if (ev.target === bak || ev.target.closest('[data-sluit]')) sluit();
-    });
-  })();
-</script>
 
 {% endblock %}

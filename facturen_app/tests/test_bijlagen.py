@@ -93,6 +93,24 @@ def test_bijlage_zonder_inlog_gaat_naar_inloggen(post, db, uitgelogde_client, kl
     assert antwoord.data != PNG
 
 
+def test_bidi_in_de_weergavenaam_komt_niet_in_de_kop(post, db, client, klus_id):
+    """U+202E en de andere bidi-stuurtekens draaien filename* om. Ze gaan eruit."""
+    upload(post, klus_id)
+    db.execute(
+        "UPDATE bijlagen SET naam=?",
+        ("bon\u202e\u200f\u202a\u2066.png",),
+    )
+    db.commit()
+    bijlage_id = db.execute("SELECT id FROM bijlagen").fetchone()[0]
+    antwoord = client.get(f"/bijlage/{bijlage_id}")
+    assert antwoord.status_code == 200
+    beschikking = antwoord.headers["Content-Disposition"]
+    assert "bon.png" in beschikking
+    assert "\u202e" not in beschikking
+    assert "202e" not in beschikking.lower()
+    assert "200f" not in beschikking.lower()
+
+
 def test_een_regeleinde_in_de_weergavenaam_opent_de_bijlage_toch(post, db, client, klus_id):
     """De weergavenaam komt in Content-Disposition. Een regeleinde daarin
     liet de server met 500 stuklopen; de foto zelf is wel gewoon te tonen."""

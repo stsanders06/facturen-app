@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.39.0
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **Een foto opent overal groot in beeld.** Bij een notitie en bij een bon op
+  de klus, net als op het mailscherm. Staan er meer foto's op de pagina, dan
+  ga je met de pijlen of een veeg naar de vorige en de volgende. Een PDF opent
+  nog steeds in een tabblad.
+
 ## 1.38.0
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet

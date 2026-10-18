@@ -37,7 +37,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.38.0"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.39.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -453,6 +453,14 @@ def niet_gevonden():
     return zet_bestandskoppen(make_response("Niet gevonden", 404))
 
 
+# Stuurtekens uit het bidirectionele algoritme. U+202E (right-to-left override)
+# en de rest draaien de getoonde bestandsnaam om, zodat een .txt eruitziet als
+# een .pdf. Ze horen niet in filename*.
+_BIDI = frozenset(
+    "\u061c\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069"
+)
+
+
 def veilige_downloadnaam(naam):
     """Weergavenaam voor Content-Disposition.
 
@@ -460,7 +468,8 @@ def veilige_downloadnaam(naam):
     een tweede kop mee. De tekens gaan eruit; het bestand zelf blijft
     gewoon te openen."""
     schoon = "".join(
-        teken for teken in (naam or "") if ord(teken) >= 32 and teken != "\x7f"
+        teken for teken in (naam or "")
+        if ord(teken) >= 32 and teken != "\x7f" and teken not in _BIDI
     ).strip()
     return schoon or "bijlage"
 
@@ -3505,7 +3514,16 @@ def bijlagen_van(conn, klus_id, notitie_id=None, inkoop_id=None):
                 continue
         else:
             continue
-        bijlage["plaatje"] = os.path.splitext(rij["bestand"])[1].lower() in BIJLAGE_PLAATJES
+        ext = os.path.splitext(rij["bestand"] or "")[1].lower()
+        bijlage["plaatje"] = ext in BIJLAGE_PLAATJES
+        # HEIC is ook een foto: op een iPhone opent hij in de lichtbak. Een
+        # browser op de computer tekent hem niet als miniatuur, dat blijft een merk.
+        if bijlage["plaatje"] or ext in {".heic", ".heif"}:
+            bijlage["soort"] = "foto"
+        elif ext == ".pdf":
+            bijlage["soort"] = "pdf"
+        else:
+            bijlage["soort"] = "bestand"
         lijst.append(bijlage)
     return lijst
 
@@ -6005,9 +6023,15 @@ def bekijk_offerte(offerte_id):
 
 @app.route("/offerte/<int:offerte_id>/pdf")
 def download_offerte(offerte_id):
-    pad, nummer = _offerte_pdf_pad(offerte_id)
+    try:
+        pad, nummer = _offerte_pdf_pad(offerte_id)
+    except NotFound:
+        return niet_gevonden()
     return zet_bestandskoppen(
-        send_file(pad, as_attachment=True, download_name=f"{nummer}.pdf")
+        send_file(
+            pad, as_attachment=True,
+            download_name=veilige_downloadnaam(f"{nummer}.pdf"),
+        )
     )
 
 
@@ -7251,9 +7275,15 @@ def vernieuw_alles():
 
 @app.route("/factuur/<int:factuur_id>/pdf")
 def download_pdf(factuur_id):
-    pad, bestandsnaam = _pdf_pad(factuur_id)
+    try:
+        pad, bestandsnaam = _pdf_pad(factuur_id)
+    except NotFound:
+        return niet_gevonden()
     return zet_bestandskoppen(
-        send_file(pad, as_attachment=True, download_name=bestandsnaam)
+        send_file(
+            pad, as_attachment=True,
+            download_name=veilige_downloadnaam(bestandsnaam),
+        )
     )
 
 
