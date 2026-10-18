@@ -143,13 +143,16 @@ def _tekstregels_met_y(pad):
     return paginas
 
 
-# Een volle pagina eindigt hooguit één regel boven de bodem. De basislijn van
-# die regel ligt dan nog zo'n 23 mm erboven. Meer dan 28 mm betekent dat er een
-# regel is meegenomen naar de volgende pagina terwijl hij hier nog paste.
+# Een volle pagina eindigt hooguit één regel boven de bodem. Bij een rekening
+# ligt die basislijn zo'n 23 mm boven de 72 mm; bij een offerte, met een lagere
+# bodem, hooguit zo'n 26 mm. Meer dan 28 mm betekent dat er een regel is
+# meegenomen terwijl hij hier nog paste. De check geldt alleen als de volgende
+# pagina nog regels heeft: het slot mag eerder op, en dan blijft er ruimte over
+# omdat de laatste regel niet meegaat.
 LEGE_RUIMTE_MAX_MM = 28
 
 
-def _document_met_regels(db, aantal, soort):
+def _document_met_regels(db, aantal, soort, toelichting="Inclusief materiaal."):
     """Een rekening of offerte met `aantal` korte regels. Korte namen, zodat
     elke regel één regel tekst is en de lege ruimte niet van het afbreken komt."""
     zet_bedrijf(db, email="info@example.org", telefoon="012 345 67 89")
@@ -170,8 +173,8 @@ def _document_met_regels(db, aantal, soort):
                klant_email, status, totaal, toelichting)
                VALUES (?, '2026-10-01', '2026-11-01', 'Voorbeeld Klant',
                'Voorbeeldstraat 2\n1234 AB Voorbeeldstad', 'klant@example.org',
-               'concept', ?, 'Inclusief materiaal.')""",
-            (f"OFF-2026-{aantal:03d}", aantal * 10),
+               'concept', ?, ?)""",
+            (f"OFF-2026-{aantal:03d}", aantal * 10, toelichting),
         ).lastrowid
         tabel, sleutel = "offerte_regels", "offerte_id"
         teken = facturen.maak_offerte_pdf
@@ -185,45 +188,291 @@ def _document_met_regels(db, aantal, soort):
     return teken(doc_id)
 
 
+def _aantal_regels(stukken):
+    return sum(1 for _y, deel in stukken if deel.startswith("Voorbeeldregel "))
+
+
+def _verdeling_rekening(aantal):
+    """Hoe de korte regels van een rekening over de pagina's horen te liggen.
+
+    Pagina 1 houdt er 8, een vol vervolgvel 12. Het totaal en de strook passen
+    nog bij 11 regels op een vervolgvel; bij 12 niet meer, en dan komt er een
+    blad met alleen dat blok. Dit is de indeling van 1.41.1 en moet zo blijven."""
+    if aantal <= 8:
+        return [aantal, 0]
+    rest = aantal - 8
+    paginas = [8]
+    while rest:
+        if rest <= 11:
+            paginas.append(rest)
+            break
+        paginas.append(12)
+        rest -= 12
+        if rest == 0:
+            paginas.append(0)
+    return paginas
+
+
+def _verdeling_offerte(aantal):
+    """Hoe de korte regels van een offerte over de pagina's horen te liggen.
+
+    Pagina 1 houdt er 12, een vol vervolgvel 15. Het slot (totaal en
+    toelichting) past nog bij 10 regels op pagina 1 en bij 14 op een
+    vervolgvel. Daarboven schuift alleen het slot; de laatste regel blijft."""
+    if aantal <= 10:
+        return [aantal]
+    # 11 en 12 passen nog op pagina 1; het slot niet meer.
+    if aantal <= 12:
+        return [aantal, 0]
+    rest = aantal - 12
+    paginas = [12]
+    while rest:
+        if rest <= 14:
+            paginas.append(rest)
+            break
+        paginas.append(15)
+        rest -= 15
+        if rest == 0:
+            paginas.append(0)
+    return paginas
+
+
 @pytest.mark.parametrize("soort", ["rekening", "offerte"])
 @pytest.mark.parametrize("aantal", list(range(8, 31)))
 def test_regels_vullen_de_pagina_het_totaal_schuift_alleen(db, soort, aantal):
-    """Regels lopen door tot de bodem. Het totaal (en de strook) gaat alleen
-    zelf naar de volgende pagina als het er niet meer onder past."""
+    """Regels lopen door tot de bodem. Het totaal (en de strook of de
+    toelichting) gaat alleen zelf naar de volgende pagina als het er niet
+    meer onder past. Een rekening houdt de indeling van 1.41.1."""
     pad = _document_met_regels(db, aantal, soort)
     paginas = _tekstregels_met_y(pad)
     assert paginas
 
     namen = []
+    bodem = facturen.OFFERTE_REGEL_BODEM if soort == "offerte" else facturen.REGEL_BODEM
     for index, stukken in enumerate(paginas):
         van_deze = sorted(
             deel for _y, deel in stukken if deel.startswith("Voorbeeldregel ")
         )
         namen.extend(van_deze)
-        if index == len(paginas) - 1 or not van_deze:
+        if not van_deze:
             continue
         laagste = min(y for y, deel in stukken if deel.startswith("Voorbeeldregel "))
-        leeg = (laagste - facturen.REGEL_BODEM) / mm
+        # Een rekeningregel mag niet in de strook zakken. Een offerte mag
+        # lager, tot haar eigen bodem.
+        assert laagste >= bodem, (
+            f"{soort} met {aantal} regels, pagina {index + 1}: "
+            f"regel op {laagste / mm:.0f} mm, bodem is {bodem / mm:.0f} mm"
+        )
+        volgende_heeft_regels = index + 1 < len(paginas) and any(
+            deel.startswith("Voorbeeldregel ") for _y, deel in paginas[index + 1]
+        )
+        if not volgende_heeft_regels:
+            continue
+        leeg = (laagste - bodem) / mm
         assert leeg <= LEGE_RUIMTE_MAX_MM, (
             f"{soort} met {aantal} regels, pagina {index + 1}: {leeg:.0f} mm leeg"
         )
 
     assert namen == [f"Voorbeeldregel {nummer:02d}" for nummer in range(1, aantal + 1)]
+    verwacht = _verdeling_rekening(aantal) if soort == "rekening" else _verdeling_offerte(aantal)
+    assert [_aantal_regels(stukken) for stukken in paginas] == verwacht
 
     volledig = [" ".join(deel for _y, deel in stukken) for stukken in paginas]
+    for nummer, tekst in enumerate(volledig, start=1):
+        assert f"Pagina {nummer} van {len(volledig)}" in tekst
     met_totaal = [i for i, tekst in enumerate(volledig) if "T O T A A L" in tekst]
     assert met_totaal == [len(volledig) - 1]
+    alleen_slot = not any(deel.startswith("Voorbeeldregel ") for _y, deel in paginas[-1])
     if soort == "rekening":
         met_strook = [i for i, tekst in enumerate(volledig) if "B E T A L E N" in tekst]
         assert met_strook == met_totaal
         # Een blad met alleen het totaal heeft de vervolgkop, geen kolomkop:
         # die hoort bij regels.
-        if not any(deel.startswith("Voorbeeldregel ") for _y, deel in paginas[-1]):
+        if alleen_slot:
             assert "vervolg" in volledig[-1]
             assert "O M S C H R I J V I N G" not in volledig[-1]
     else:
         assert "B E T A L E N" not in " ".join(volledig)
-        assert "Inclusief materiaal." in " ".join(volledig)
+        # Totaal, toelichting en voetregel blijven op het laatste vel. De
+        # laatste regel is daar niet mee naartoe gesleept: die staat in
+        # `verwacht`, en een leeg slotblad heeft geen kolomkop.
+        assert "Inclusief materiaal." in volledig[-1]
+        assert "vrijblijvend" in volledig[-1]
+        assert "Inclusief materiaal." not in " ".join(volledig[:-1])
+        if alleen_slot:
+            assert "vervolg" in volledig[-1]
+            assert "O M S C H R I J V I N G" not in volledig[-1]
+
+
+def test_offerte_zonder_toelichting_houdt_totaal_en_voet_bij_elkaar(db):
+    """Zonder toelichting is het slot alleen het totaal en de voetregel.
+
+    Bij 11 regels past dat nog op pagina 1. Bij 12 niet meer: dan gaan ze
+    samen naar het volgende vel en blijft regel 12 staan."""
+    pad = _document_met_regels(db, 11, "offerte", toelichting="")
+    paginas = _tekstregels_met_y(pad)
+    assert [_aantal_regels(stukken) for stukken in paginas] == [11]
+    tekst = " ".join(deel for _y, deel in paginas[0])
+    assert "T O T A A L" in tekst
+    assert "vrijblijvend" in tekst
+    assert "Pagina 1 van 1" in tekst
+    assert "Inclusief materiaal." not in tekst
+
+    pad = _document_met_regels(db, 12, "offerte", toelichting="")
+    paginas = _tekstregels_met_y(pad)
+    assert [_aantal_regels(stukken) for stukken in paginas] == [12, 0]
+    volledig = [" ".join(deel for _y, deel in stukken) for stukken in paginas]
+    assert "T O T A A L" not in volledig[0]
+    assert "vrijblijvend" not in volledig[0]
+    assert "T O T A A L" in volledig[1]
+    assert "vrijblijvend" in volledig[1]
+    assert "vervolg" in volledig[1]
+    assert "O M S C H R I J V I N G" not in volledig[1]
+    assert "Pagina 1 van 2" in volledig[0]
+    assert "Pagina 2 van 2" in volledig[1]
+
+
+def _alinea(nummer):
+    return f"Alinea {nummer:02d} hoort bij de prijs."
+
+
+def _offerte_met_adres(db, regels, adresregels, alinea_aantal):
+    """Offerte met korte regels, een adres van `adresregels` regels en evenzoveel
+    alinea's in de toelichting. Het e-mailadres telt extra in het adresblok,
+    net als op een gewone offerte."""
+    toelichting = "\n".join(_alinea(i) for i in range(1, alinea_aantal + 1))
+    zet_bedrijf(db, email="info@example.org", telefoon="012 345 67 89",
+                adres="Voorbeeldstraat 1\n1234 AB Voorbeeldstad")
+    adres = "\n".join(f"Voorbeeldstraat {i}" for i in range(1, adresregels + 1))
+    doc_id = db.execute(
+        """INSERT INTO offertes (nummer, datum, geldig_tot, klant_naam, klant_adres,
+           klant_email, status, totaal, toelichting)
+           VALUES (?, '2026-10-01', '2026-11-01', 'Voorbeeld Klant', ?,
+           'klant@example.org', 'concept', ?, ?)""",
+        (f"OFF-{regels}-{adresregels}-{alinea_aantal}", adres, regels * 10, toelichting),
+    ).lastrowid
+    for nummer in range(1, regels + 1):
+        db.execute(
+            """INSERT INTO offerte_regels (offerte_id, omschrijving, type, aantal, prijs, subtotaal)
+               VALUES (?, ?, 'materiaal', 1, 10, 10)""",
+            (doc_id, f"Voorbeeldregel {nummer:02d}"),
+        )
+    db.commit()
+    return facturen.maak_offerte_pdf(doc_id)
+
+
+def _samengevoegde_paginas(paginas):
+    return [" ".join(deel for _y, deel in stukken) for stukken in paginas]
+
+
+def _alinea_per_pagina(paginas, aantal):
+    volledig = _samengevoegde_paginas(paginas)
+    return [sum(1 for i in range(1, aantal + 1) if _alinea(i) in tekst) for tekst in volledig]
+
+
+@pytest.mark.parametrize("alinea_aantal", [2, 5, 8])
+@pytest.mark.parametrize("adresregels", [1, 2, 3, 4, 5, 6])
+@pytest.mark.parametrize("regels", [8, 9, 10, 11, 12, 13])
+def test_toelichting_blijft_heel_bij_het_totaal(db, alinea_aantal, adresregels, regels):
+    """Twee, vijf of acht alinea's passen op één leeg vel. Ze blijven dan bij
+    elkaar, bij het kopje, het totaal en de voetregel. De regels vullen de
+    pagina; de laatste gaat niet mee met het slot."""
+    pad = _offerte_met_adres(db, regels, adresregels, alinea_aantal)
+    paginas = _tekstregels_met_y(pad)
+    volledig = _samengevoegde_paginas(paginas)
+    per_pagina = _alinea_per_pagina(paginas, alinea_aantal)
+
+    assert sum(per_pagina) == alinea_aantal
+    kop = [i for i, tekst in enumerate(volledig) if "T O E L I C H T I N G" in tekst]
+    assert kop == [per_pagina.index(alinea_aantal)]
+    slot = kop[0]
+    assert "T O T A A L" in volledig[slot]
+    assert "vrijblijvend" in volledig[slot]
+    assert _alinea(1) in volledig[slot]
+    assert _alinea(alinea_aantal) in volledig[slot]
+    # Geen pagina met alleen het kopje, en geen alinea buiten het slot.
+    assert all(aantal in (0, alinea_aantal) for aantal in per_pagina)
+    for nummer, tekst in enumerate(volledig, start=1):
+        assert f"Pagina {nummer} van {len(volledig)}" in tekst
+
+    namen = [
+        deel for stukken in paginas for _y, deel in stukken
+        if deel.startswith("Voorbeeldregel ")
+    ]
+    assert namen == [f"Voorbeeldregel {nummer:02d}" for nummer in range(1, regels + 1)]
+    # Het slot sleept geen regel mee: een volgende pagina met regels is vol.
+    for index, stukken in enumerate(paginas[:-1]):
+        van_deze = [y for y, deel in stukken if deel.startswith("Voorbeeldregel ")]
+        if not van_deze:
+            continue
+        if not any(deel.startswith("Voorbeeldregel ") for _y, deel in paginas[index + 1]):
+            continue
+        leeg = (min(van_deze) - facturen.OFFERTE_REGEL_BODEM) / mm
+        assert leeg <= LEGE_RUIMTE_MAX_MM
+
+
+def test_negen_regels_en_zes_adresregels_houden_twee_alinea_samen(db):
+    """Negen regels en zes adresregels lieten één alinea op pagina 1 en de
+    andere op pagina 2. Het hele slot hoort op het volgende vel."""
+    paginas = _tekstregels_met_y(_offerte_met_adres(db, 9, 6, 2))
+    volledig = _samengevoegde_paginas(paginas)
+    assert [_aantal_regels(stukken) for stukken in paginas] == [9, 0]
+    assert "T O E L I C H T I N G" not in volledig[0]
+    assert _alinea(1) not in volledig[0]
+    assert "T O T A A L" in volledig[1]
+    assert "T O E L I C H T I N G" in volledig[1]
+    assert _alinea(1) in volledig[1]
+    assert _alinea(2) in volledig[1]
+    assert "vrijblijvend" in volledig[1]
+
+
+def test_tien_regels_en_vier_adresregels_laten_het_kopje_niet_alleen(db):
+    """Tien regels en vier adresregels lieten alleen het kopje op pagina 1.
+    Kopje en tekst gaan samen met het totaal mee."""
+    paginas = _tekstregels_met_y(_offerte_met_adres(db, 10, 4, 2))
+    volledig = _samengevoegde_paginas(paginas)
+    assert [_aantal_regels(stukken) for stukken in paginas] == [10, 0]
+    assert "T O E L I C H T I N G" not in volledig[0]
+    assert "T O T A A L" in volledig[1]
+    assert "T O E L I C H T I N G" in volledig[1]
+    assert _alinea(1) in volledig[1]
+    assert _alinea(2) in volledig[1]
+    assert "vrijblijvend" in volledig[1]
+
+
+@pytest.mark.parametrize("adresregels", [1, 4, 6])
+@pytest.mark.parametrize("regels", [9, 10, 12])
+def test_een_langere_toelichting_sleept_geen_regel_mee(db, adresregels, regels):
+    """De indeling van de regels hangt niet van de lengte van de toelichting af."""
+    kort = _tekstregels_met_y(_offerte_met_adres(db, regels, adresregels, 2))
+    lang = _tekstregels_met_y(_offerte_met_adres(db, regels, adresregels, 8))
+
+    def met_regels(paginas):
+        return [aantal for aantal in (_aantal_regels(stukken) for stukken in paginas) if aantal]
+
+    # Een langer slot mag een eigen vel krijgen, maar geen regel meenemen.
+    assert met_regels(kort) == met_regels(lang)
+
+
+def test_een_te_lange_toelichting_houdt_twee_regels_bij_het_kopje(db):
+    """Past de toelichting ook op een leeg vel niet, dan loopt ze door. Het
+    kopje blijft bij minstens twee tekstregels, en de rekeningregels blijven
+    liggen."""
+    paginas = _tekstregels_met_y(_offerte_met_adres(db, 9, 2, 80))
+    per_pagina = _alinea_per_pagina(paginas, 80)
+    volledig = _samengevoegde_paginas(paginas)
+    assert sum(per_pagina) == 80
+    assert max(per_pagina) < 80
+    kop = next(i for i, tekst in enumerate(volledig) if "T O E L I C H T I N G" in tekst)
+    assert per_pagina[kop] >= 2
+    assert "T O T A A L" in volledig[kop]
+    assert _alinea(1) in volledig[kop]
+    assert _alinea(2) in volledig[kop]
+    laatste = next(i for i in range(len(per_pagina) - 1, -1, -1) if per_pagina[i])
+    assert "vrijblijvend" in volledig[laatste]
+    assert _alinea(80) in volledig[laatste]
+    assert [_aantal_regels(stukken) for stukken in paginas][0] == 9
+    assert "T O E L I C H T I N G" not in volledig[0]
 
 
 def test_veel_regels_lopen_door_op_een_vervolgpagina(db, maak_factuur):
