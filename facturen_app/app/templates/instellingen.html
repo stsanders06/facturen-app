@@ -122,6 +122,19 @@
         <input type="email" id="smtp_van" name="smtp_van" value="{{ s.smtp_van }}">
         <p class="hint">Laat leeg om je gebruikersnaam te gebruiken.</p>
       </div>
+      <div class="checkregel">
+        <input type="checkbox" id="bcc_aan" name="bcc_aan" value="ja"
+               {% if s.bcc_aan %}checked{% endif %}>
+        <label for="bcc_aan">BCC naar mezelf</label>
+      </div>
+      <div class="field">
+        <label for="bcc_adres">Adres voor de kopie</label>
+        <input type="email" id="bcc_adres" name="bcc_adres"
+               value="{{ s.bcc_adres or s.smtp_van or s.smtp_user }}">
+        <p class="hint">Elke mail gaat ook naar dit adres. De klant ziet dat niet.
+          Laat het gelijk aan de afzender, of vul een ander adres in. Vink uit om
+          geen kopie te sturen.</p>
+      </div>
     </div>
   </section>
 

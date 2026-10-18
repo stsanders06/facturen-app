@@ -37,7 +37,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.40.0"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.41.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -260,21 +260,34 @@ def melding(tekst, soort="gelukt", knop=None, link=None, links=None):
     ), soort)
 
 
-def mail_straks(wat, functie, *argumenten):
+def _onthoud_mailstand(sleutel, stand):
+    """Of een uitgestelde mail nog wacht, gelukt is, of mislukt.
+
+    Het mailscherm vraagt dit na de bedenktijd, zodat het alleen dichtgaat als
+    de mail echt weg is. Een lijst die alleen groeit houdt oude sleutels vast."""
+    MAIL_STAND[sleutel] = stand
+    if len(MAIL_STAND) > 40:
+        for oud in list(MAIL_STAND)[:10]:
+            MAIL_STAND.pop(oud, None)
+
+
+def mail_straks(wat, functie, *argumenten, na=None):
     """Zet een mail klaar en verstuurt hem pas na de bedenktijd.
 
     Tot die tijd verandert er niets aan de rekening — een concept krijgt zijn nummer
     ook pas als de mail echt de deur uit gaat. Houd je hem tegen, dan is er dus niets
-    terug te draaien."""
+    terug te draaien. `na` is waar het mailscherm heen gaat als de mail wél weg is."""
     sleutel = secrets.token_urlsafe(8)
 
     def versturen():
         UITGESTELDE_MAILS.pop(sleutel, None)
+        _onthoud_mailstand(sleutel, "bezig")
         try:
             with app.app_context():
                 gelukt, tekst = functie(*argumenten)
         except Exception as fout:            # de rekening kan intussen weg zijn
             gelukt, tekst = False, f"{wat} kon niet worden verstuurd: {fout}"
+        _onthoud_mailstand(sleutel, "gelukt" if gelukt else "fout")
         MAILUITSLAGEN.append((tekst, "gelukt" if gelukt else "fout"))
 
     # Zonder bedenktijd valt er niets te wachten en niets tegen te houden; dan gaat
@@ -287,12 +300,18 @@ def mail_straks(wat, functie, *argumenten):
     klok = threading.Timer(MAIL_BEDENKTIJD, versturen)
     klok.daemon = True
     UITGESTELDE_MAILS[sleutel] = klok
+    _onthoud_mailstand(sleutel, "wacht")
     klok.start()
 
-    melding(f"{wat} wordt verstuurd.", "bezig",
-            knop={"label": "Toch niet",
-                  "url": url_for("mail_tegenhouden", sleutel=sleutel),
-                  "seconden": MAIL_BEDENKTIJD})
+    knop = {"label": "Toch niet",
+            "url": url_for("mail_tegenhouden", sleutel=sleutel),
+            "stand": url_for("mail_stand", sleutel=sleutel),
+            "seconden": MAIL_BEDENKTIJD}
+    # Alleen het mailscherm wil daarna vanzelf dicht. Een andere pagina
+    # toont de melding en blijft waar hij is.
+    if na:
+        knop["na"] = na
+    melding(f"{wat} wordt verstuurd.", "bezig", knop=knop)
 
 
 @app.route("/mail/<sleutel>/tegenhouden", methods=["POST"])
@@ -302,8 +321,25 @@ def mail_tegenhouden(sleutel):
         melding("Deze mail is al de deur uit.", "fout")
     else:
         klok.cancel()
+        _onthoud_mailstand(sleutel, "tegengehouden")
         melding("Tegengehouden; er is niets verstuurd.")
     return redirect(terug_naar(url_for("index")))
+
+
+@app.route("/mail/<sleutel>/stand")
+def mail_stand(sleutel):
+    """Of de uitgestelde mail nog wacht, weg is, of mislukt.
+
+    Het mailscherm polst dit als de bedenktijd om is. Tegenhouden en een fout
+    laten de pagina staan; alleen 'gelukt' stuurt je terug."""
+    if sleutel in UITGESTELDE_MAILS:
+        stand = "wacht"
+    else:
+        stand = MAIL_STAND.get(sleutel, "weg")
+    return make_response(
+        json.dumps({"stand": stand}), 200,
+        {"Content-Type": "application/json; charset=utf-8"},
+    )
 
 
 def toon_mailuitslagen():
@@ -333,7 +369,7 @@ def waarom_mailen_niet_kan(tabel, rij_id):
     return None
 
 
-def mail_rekening(factuur_id, functie=None, wat=None, eigen_zin="", bon_ids=None):
+def mail_rekening(factuur_id, functie=None, wat=None, eigen_zin="", bon_ids=None, na=None):
     """Zet de rekening klaar om over een paar tellen te mailen."""
     reden = waarom_mailen_niet_kan("facturen", factuur_id)
     if reden:
@@ -344,10 +380,10 @@ def mail_rekening(factuur_id, functie=None, wat=None, eigen_zin="", bon_ids=None
         factuur = conn.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
         conn.close()
         wat = f"Rekening {factuurnaam(factuur)}"
-    mail_straks(wat, functie or verstuur_email, factuur_id, eigen_zin, bon_ids)
+    mail_straks(wat, functie or verstuur_email, factuur_id, eigen_zin, bon_ids, na=na)
 
 
-def mail_offerte(offerte_id, eigen_zin=""):
+def mail_offerte(offerte_id, eigen_zin="", na=None):
     reden = waarom_mailen_niet_kan("offertes", offerte_id)
     if reden:
         melding(reden, "fout")
@@ -355,7 +391,10 @@ def mail_offerte(offerte_id, eigen_zin=""):
     conn = get_db()
     offerte = conn.execute("SELECT nummer FROM offertes WHERE id=?", (offerte_id,)).fetchone()
     conn.close()
-    mail_straks(f"Offerte {offerte['nummer']}", verstuur_offerte_email, offerte_id, eigen_zin)
+    mail_straks(
+        f"Offerte {offerte['nummer']}", verstuur_offerte_email,
+        offerte_id, eigen_zin, na=na,
+    )
 
 
 @app.template_filter("uit_json")
@@ -775,6 +814,10 @@ UITGESTELDE_MAILS = {}
 # op dat moment geen pagina om iets op te zetten; dit wordt bij het eerstvolgende
 # bezoek getoond.
 MAILUITSLAGEN = []
+
+# Per sleutel: wacht, bezig, gelukt, fout of tegengehouden. Het mailscherm
+# kijkt hiernaar als de balk leeg is, en gaat alleen weg bij gelukt.
+MAIL_STAND = {}
 
 # Kleine voetregel onderaan elke rekening.
 BTW_REGEL = (
@@ -1304,7 +1347,9 @@ def init_db():
             smtp_user TEXT DEFAULT '',
             smtp_pass TEXT DEFAULT '',
             smtp_van TEXT DEFAULT '',
-            betaaltermijn_dagen INTEGER DEFAULT 14
+            betaaltermijn_dagen INTEGER DEFAULT 14,
+            bcc_aan INTEGER DEFAULT 1,
+            bcc_adres TEXT DEFAULT ''
         );
 
         CREATE TABLE IF NOT EXISTS gebruikers (
@@ -1403,8 +1448,8 @@ def init_db():
             bestand TEXT NOT NULL,
             naam TEXT NOT NULL,
             toegevoegd TEXT NOT NULL,
-            -- 1 als hij mee moet als de klus op een rekening gaat, bijvoorbeeld een
-            -- bon die de klant wil zien.
+            -- Oude vlag per bestand. Een bon die op de rekening staat gaat altijd
+            -- mee; het vinkje op het mailscherm beslist, niet deze kolom.
             meesturen INTEGER DEFAULT 0,
             FOREIGN KEY (klus_id) REFERENCES klussen (id)
         );
@@ -1488,6 +1533,9 @@ def init_db():
     for kolom, definitie in [
         ("tenaamstelling", "TEXT DEFAULT ''"),
         ("betaaltermijn_dagen", "INTEGER DEFAULT 14"),
+        # Standaard aan, zonder eigen adres: dan is de afzender de kopie.
+        ("bcc_aan", "INTEGER DEFAULT 1"),
+        ("bcc_adres", "TEXT DEFAULT ''"),
     ]:
         if kolom not in bestaand:
             conn.execute(f"ALTER TABLE settings ADD COLUMN {kolom} {definitie}")
@@ -1605,6 +1653,15 @@ def init_db():
                 "UPDATE bijlagen SET inkoop_id=? WHERE id=?",
                 (inkoop_id, bijlage["id"]),
             )
+
+    # Een bon op de rekening gaat altijd mee met de mail. Een oud vinkje
+    # 'niet meesturen' haalde zo'n bon stil van de mail. Notitiefoto's blijven
+    # uit: die hebben geen inkoop.
+    conn.execute(
+        """UPDATE bijlagen SET meesturen=1
+           WHERE inkoop_id IS NOT NULL AND notitie_id IS NULL
+             AND COALESCE(meesturen, 0) = 0"""
+    )
 
     regelkolommen = {rij["name"] for rij in conn.execute("PRAGMA table_info(regels)")}
     if "inkoop_id" not in regelkolommen:
@@ -2783,10 +2840,26 @@ def instellingen():
                 os.remove(doel)
                 melding(f"{filename} kan niet op de rekening worden getekend. Gebruik een "
                       "PNG of JPG; een HEIC-foto van een iPhone of een SVG werkt niet.", "fout")
+        afzender = (request.form.get("smtp_van", "").strip()
+                    or request.form.get("smtp_user", "").strip())
+        bcc_ingevoerd = request.form.get("bcc_adres", "").strip()
+        # Hetzelfde adres als de afzender hoeft niet apart bewaard: leeg betekent
+        # "de afzender". Anders blijft een oude kopie staan als je de afzender wijzigt.
+        if bcc_ingevoerd.casefold() == afzender.casefold():
+            bcc_ingevoerd = ""
+        bcc_fout = bool(bcc_ingevoerd) and not geldig_mailadres(bcc_ingevoerd)
+        if bcc_fout:
+            # Een kapot adres niet opslaan: een regeleinde daarin is een tweede
+            # ontvanger. De rest van het formulier wel, anders ben je je IBAN kwijt.
+            bcc_ingevoerd = (huidig.get("bcc_adres") or "").strip()
+            bcc_aan = 1 if huidig.get("bcc_aan") else 0
+        else:
+            bcc_aan = 1 if request.form.get("bcc_aan") == "ja" else 0
         conn.execute(
             """UPDATE settings SET naam=?, adres=?, telefoon=?, email=?, iban=?,
                tenaamstelling=?, logo_bestand=?, smtp_host=?,
-               smtp_port=?, smtp_user=?, smtp_pass=?, smtp_van=? WHERE id=1""",
+               smtp_port=?, smtp_user=?, smtp_pass=?, smtp_van=?,
+               bcc_aan=?, bcc_adres=? WHERE id=1""",
             (
                 request.form.get("naam", ""),
                 net_adres(request.form.get("adres", "")),
@@ -2802,11 +2875,17 @@ def instellingen():
                 # want het opgeslagen wachtwoord wordt niet naar de browser gestuurd.
                 request.form.get("smtp_pass", "") or huidig.get("smtp_pass", ""),
                 request.form.get("smtp_van", ""),
+                bcc_aan,
+                bcc_ingevoerd,
             ),
         )
         conn.commit()
         conn.close()
-        melding("Instellingen opgeslagen.")
+        if bcc_fout:
+            melding("Het adres voor de kopie klopt niet. Gebruik één e-mailadres, "
+                    "zonder extra tekst. De rest is opgeslagen.", "fout")
+        else:
+            melding("Instellingen opgeslagen.")
         return redirect(url_for("instellingen"))
 
     return render_template("instellingen.html", s=get_settings(),
@@ -4041,17 +4120,18 @@ def bijlage(bijlage_id):
 
 @app.route("/bijlage/<int:bijlage_id>/meesturen", methods=["POST"])
 def bijlage_meesturen(bijlage_id):
-    """Zet aan of uit of dit bestand meegaat als bijlage bij de rekening."""
+    """Oude knop. Een bon op de rekening gaat altijd mee; dit vinkje doet niets meer.
+
+    De route blijft, zodat een nog open kluspagina geen fout geeft. Het
+    mailscherm is de enige plek waar je een bon alsnog weg kunt laten."""
     conn = get_db()
     rij = conn.execute("SELECT * FROM bijlagen WHERE id=?", (bijlage_id,)).fetchone()
     if rij is None:
         conn.close()
         abort(404)
-    conn.execute("UPDATE bijlagen SET meesturen=? WHERE id=?",
-                 (0 if rij["meesturen"] else 1, bijlage_id))
-    conn.commit()
+    klus_id = rij["klus_id"]
     conn.close()
-    return redirect(url_for("klus", klus_id=rij["klus_id"]))
+    return redirect(url_for("klus", klus_id=klus_id))
 
 
 @app.route("/bijlage/<int:bijlage_id>/verwijder", methods=["POST"])
@@ -6151,7 +6231,7 @@ def offerte_mail(offerte_id):
 
 @app.route("/offerte/<int:offerte_id>/verstuur", methods=["POST"])
 def verstuur_offerte(offerte_id):
-    mail_offerte(offerte_id, request.form.get("eigen_zin", ""))
+    mail_offerte(offerte_id, request.form.get("eigen_zin", ""), na=url_for("offertes"))
     return redirect(terug_naar(url_for("offertes")))
 
 
@@ -6888,35 +6968,140 @@ def _teken_document(pad, doc, regels, s):
     return vel.bewaar()
 
 
+# Eén adres, niets eromheen. Een regeleinde of een komma is een tweede ontvanger
+# of een extra kop — dat mag een veld dat de gebruiker invult niet kunnen.
+_MAILADRES = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
+
+
+def geldig_mailadres(adres):
+    adres = (adres or "").strip()
+    if not adres or len(adres) > 254:
+        return False
+    return _MAILADRES.fullmatch(adres) is not None
+
+
+def afzender_adres(s):
+    return (s.get("smtp_van") or s.get("smtp_user") or "").strip()
+
+
+def kopie_adres(ontvanger, s=None):
+    """Het adres voor de BCC-kopie, of leeg als die niet mee mag.
+
+    Standaard aan, en een leeg veld betekent de afzender. Staat dat adres al bij
+    Aan, dan niet nog een keer: de klant is dan zelf de ontvanger en een tweede
+    exemplaar voegt niets toe. Het adres komt niet in de zichtbare koppen; alleen
+    de envelop van de mailserver kent het, anders leest de klant wie de kopie kreeg.
+    """
+    s = get_settings() if s is None else s
+    if not s.get("bcc_aan"):
+        return ""
+    adres = (s.get("bcc_adres") or "").strip() or afzender_adres(s)
+    if not geldig_mailadres(adres):
+        return ""
+    bestemd = [stuk.strip() for stuk in re.split(r"[,;]", ontvanger or "") if stuk.strip()]
+    if any(adres.casefold() == stuk.casefold() for stuk in bestemd):
+        return ""
+    return adres
+
+
+app.jinja_env.globals["kopie_adres"] = kopie_adres
+
+
+def _html_van_tekst(tekst):
+    """De brief als HTML, met dezelfde woorden als de platte tekst.
+
+    Apple Mail behandelt een mail van alleen platte tekst plus een PDF alsof de
+    PDF bij de brief hoort en zet hem er op ware grootte onder. Een HTML-deel
+    maakt de brief de body."""
+    alinea = []
+    stukken = []
+    for regel in (tekst or "").split("\n"):
+        if not regel.strip():
+            if alinea:
+                stukken.append("<p>" + "<br>\n".join(alinea) + "</p>")
+                alinea = []
+            continue
+        alinea.append(str(escape(regel)))
+    if alinea:
+        stukken.append("<p>" + "<br>\n".join(alinea) + "</p>")
+    lichaam = "\n".join(stukken) or "<p></p>"
+    return "<!DOCTYPE html>\n<html><body>\n" + lichaam + "\n</body></html>\n"
+
+
+def _veilige_bestandsnaam(naam):
+    """Een naam die in een kop mag. Een regeleinde daarin breekt de kop open."""
+    schoon = "".join(c for c in (naam or "") if c not in "\r\n\x00")
+    return schoon.strip() or "bijlage"
+
+
+def _voeg_bijlage_toe(msg, data, hoofd, onder, naam):
+    """Een bestand naast de brief, niet erin.
+
+    `name` op het type en `filename` op de dispositie horen bij elkaar; zonder
+    die twee opent Mail de PDF als onderdeel van de tekst. Een Content-ID doet
+    hetzelfde, dan hoort het bestand bij de HTML zoals een logo in de brief.
+    Een naam met een vreemd teken gaat als filename* (RFC 2231), anders ziet de
+    ontvanger een kapotte naam."""
+    naam = _veilige_bestandsnaam(naam)
+    msg.add_attachment(
+        data,
+        maintype=hoofd or "application",
+        subtype=onder or "octet-stream",
+        filename=naam,
+        params={"name": naam},
+    )
+
+
+def bouw_mail(s, ontvanger, onderwerp, tekst, pdf, bestandsnaam, extra=None):
+    """Het bericht zoals het de deur uitgaat.
+
+    Bovenaan een mixed-deel: eerst de brief als alternative (platte tekst én
+    HTML), daarna elk bestand als bijlage. Geen related — dat is voor plaatjes
+    die in de HTML staan, en dan toont Mail ze in de brief in plaats van als
+    bijlage.
+
+    `extra` is (bytes, naam, hoofdtype, subtype).
+    """
+    msg = EmailMessage()
+    msg["Subject"] = onderwerp
+    msg["From"] = afzender_adres(s)
+    msg["To"] = ontvanger
+    msg.set_content(tekst or "")
+    msg.add_alternative(_html_van_tekst(tekst or ""), subtype="html")
+    _voeg_bijlage_toe(msg, pdf, "application", "pdf", bestandsnaam)
+    for data, naam, hoofd, onder in extra or []:
+        _voeg_bijlage_toe(msg, data, hoofd, onder, naam)
+    return msg
+
+
 def _mail_pdf(s, ontvanger, onderwerp, tekst, pad, bestandsnaam, extra=None):
     """Stuurt de PDF als bijlage, eventueel met extra bestanden erbij als (pad, naam).
     Geeft (gelukt, tekst) terug; die tekst is bedoeld om aan de gebruiker te tonen
     en zegt wat er precies misging."""
-    msg = EmailMessage()
-    msg["Subject"] = onderwerp
-    msg["From"] = s.get("smtp_van") or s.get("smtp_user")
-    msg["To"] = ontvanger
-    msg.set_content(tekst)
     with open(pad, "rb") as f:
-        msg.add_attachment(
-            f.read(), maintype="application", subtype="pdf", filename=bestandsnaam
-        )
-
+        pdf = f.read()
+    extra_data = []
     for extra_pad, extra_naam in extra or []:
         if not os.path.exists(extra_pad):
             continue
         soort, _ = mimetypes.guess_type(extra_naam)
         hoofd, _, onder = (soort or "application/octet-stream").partition("/")
         with open(extra_pad, "rb") as f:
-            msg.add_attachment(f.read(), maintype=hoofd, subtype=onder,
-                               filename=extra_naam)
+            extra_data.append((f.read(), extra_naam, hoofd, onder))
+    msg = bouw_mail(s, ontvanger, onderwerp, tekst, pdf, bestandsnaam, extra_data)
+    # De kopie zit in de envelop, niet in een Bcc-kop. send_message laat een
+    # Bcc-kop wel uit de tekst die de klant krijgt, maar dan staat hij alsnog
+    # in het bericht tot dat moment — en een test die het bericht bekijkt zou
+    # hem zien. Helemaal niet in het bericht is duidelijker.
+    kopie = kopie_adres(ontvanger, s)
+    envelop = [ontvanger] + ([kopie] if kopie else [])
 
     try:
         with smtplib.SMTP(s["smtp_host"], int(s["smtp_port"]), timeout=20) as server:
             server.starttls()
             if s.get("smtp_user"):
                 server.login(s["smtp_user"], s["smtp_pass"])
-            server.send_message(msg)
+            server.send_message(msg, to_addrs=envelop)
     except smtplib.SMTPAuthenticationError:
         return False, ("De mailserver weigert je gebruikersnaam of wachtwoord. Bij iCloud "
                        "en Gmail heb je een app-specifiek wachtwoord nodig, niet je gewone.")
@@ -6957,8 +7142,9 @@ def met_eigen_zin(tekst, eigen_zin):
 def gekozen_bon_ids(form):
     """Welke bonnetjes mee mogen, of None als het formulier daar niets over zegt.
 
-    None betekent: alles wat op deze rekening op 'meesturen' staat. Het verborgen
-    veld `bonnen_gekozen` onderscheidt dat van 'de gebruiker heeft alles uitgezet'."""
+    None betekent: elk bestand van een bon die op deze rekening staat. Het
+    verborgen veld `bonnen_gekozen` onderscheidt dat van 'op het mailscherm
+    is alles uitgezet'."""
     if form is None or form.get("bonnen_gekozen") != "1":
         return None
     return {int(x) for x in form.getlist("mee") if str(x).isdigit()}
@@ -7003,10 +7189,12 @@ def _bon_dict(rij):
 
 
 def bonnen_bij_factuur(conn, factuur_id):
-    """Bestanden van bonnen die op díéze rekening staan en op 'meesturen' staan.
+    """Bestanden van bonnen die op díéze rekening meegerekend zijn.
 
     Een urenregel van dezelfde klus haalt niet alle foto's van die klus mee.
-    Notitiefoto's gaan nooit mee, ook niet als `meesturen` per ongeluk aan staat."""
+    Notitiefoto's gaan nooit mee. Een oud vinkje 'niet meesturen' op het
+    bestand zelf telt niet meer: staat de bon op de rekening, dan gaat hij
+    mee, tenzij je hem op het mailscherm uitvinkt."""
     rijen = conn.execute(
         """SELECT DISTINCT b.id AS id, b.bestand AS bestand, b.naam AS naam,
                   COALESCE(i.omschrijving, '') AS bon, COALESCE(k.naam, '') AS klus
@@ -7015,7 +7203,6 @@ def bonnen_bij_factuur(conn, factuur_id):
            LEFT JOIN inkopen i ON i.id = b.inkoop_id
            LEFT JOIN klussen k ON k.id = b.klus_id
            WHERE r.factuur_id = ?
-             AND b.meesturen = 1
              AND b.inkoop_id IS NOT NULL
              AND b.notitie_id IS NULL
            ORDER BY b.id""",
@@ -7027,9 +7214,9 @@ def bonnen_bij_factuur(conn, factuur_id):
 def meegestuurde_bonnen(conn, factuur_id, alleen_ids=None):
     """Bonnetjes die echt mee de mail in gaan.
 
-    Een vinkje 'meesturen' op een bestand dat intussen weg is, levert geen bijlage
-    op. Die hoort dus ook niet in het voorbeeld te staan. `alleen_ids` beperkt
-    dat tot wat er op het controlescherm aangevinkt bleef."""
+    Een bestand dat intussen weg is levert geen bijlage op. Die hoort dus ook
+    niet in het voorbeeld te staan. `alleen_ids` beperkt dat tot wat er op het
+    controlescherm aangevinkt bleef."""
     uit = []
     for bon in bonnen_bij_factuur(conn, factuur_id):
         if alleen_ids is not None and bon["id"] not in alleen_ids:
@@ -7433,6 +7620,7 @@ def verstuur(factuur_id):
         factuur_id,
         eigen_zin=request.form.get("eigen_zin", ""),
         bon_ids=gekozen_bon_ids(request.form),
+        na=url_for("index"),
     )
     return redirect(terug_naar(url_for("index")))
 
@@ -7684,6 +7872,7 @@ def herinnering(factuur_id):
         factuur_id, herinnering_email, "De herinnering",
         request.form.get("eigen_zin", ""),
         gekozen_bon_ids(request.form),
+        na=url_for("index"),
     )
     return redirect(terug_naar(url_for("index")))
 

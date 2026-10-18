@@ -3,6 +3,12 @@
 {% block head %}
 <style>
   .mailregel { margin: 0 0 10px; }
+  /* Klein en grijs: het is een bevestiging, geen veld dat je nog moet invullen. */
+  .kopie {
+    margin: -4px 0 10px;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
   .mailregel .label {
     display: block;
     font-size: 13px;
@@ -187,6 +193,10 @@
     <span class="label">Aan</span>
     {{ inhoud.ontvanger or 'geen e-mailadres' }}
   </p>
+  {% set kopie = kopie_adres(inhoud.ontvanger) %}
+  {% if kopie %}
+  <p class="kopie">Kopie (BCC) naar {{ kopie }}</p>
+  {% endif %}
   <p class="mailregel">
     <span class="label">Onderwerp</span>
     {{ inhoud.onderwerp }}

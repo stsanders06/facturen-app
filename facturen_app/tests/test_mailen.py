@@ -25,7 +25,6 @@ def test_voorbeeld_noemt_onderwerp_tekst_pdf_en_bon(post, db, client):
     klus_id = db.execute("SELECT id FROM klussen").fetchone()[0]
     post(f"/klus/{klus_id}/bijlage", {"bijlage": (io.BytesIO(PNG), "bon-gamma.png")},
          content_type="multipart/form-data")
-    post(f"/bijlage/{db.execute('SELECT id FROM bijlagen').fetchone()[0]}/meesturen")
     post(f"/klus/{klus_id}/dag", {"datum": "2026-08-14", "van": "09:00", "tot": "17:00"})
     inkoop_id = db.execute("SELECT inkoop_id FROM bijlagen").fetchone()[0]
     post("/nieuw", {
@@ -191,9 +190,7 @@ def test_bijlagen_zijn_een_voorbeeld_en_het_vinkje_opent_ze_niet(post, db, clien
     }, content_type="multipart/form-data")
     # Eerst de id's ophalen. De cursor open laten terwijl de app schrijft
     # zet de database op slot.
-    bijlage_ids = [rij["id"] for rij in db.execute("SELECT id FROM bijlagen")]
-    for bijlage_id in bijlage_ids:
-        post(f"/bijlage/{bijlage_id}/meesturen")
+    db.execute("UPDATE bijlagen SET meesturen=0")
     db.execute("UPDATE inkopen SET omschrijving='Tegellijm'")
     db.commit()
     inkoop_id = db.execute("SELECT id FROM inkopen").fetchone()[0]
@@ -232,6 +229,7 @@ def test_bijlagen_zijn_een_voorbeeld_en_het_vinkje_opent_ze_niet(post, db, clien
     assert len(with_vink) == 2
     for regel in with_vink:
         link = regel.index("<a ")
+        assert 'checked' in regel
         assert regel.index('name="mee"') < link
         assert "</label>" in regel[:link]
         assert "<input" not in regel[link:]
@@ -266,8 +264,6 @@ def test_de_lichtbak_houdt_de_focus_en_geeft_hem_terug(post, db, client):
     post(f"/klus/{klus_id}/bijlage",
          {"bijlage": (io.BytesIO(PNG), "voeg-badkamer.png")},
          content_type="multipart/form-data")
-    bijlage_id = db.execute("SELECT id FROM bijlagen").fetchone()[0]
-    post(f"/bijlage/{bijlage_id}/meesturen")
     inkoop_id = db.execute("SELECT id FROM inkopen").fetchone()[0]
     post("/nieuw", {
         "klant_naam": "Voorbeeld Klant", "klant_email": "klant@example.com",

@@ -1066,13 +1066,8 @@
               <span class="hint">Geen voorbeeld. Een JPG of PNG wel.</span>
               {% endif %}
               <span class="bijlage-acties">
-                <form method="post" action="{{ url_for('bijlage_meesturen', bijlage_id=b.id) }}">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                  <button type="submit" class="btn btn-text {{ 'aan' if b.meesturen }}"
-                          title="{% if b.meesturen %}Gaat mee met de rekening{% else %}Meesturen met de rekening{% endif %}">
-                    {% if b.meesturen %}✓ Gaat mee{% else %}Meesturen{% endif %}
-                  </button>
-                </form>
+                {#- Geen vinkje 'meesturen' meer. Staat de bon op de rekening,
+                    dan gaat het bestand mee; uitvinken doe je op het mailscherm. -#}
                 <form method="post" action="{{ url_for('bijlage_verwijder', bijlage_id=b.id) }}"
                       data-bevestig="{{ b.naam }} verwijderen?">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

@@ -819,7 +819,12 @@
       <a class="melding-link" href="{{ m.link.url }}">{{ m.link.label }}</a>
       {% endif %}
       {% if m.knop and m.knop.seconden %}
-      <span class="balk" style="animation-duration: {{ m.knop.seconden }}s"></span>
+      {#- data-na: na de bedenktijd het mailscherm sluiten, maar alleen als
+          de mail echt weg is. Zonder dit adres blijft de pagina staan. -#}
+      <span class="balk" style="animation-duration: {{ m.knop.seconden }}s"
+            data-seconden="{{ m.knop.seconden }}"
+            {% if m.knop.stand %}data-stand="{{ m.knop.stand }}"{% endif %}
+            {% if m.knop.na %}data-na="{{ m.knop.na }}"{% endif %}></span>
       {% endif %}
     </div>
     {% endfor %}
@@ -835,9 +840,9 @@
   // Op een lange kluspagina stond je bij de bon of de uren; die plek is bij het
   // versturen bewaard en zetten we hier terug. Alleen als het dezelfde pagina
   // is: een gewone klik, of een post die ergens anders uitkomt, hoort wél
-  // bovenaan te beginnen. Een melding is geen voorwaarde — een gewerkte dag,
-  // een dag wijzigen en "meesturen" komen terug zonder tekst, en anders spring
-  // je daar alsnog naar boven. Safari op de iPhone schuift na het laden soms
+  // bovenaan te beginnen. Een melding is geen voorwaarde — een gewerkte dag
+  // en een dag wijzigen komen terug zonder tekst, en anders spring je daar
+  // alsnog naar boven. Safari op de iPhone schuift na het laden soms
   // alsnog naar boven, vandaar dat we het even blijven herhalen.
   var SCHUIFSLEUTEL = 'facturen-schuif';
   var bewaardeSchuif = 0;
@@ -1011,6 +1016,49 @@
     }
     var duur = melding.classList.contains('fout') ? 8000 : 5000;
     melding._timer = setTimeout(function () { verdwijnMelding(melding); }, duur);
+  });
+
+  // Het mailscherm blijft open zolang je de mail nog kunt tegenhouden. Is de
+  // balk leeg én de mail echt weg, dan terug naar de rekening of de offerte.
+  // Mislukt of tegengehouden: blijven, anders zie je de fout niet.
+  document.querySelectorAll('.melding.bezig .balk[data-na]').forEach(function (balk) {
+    var melding = balk.closest('.melding');
+    var standUrl = balk.getAttribute('data-stand');
+    var na = balk.getAttribute('data-na');
+    if (!melding || !standUrl || !na) return;
+    var bezig = false;
+
+    function vraag(poging) {
+      fetch(standUrl, { headers: { 'Accept': 'application/json' } })
+        .then(function (antwoord) { return antwoord.json(); })
+        .then(function (data) {
+          var stand = data && data.stand;
+          if (stand === 'gelukt') {
+            window.location.assign(na);
+            return;
+          }
+          if (stand === 'fout') {
+            window.location.reload();
+            return;
+          }
+          if ((stand === 'wacht' || stand === 'bezig') && poging < 25) {
+            setTimeout(function () { vraag(poging + 1); }, 400);
+          }
+        })
+        .catch(function () {
+          if (poging < 25) setTimeout(function () { vraag(poging + 1); }, 400);
+        });
+    }
+
+    function klaar() {
+      if (bezig || melding.dataset.weg) return;
+      bezig = true;
+      vraag(0);
+    }
+
+    balk.addEventListener('animationend', klaar);
+    var seconden = parseFloat(balk.getAttribute('data-seconden')) || 0;
+    if (seconden > 0) setTimeout(klaar, seconden * 1000 + 200);
   });
 
   // Bevestiging vragen voor onomkeerbare acties. De vraag staat in een

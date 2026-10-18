@@ -18,6 +18,7 @@ def met_bedenktijd(app):
         klok.cancel()
     facturen.UITGESTELDE_MAILS.clear()
     facturen.MAILUITSLAGEN.clear()
+    facturen.MAIL_STAND.clear()
     facturen.MAIL_BEDENKTIJD = 0
 
 
@@ -94,6 +95,147 @@ def test_zonder_mailserver_ook(post, maak_factuur, met_bedenktijd):
     antwoord = post(f"/factuur/{factuur_id}/verstuur", follow_redirects=True)
     assert "geen mailserver ingesteld" in antwoord.data.decode()
     assert facturen.UITGESTELDE_MAILS == {}
+
+
+def _laat_de_klok_aflopen(sleutel):
+    """De bedenktijd is in de test expres lang. De functie zelf meteen aanroepen."""
+    klok = facturen.UITGESTELDE_MAILS.pop(sleutel)
+    klok.cancel()
+    klok.function()
+
+
+def test_het_mailscherm_blijft_open_tijdens_de_bedenktijd(post, mailbare_rekening,
+                                                         met_bedenktijd):
+    """Terug naar de rekeningen pas als de mail echt weg is, niet al bij versturen."""
+    antwoord = post(
+        f"/factuur/{mailbare_rekening}/verstuur",
+        headers={"Referer": f"http://localhost/factuur/{mailbare_rekening}/mail"},
+    )
+    assert antwoord.status_code == 302
+    assert antwoord.headers["Location"].endswith(f"/factuur/{mailbare_rekening}/mail")
+
+
+def test_de_melding_weet_waar_het_scherm_naartoe_gaat(post, mailbare_rekening,
+                                                     met_bedenktijd):
+    inhoud = post(
+        f"/factuur/{mailbare_rekening}/verstuur",
+        headers={"Referer": f"http://localhost/factuur/{mailbare_rekening}/mail"},
+        follow_redirects=True,
+    ).data.decode()
+    assert 'data-na="/"' in inhoud
+    assert 'data-stand="/mail/' in inhoud
+    assert "location.assign" in inhoud
+
+
+def test_een_offerte_gaat_terug_naar_de_offertes(post, db, maak_offerte, met_bedenktijd):
+    db.execute("UPDATE settings SET smtp_host='smtp.example.com' WHERE id=1")
+    db.commit()
+    offerte_id = maak_offerte()
+    db.execute(
+        "UPDATE offertes SET klant_email='info@example.org' WHERE id=?",
+        (offerte_id,),
+    )
+    db.commit()
+    inhoud = post(
+        f"/offerte/{offerte_id}/verstuur",
+        headers={"Referer": f"http://localhost/offerte/{offerte_id}/mail"},
+        follow_redirects=True,
+    ).data.decode()
+    assert 'data-na="/offertes"' in inhoud
+
+
+def test_stand_wacht_tot_de_mail_gelukt_is(client, post, mailbare_rekening,
+                                             met_bedenktijd, monkeypatch):
+    monkeypatch.setattr(facturen, "_mail_pdf", lambda *a, **k: (True, ""))
+    post(f"/factuur/{mailbare_rekening}/verstuur")
+    sleutel = next(iter(facturen.UITGESTELDE_MAILS))
+    assert client.get(f"/mail/{sleutel}/stand").get_json()["stand"] == "wacht"
+    _laat_de_klok_aflopen(sleutel)
+    assert facturen.MAIL_STAND[sleutel] == "gelukt"
+    # De uitslag blijft voor de pagina waar je naartoe gaat, niet voor het
+    # mailscherm dat dan al dicht is.
+    assert facturen.MAILUITSLAGEN
+    assert "gemaild" in client.get("/").data.decode()
+    assert client.get(f"/mail/{sleutel}/stand").get_json()["stand"] == "gelukt"
+
+
+def test_een_mislukte_mail_krijgt_stand_fout(client, post, mailbare_rekening,
+                                             met_bedenktijd, monkeypatch):
+    monkeypatch.setattr(
+        facturen, "verstuur_email",
+        lambda *a, **k: (False, "De mailserver weigert je gebruikersnaam of wachtwoord."),
+    )
+    post(f"/factuur/{mailbare_rekening}/verstuur")
+    sleutel = next(iter(facturen.UITGESTELDE_MAILS))
+    _laat_de_klok_aflopen(sleutel)
+    assert client.get(f"/mail/{sleutel}/stand").get_json()["stand"] == "fout"
+
+
+def test_tegenhouden_zet_de_stand_niet_op_gelukt(client, post, mailbare_rekening,
+                                                met_bedenktijd):
+    # Eerst de melding met de terugkeer tonen, anders blijft die in de sessie
+    # en lijkt het alsof tegenhouden het scherm alsnog sluit.
+    post(f"/factuur/{mailbare_rekening}/verstuur", follow_redirects=True)
+    sleutel = next(iter(facturen.UITGESTELDE_MAILS))
+    inhoud = post(f"/mail/{sleutel}/tegenhouden", follow_redirects=True).data.decode()
+    assert "Tegengehouden" in inhoud
+    assert 'data-na="/"' not in inhoud
+    assert client.get(f"/mail/{sleutel}/stand").get_json()["stand"] == "tegengehouden"
+
+
+def test_het_scherm_gaat_alleen_dicht_als_de_mail_gelukt_is(post, mailbare_rekening,
+                                                           met_bedenktijd):
+    """De balk leeg: gelukt gaat weg, een fout of tegenhouden niet."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    html = post(
+        f"/factuur/{mailbare_rekening}/verstuur",
+        headers={"Referer": f"http://localhost/factuur/{mailbare_rekening}/mail"},
+        follow_redirects=True,
+    ).data.decode().replace(
+        'data-na="/"', 'data-na="http://test.example/terug"', 1,
+    )
+
+    def na_balk(stand):
+        with sync_playwright() as p:
+            browser = p.webkit.launch()
+            pagina = browser.new_page()
+
+            def antwoord(route):
+                if route.request.url.endswith("/terug"):
+                    route.fulfill(
+                        status=200, content_type="text/html", body="<p>terug</p>",
+                    )
+                else:
+                    route.fulfill(
+                        status=200, content_type="text/html", body=html,
+                    )
+
+            pagina.route("**/*", antwoord)
+            pagina.goto("http://test.example/mail")
+            pagina.evaluate(
+                """(stand) => {
+                  window.fetch = () => Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({stand: stand}),
+                  });
+                }""",
+                stand,
+            )
+            if stand == "gelukt":
+                with pagina.expect_navigation(timeout=3000):
+                    pagina.locator(".balk").dispatch_event("animationend")
+            else:
+                pagina.locator(".balk").dispatch_event("animationend")
+                pagina.wait_for_timeout(400)
+            url = pagina.url
+            browser.close()
+            return url
+
+    assert na_balk("gelukt").endswith("/terug")
+    assert not na_balk("fout").endswith("/terug")
+    assert not na_balk("tegengehouden").endswith("/terug")
 
 
 def test_de_uitslag_komt_op_de_volgende_pagina(client, met_bedenktijd):
