@@ -35,7 +35,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.36.1"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.37.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -1130,11 +1130,16 @@ def init_db():
             prijs REAL NOT NULL,
             subtotaal REAL NOT NULL,
             klus_id INTEGER,
+            -- Welke bon deze regel is. Eén bon, één regel: anders zet een
+            -- tweede tabblad dezelfde bon nog een keer op een rekening.
+            -- Verdwijnt de bon, dan blijft het bedrag op de regel staan.
+            inkoop_id INTEGER UNIQUE,
             -- Welke gewerkte dag deze regel is. Eén dag, één regel: anders zet
             -- een tweede tabblad dezelfde dag nog een keer op een rekening.
             -- Verdwijnt de dag, dan blijft het bedrag op de regel staan.
             uur_id INTEGER UNIQUE,
             FOREIGN KEY (factuur_id) REFERENCES facturen (id),
+            FOREIGN KEY (inkoop_id) REFERENCES inkopen (id) ON DELETE SET NULL,
             FOREIGN KEY (uur_id) REFERENCES uren (id) ON DELETE SET NULL
         );
 
@@ -1419,8 +1424,11 @@ def init_db():
         conn.execute("ALTER TABLE regels ADD COLUMN uur_id INTEGER")
     # Ná de kolom. Een tabel van voor deze koppeling heeft uur_id zonder
     # unieke index; die herbouwen we, anders blijft een tweede tabblad
-    # dezelfde dag op twee rekeningen zetten.
+    # dezelfde dag op twee rekeningen zetten. Dubbele bonnen eerst losmaken:
+    # de herbouw weigert anders op twee regels met dezelfde bon.
+    _ontkoppel_inconsistente_bonnen(conn)
     _uur_koppeling_uniek(conn)
+    _bon_koppeling_uniek(conn)
 
     conn.commit()
     conn.close()
@@ -1585,9 +1593,10 @@ _REGELS_NIEUW = """
         prijs REAL NOT NULL,
         subtotaal REAL NOT NULL,
         klus_id INTEGER,
-        inkoop_id INTEGER,
+        inkoop_id INTEGER UNIQUE,
         uur_id INTEGER UNIQUE,
         FOREIGN KEY (factuur_id) REFERENCES facturen (id),
+        FOREIGN KEY (inkoop_id) REFERENCES inkopen (id) ON DELETE SET NULL,
         FOREIGN KEY (uur_id) REFERENCES uren (id) ON DELETE SET NULL
     )
 """
@@ -1704,12 +1713,9 @@ def _ontkoppel_inconsistente_dagen(conn):
             per_rekening.setdefault(kandidaat["factuur_id"], []).append(zin)
 
     for factuur_id, zinnen in per_rekening.items():
-        conn.execute(
-            """INSERT INTO rekening_waarschuwing (factuur_id, tekst)
-               VALUES (?, ?)
-               ON CONFLICT(factuur_id) DO UPDATE SET tekst=excluded.tekst""",
-            (factuur_id, " ".join(zinnen)),
-        )
+        # Erbíj, niet eroverheen: een bonwaarschuwing van dezelfde start
+        # mag niet verdwijnen omdat deze dag er ook niet bij hoorde.
+        _waarschuwing_erbij(conn, factuur_id, " ".join(zinnen))
 
 
 def _herstel_regels_nieuw(conn):
@@ -1736,6 +1742,95 @@ def _herstel_regels_nieuw(conn):
     conn.execute("DROP TABLE regels_nieuw")
 
 
+def _bon_conflict_zin(conn, bon, regel):
+    """Wat er mis was bij een bonkoppeling. Het bedrag noemen we erbij: dat blijft."""
+    bedrag = nl_bedrag(regel["subtotaal"])
+    if bon is None:
+        return (
+            f"Een regel van €\u00a0{bedrag} verwees naar een bon die er niet meer is. "
+            "Het bedrag is blijven staan en de koppeling is weg."
+        )
+    naam = (bon["omschrijving"] or "een bon").strip()
+    if not bon["factuur_id"]:
+        return (
+            f"De bon '{naam}' staat op meer dan één regel. "
+            f"Het bedrag van €\u00a0{bedrag} is blijven staan, "
+            "maar de bon hangt niet aan deze rekening."
+        )
+    titel = zin_van_rekening(_rekening_rij(conn, bon["factuur_id"]))
+    return (
+        f"De bon '{naam}' hoort bij {titel}. "
+        f"Het bedrag van €\u00a0{bedrag} op deze rekening is blijven staan, "
+        "maar de bon is hier losgekoppeld. "
+        "Controleer of je die bon niet twee keer rekent."
+    )
+
+
+def _waarschuwing_erbij(conn, factuur_id, zin):
+    """Zet de zin bij de rekening. Een eerdere zin over een dag blijft staan."""
+    bestaat = conn.execute(
+        "SELECT tekst FROM rekening_waarschuwing WHERE factuur_id=?",
+        (factuur_id,),
+    ).fetchone()
+    tekst = zin if bestaat is None else f"{bestaat['tekst']} {zin}"
+    conn.execute(
+        """INSERT INTO rekening_waarschuwing (factuur_id, tekst)
+           VALUES (?, ?)
+           ON CONFLICT(factuur_id) DO UPDATE SET tekst=excluded.tekst""",
+        (factuur_id, tekst),
+    )
+
+
+def _ontkoppel_inconsistente_bonnen(conn):
+    """inkopen.factuur_id is leidend. Eén bon, één regel.
+
+    Een regel die naar een bon van een andere rekening wijst, of een tweede
+    regel naar dezelfde bon, verliest inkoop_id. Het bedrag blijft: weggooien
+    zou een verstuurde rekening stil kleiner maken. Staat de bon nog nergens,
+    dan houdt de oudste regel de koppeling."""
+    if "regels" not in _tabelnamen(conn) or "inkopen" not in _tabelnamen(conn):
+        return
+    kolommen = {rij["name"] for rij in conn.execute("PRAGMA table_info(regels)")}
+    if "inkoop_id" not in kolommen:
+        return
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS rekening_waarschuwing (
+               factuur_id INTEGER PRIMARY KEY,
+               tekst TEXT NOT NULL
+           )"""
+    )
+    rijen = conn.execute(
+        """SELECT id, factuur_id, inkoop_id, subtotaal FROM regels
+           WHERE inkoop_id IS NOT NULL ORDER BY id"""
+    ).fetchall()
+    per_bon = {}
+    for rij in rijen:
+        per_bon.setdefault(rij["inkoop_id"], []).append(rij)
+
+    for inkoop_id, groep in per_bon.items():
+        bon = conn.execute(
+            "SELECT id, factuur_id, omschrijving FROM inkopen WHERE id=?",
+            (inkoop_id,),
+        ).fetchone()
+        houden = None
+        if bon is not None and bon["factuur_id"]:
+            for kandidaat in groep:
+                if kandidaat["factuur_id"] == bon["factuur_id"]:
+                    houden = kandidaat["id"]
+                    break
+        elif bon is not None:
+            houden = groep[0]["id"]
+        for kandidaat in groep:
+            if kandidaat["id"] == houden:
+                continue
+            conn.execute(
+                "UPDATE regels SET inkoop_id=NULL WHERE id=?", (kandidaat["id"],)
+            )
+            zin = _bon_conflict_zin(conn, bon, kandidaat)
+            app.logger.warning("Bonkoppeling losgelaten: %s", zin)
+            _waarschuwing_erbij(conn, kandidaat["factuur_id"], zin)
+
+
 def _uur_koppeling_uniek(conn):
     """Eén gewerkte dag per regel, en de koppeling valt weg als de dag weggaat.
 
@@ -1754,8 +1849,53 @@ def _uur_koppeling_uniek(conn):
     _ontkoppel_inconsistente_dagen(conn)
     if _uur_koppeling_al_uniek(conn):
         return
-    # Buiten een transactie, anders negeert SQLite de pragma en weigert de
-    # kopie een regel waarvan de rekening er even niet is.
+    _herbouw_regels(conn)
+
+
+def _bon_koppeling_al_uniek(conn):
+    """Of regels.inkoop_id al één bon per regel afdwingt, mét loslaten bij verwijderen."""
+    uniek = False
+    for idx in conn.execute("PRAGMA index_list(regels)"):
+        if not idx["unique"]:
+            continue
+        kolommen = [
+            rij["name"]
+            for rij in conn.execute(f"PRAGMA index_info('{idx['name']}')")
+        ]
+        if kolommen == ["inkoop_id"]:
+            uniek = True
+            break
+    if not uniek:
+        return False
+    for fk in conn.execute("PRAGMA foreign_key_list(regels)"):
+        if (fk["from"] == "inkoop_id" and fk["table"] == "inkopen"
+                and (fk["on_delete"] or "").upper() == "SET NULL"):
+            return True
+    return False
+
+
+def _bon_koppeling_uniek(conn):
+    """Eén bon per regel, en de koppeling valt weg als de bon weggaat.
+
+    Zelfde herbouw als bij de dagen. Een database van 1.36 had de dag al
+    uniek, maar de bon nog niet: twee schermen konden dezelfde bon op twee
+    rekeningen zetten. De bedragen blijven staan."""
+    _herstel_regels_nieuw(conn)
+    if "regels" not in _tabelnamen(conn):
+        return
+    _ontkoppel_inconsistente_bonnen(conn)
+    if _bon_koppeling_al_uniek(conn):
+        return
+    _herbouw_regels(conn)
+
+
+def _herbouw_regels(conn):
+    """regels nabouwen met de unieke koppelingen, in één transactie.
+
+    Buiten een transactie eerst de foreign keys uit, anders negeert SQLite
+    die pragma en weigert de kopie een regel waarvan de rekening er even niet
+    is. Valt het proces daarna weg, dan draait CREATE, INSERT, DROP en RENAME
+    allemaal terug."""
     _zonder_transactie(conn, "PRAGMA foreign_keys=OFF")
     try:
         conn.execute("BEGIN")
@@ -1914,6 +2054,7 @@ def prullenbak_terug(prullenbak_id):
                         raise sqlite3.IntegrityError("regel niet teruggezet")
         gemist = _herstel_koppelingen(conn, inhoud.get("koppelingen") or {})
         _herstel_uur_regels(conn, inhoud.get("koppelingen") or {})
+        _herstel_inkoop_regels(conn, inhoud.get("koppelingen") or {})
         conn.execute("DELETE FROM prullenbak WHERE id=?", (prullenbak_id,))
         conn.commit()
     except sqlite3.IntegrityError:
@@ -1981,6 +2122,28 @@ def _herstel_uur_regels(conn, koppelingen):
         )
 
 
+def _herstel_inkoop_regels(conn, koppelingen):
+    """Zet inkoop_id terug op de regel, nadat een bon uit de prullenbak komt.
+
+    Verwijderen van de bon zet die kolom op NULL (ON DELETE SET NULL). Zonder
+    deze stap staat de regel erna los van de bon, terwijl de bon er weer is."""
+    for paar in koppelingen.get("inkoop_regels") or []:
+        inkoop_id = paar.get("inkoop_id")
+        regel_id = paar.get("regel_id")
+        if not inkoop_id or not regel_id:
+            continue
+        bezet = conn.execute(
+            "SELECT id FROM regels WHERE inkoop_id=? AND id<>?",
+            (inkoop_id, regel_id),
+        ).fetchone()
+        if bezet:
+            continue
+        conn.execute(
+            "UPDATE regels SET inkoop_id=? WHERE id=? AND (inkoop_id IS NULL OR inkoop_id=?)",
+            (inkoop_id, regel_id, inkoop_id),
+        )
+
+
 def _dag_op_andere_rekening(conn, regel):
     """De rekening waar deze dag nu op staat, als dat niet de terug te zetten is."""
     uur_id = regel.get("uur_id")
@@ -2006,27 +2169,58 @@ def _dag_op_andere_rekening(conn, regel):
     return None
 
 
+def _bon_op_andere_rekening(conn, regel):
+    """De rekening waar deze bon nu op staat, als dat niet de terug te zetten is."""
+    inkoop_id = regel.get("inkoop_id")
+    if not inkoop_id:
+        return None
+    factuur_id = regel.get("factuur_id")
+    bezet = conn.execute(
+        """SELECT f.id, f.nummer, f.klant_naam, f.datum, i.omschrijving
+           FROM regels r
+           JOIN facturen f ON f.id = r.factuur_id
+           JOIN inkopen i ON i.id = r.inkoop_id
+           WHERE r.inkoop_id=? AND r.factuur_id<>?""",
+        (inkoop_id, factuur_id),
+    ).fetchone()
+    if bezet:
+        return bezet
+    return conn.execute(
+        """SELECT f.id, f.nummer, f.klant_naam, f.datum, i.omschrijving
+           FROM inkopen i JOIN facturen f ON f.id = i.factuur_id
+           WHERE i.id=? AND i.factuur_id IS NOT NULL AND i.factuur_id<>?""",
+        (inkoop_id, factuur_id),
+    ).fetchone()
+
+
 def _terugzetten_botst(conn, inhoud):
     """None, of een melding als terughalen regels stil zou laten vallen.
 
-    De dag staat dan al op een andere rekening. INSERT OR IGNORE slaat de regel
-    over vanwege de unieke uur_id, en de rekening komt terug met het oude totaal
-    en nul regels. Het jaartotaal telt dat bedrag dan dubbel."""
+    De dag of de bon staat dan al op een andere rekening. INSERT OR IGNORE
+    slaat de regel over vanwege de unieke koppeling, en de rekening komt
+    terug met het oude totaal en nul regels. Het jaartotaal telt dat bedrag
+    dan dubbel."""
     per_rekening = {}
+    bon_per_rekening = {}
     for regel in (inhoud.get("rijen") or {}).get("regels") or []:
         gevonden = _dag_op_andere_rekening(conn, regel)
-        if not gevonden:
-            continue
-        uur_id, andere = gevonden
-        dag = conn.execute(
-            "SELECT datum FROM uren WHERE id=?", (uur_id,)
-        ).fetchone()
-        wanneer = filter_datum_nl(dag["datum"]) if dag else "een dag"
-        per_rekening.setdefault(andere["id"], {
-            "titel": zin_van_rekening(andere),
-            "dagen": [],
-        })["dagen"].append(wanneer)
-    if not per_rekening:
+        if gevonden:
+            uur_id, andere = gevonden
+            dag = conn.execute(
+                "SELECT datum FROM uren WHERE id=?", (uur_id,)
+            ).fetchone()
+            wanneer = filter_datum_nl(dag["datum"]) if dag else "een dag"
+            per_rekening.setdefault(andere["id"], {
+                "titel": zin_van_rekening(andere),
+                "dagen": [],
+            })["dagen"].append(wanneer)
+        bon = _bon_op_andere_rekening(conn, regel)
+        if bon:
+            bon_per_rekening.setdefault(bon["id"], {
+                "titel": zin_van_rekening(bon),
+                "bonnen": [],
+            })["bonnen"].append((bon["omschrijving"] or "een bon").strip())
+    if not per_rekening and not bon_per_rekening:
         return None
     zinnen = []
     for info in per_rekening.values():
@@ -2037,11 +2231,23 @@ def _terugzetten_botst(conn, inhoud):
             zinnen.append(
                 f"De dagen van {' en '.join(dagen)} staan nu op {info['titel']}."
             )
-    return (
-        "Deze rekening kan niet terug. "
-        + " ".join(zinnen)
-        + " Haal die dagen daar eerst af als je deze rekening toch terug wilt."
-    )
+    for info in bon_per_rekening.values():
+        namen = info["bonnen"]
+        if len(namen) == 1:
+            zinnen.append(f"De bon '{namen[0]}' staat nu op {info['titel']}.")
+        else:
+            zinnen.append(
+                "De bonnen "
+                + " en ".join(f"'{naam}'" for naam in namen)
+                + f" staan nu op {info['titel']}."
+            )
+    if per_rekening and bon_per_rekening:
+        slot = "Haal die dagen en bonnen daar eerst af als je deze rekening toch terug wilt."
+    elif bon_per_rekening:
+        slot = "Haal die bon daar eerst af als je deze rekening toch terug wilt."
+    else:
+        slot = "Haal die dagen daar eerst af als je deze rekening toch terug wilt."
+    return "Deze rekening kan niet terug. " + " ".join(zinnen) + " " + slot
 
 
 def factuurnaam(factuur):
@@ -3120,6 +3326,16 @@ def klus_verwijder(klus_id):
             (klus_id,),
         )
     ]
+    # Zelfde reden als bij de dagen: verwijderen zet inkoop_id op NULL.
+    inkoop_regels = [
+        {"regel_id": rij["id"], "inkoop_id": rij["inkoop_id"]}
+        for rij in conn.execute(
+            """SELECT r.id, r.inkoop_id FROM regels r
+               JOIN inkopen i ON i.id = r.inkoop_id
+               WHERE i.klus_id=?""",
+            (klus_id,),
+        )
+    ]
     prullenbak_id = naar_prullenbak(
         conn, f"Klus {gegevens['naam']}",
         {"klussen": [gegevens],
@@ -3130,7 +3346,7 @@ def klus_verwijder(klus_id):
          "inkoop_materialen": materialen,
          "bijlagen": bijlagen},
         bestanden=[b["bestand"] for b in bijlagen],
-        koppelingen={"uur_regels": uur_regels},
+        koppelingen={"uur_regels": uur_regels, "inkoop_regels": inkoop_regels},
     )
     for inkoop in inkopen:
         conn.execute("DELETE FROM inkoop_materialen WHERE inkoop_id=?", (inkoop["id"],))
@@ -3462,10 +3678,19 @@ def inkoop_verwijder(inkoop_id):
         "SELECT * FROM inkoop_materialen WHERE inkoop_id=?", (inkoop_id,)).fetchall()
     bestanden = conn.execute(
         "SELECT * FROM bijlagen WHERE inkoop_id=?", (inkoop_id,)).fetchall()
+    # De rekeningregel verliest de bon bij verwijderen. Bij terughalen hoort
+    # die koppeling terug, zolang geen andere regel de bon intussen heeft.
+    inkoop_regels = [
+        {"regel_id": regel["id"], "inkoop_id": inkoop_id}
+        for regel in conn.execute(
+            "SELECT id FROM regels WHERE inkoop_id=?", (inkoop_id,)
+        )
+    ]
     prullenbak_id = naar_prullenbak(
         conn, f"Bon {rij['omschrijving']}",
         {"inkopen": [rij], "inkoop_materialen": materialen, "bijlagen": bestanden},
         bestanden=[b["bestand"] for b in bestanden],
+        koppelingen={"inkoop_regels": inkoop_regels},
     )
     conn.execute("DELETE FROM inkoop_materialen WHERE inkoop_id=?", (inkoop_id,))
     conn.execute("DELETE FROM bijlagen WHERE inkoop_id=?", (inkoop_id,))
@@ -3899,22 +4124,30 @@ def lees_regels(form):
 
 
 def zonder_dubbele_dagen(regels):
-    """Dezelfde gewerkte dag mag niet twee regels vullen.
+    """Dezelfde gewerkte dag of bon mag niet twee regels vullen.
 
-    Het bedrag zou anders twee keer op de rekening staan terwijl de dag maar
-    één keer gekoppeld kan worden."""
-    gezien = set()
+    Het bedrag zou anders twee keer op de rekening staan terwijl de dag of
+    de bon maar één keer gekoppeld kan worden."""
+    dagen = set()
+    bonnen = set()
     uit = []
-    dubbel = False
+    dag_dubbel = False
+    bon_dubbel = False
     for regel in regels:
         uur_id = regel[7] if len(regel) > 7 else None
-        if uur_id and uur_id in gezien:
-            dubbel = True
+        inkoop_id = regel[6] if len(regel) > 6 else None
+        if uur_id and uur_id in dagen:
+            dag_dubbel = True
+            continue
+        if inkoop_id and inkoop_id in bonnen:
+            bon_dubbel = True
             continue
         if uur_id:
-            gezien.add(uur_id)
+            dagen.add(uur_id)
+        if inkoop_id:
+            bonnen.add(inkoop_id)
         uit.append(regel)
-    return uit, dubbel
+    return uit, dag_dubbel, bon_dubbel
 
 
 DUBBELE_DAG = (
@@ -3922,14 +4155,19 @@ DUBBELE_DAG = (
     "Hij is maar één keer meegerekend."
 )
 
+DUBBELE_BON = (
+    "Een bon stond twee keer op de rekening. "
+    "Hij is maar één keer meegerekend."
+)
+
 
 def regels_uit_form(form):
-    """Regels en totaal. Een dag die twee keer voorkomt telt één keer."""
+    """Regels en totaal. Een dag of bon die twee keer voorkomt telt één keer."""
     regels, totaal = lees_regels(form)
-    regels, dubbel = zonder_dubbele_dagen(regels)
-    if dubbel:
+    regels, dag_dubbel, bon_dubbel = zonder_dubbele_dagen(regels)
+    if dag_dubbel or bon_dubbel:
         totaal = som_van(regels)
-    return regels, totaal, dubbel
+    return regels, totaal, dag_dubbel, bon_dubbel
 
 
 # ---------- Adressen en telefoonnummers netjes maken ----------
@@ -4209,27 +4447,77 @@ def geboekte_klussen(factuur_id=None, klant_id=None):
         if klus["uren_open"] > 0:
             # Zelfde vergelijking als de bonnen: zelfde klant, of allebei geen.
             klus["past"] = inkoop_past_bij_klant(klus["klant_id"], klant_id)
-            # Alleen dagen die nog nergens op staan. Dagen van déze rekening
-            # zitten al als regels op het formulier; die nog eens aanbieden
-            # zou ze dubbel rekenen.
-            klus["dagen"] = menu_dagen(klus)
+            # Vrije dagen, plus de dagen van déze rekening. Die laatste staan
+            # al als regel op het formulier en beginnen verborgen; haal je de
+            # regel weg vóór het opslaan, dan kun je de dag weer kiezen.
+            klus["dagen"] = menu_dagen(klus, factuur_id)
             lijst.append(klus)
     return lijst
 
 
-def menu_dagen(klus):
-    """Gesloten, nog niet gefactureerde dagen, klaar voor een factuurregel."""
+def menu_dagen(klus, factuur_id=None):
+    """Gesloten dagen die in de keuzelijst mogen.
+
+    Een dag op een andere rekening niet, en een dag zonder eindtijd niet.
+    Een dag op déze rekening wel, zodat hij terugkomt als de regel weggaat."""
     if klus.get("status") == "aangevraagd":
         return []
     conn = get_db()
     try:
-        return [
-            {"id": dag["id"], "omschrijving": dag["omschrijving"],
-             "uren": dag["uren"], "minuten": dag["minuten"]}
-            for dag in regels_van_open_dagen(conn, klus)
-        ]
+        return dagen_voor_keuze(conn, klus, factuur_id)
     finally:
         conn.close()
+
+
+def dagen_voor_keuze(conn, klus, factuur_id=None):
+    """Eén dict per dag die je vanuit het menu op de rekening kunt zetten."""
+    if klus["status"] == "aangevraagd":
+        return []
+    # Een dag die al op deze rekening staat mag alleen terug in de lijst als
+    # er een regel met dat uur_id is. Een oude rekening zette alle uren op één
+    # regel zonder uur_id; die dagen nog eens aanbieden rekent ze dubbel.
+    gekoppeld = []
+    if factuur_id:
+        gekoppeld = [
+            rij["uur_id"] for rij in conn.execute(
+                """SELECT uur_id FROM regels
+                   WHERE factuur_id=? AND uur_id IS NOT NULL""",
+                (factuur_id,),
+            )
+        ]
+    if gekoppeld:
+        plekken = ",".join("?" * len(gekoppeld))
+        waar = f"AND (factuur_id IS NULL OR id IN ({plekken}))"
+        params = (klus["id"], *gekoppeld)
+    else:
+        waar = "AND factuur_id IS NULL"
+        params = (klus["id"],)
+    rijen = conn.execute(
+        f"""SELECT id, datum, van, tot, notitie, pauze_minuten, factuur_id
+            FROM uren
+            WHERE klus_id=? {waar} AND {_GESLOTEN_DAG}
+            ORDER BY datum, id""",
+        params,
+    ).fetchall()
+    prijs = float(klus["uurtarief"] or 0)
+    uit = []
+    for rij in rijen:
+        minuten = factureerbare_minuten(rij["van"], rij["tot"], _pauze(rij))
+        uren = uren_uit_minuten(minuten)
+        if uren <= 0:
+            continue
+        uit.append({
+            "id": rij["id"],
+            "omschrijving": omschrijving_van_dag(
+                rij["datum"], rij["van"], rij["tot"], _pauze(rij),
+                klus["naam"], rij["notitie"],
+            ),
+            "uren": uren,
+            "minuten": minuten,
+            "prijs": prijs,
+            "op_deze": bool(factuur_id and rij["factuur_id"] == factuur_id),
+        })
+    return uit
 
 
 def regels_van_open_dagen(conn, klus):
@@ -4553,6 +4841,43 @@ def zonder_bezette_dagen(conn, regels, eigen_factuur_id):
     return houden, meldingen
 
 
+def zonder_bezette_bonnen(conn, regels, eigen_factuur_id):
+    """Regels waarvan de bon al op een andere rekening staat, eruit.
+
+    Zelfde reden als bij een dag: het totaal van het jaar telt beide
+    rekeningen op, en dan reken je de bon twee keer."""
+    houden = []
+    meldingen = []
+    gezien = set()
+    for regel in regels:
+        inkoop_id = regel[6]
+        if not inkoop_id:
+            houden.append(regel)
+            continue
+        bon = conn.execute(
+            "SELECT factuur_id, omschrijving FROM inkopen WHERE id=?",
+            (inkoop_id,),
+        ).fetchone()
+        bezet = (
+            bon is not None
+            and bon["factuur_id"]
+            and bon["factuur_id"] != eigen_factuur_id
+        )
+        if not bezet:
+            houden.append(regel)
+            continue
+        titel = _nummer_van_rekening(conn, bon["factuur_id"])
+        naam = (bon["omschrijving"] or "Deze bon").strip()
+        tekst = (
+            f"De bon '{naam}' staat al op {titel}. "
+            "Hij is niet nog een keer op deze rekening gezet."
+        )
+        if tekst not in gezien:
+            gezien.add(tekst)
+            meldingen.append(tekst)
+    return houden, meldingen
+
+
 AANTAL_VOLGT_DE_DAG = (
     "Het aantal uren volgt de dag en is niet aangepast. "
     "Een korting zet je op een aparte regel."
@@ -4635,10 +4960,10 @@ def _tekst_hoort_bij_dag(tekst, dag):
 def regels_voor_opslaan(conn, form, klant_id, eigen_factuur_id=None):
     """Regels die op de rekening mogen, het totaal, meldingen, of een fout.
 
-    Een fout weigert de hele opdracht. Staat een dag al op een andere rekening,
-    dan gaat de hele opslag niet door: anders blijft een materiaalregel uit
-    hetzelfde formulier als losse rekening achter."""
-    regels, _totaal, dubbel = regels_uit_form(form)
+    Een fout weigert de hele opdracht. Staat een dag of bon al op een andere
+    rekening, dan gaat de hele opslag niet door: anders blijft een
+    materiaalregel uit hetzelfde formulier als losse rekening achter."""
+    regels, _totaal, dag_dubbel, bon_dubbel = regels_uit_form(form)
     if not regels:
         return None, None, [], (
             "Vul minstens één regel in met een omschrijving; anders is er niets "
@@ -4651,9 +4976,11 @@ def regels_voor_opslaan(conn, form, klant_id, eigen_factuur_id=None):
         fout = dagen_horen_bij_klant_en_klus(conn, regels, klant_id)
     if fout:
         return None, None, [], fout
-    regels, bezet = zonder_bezette_dagen(conn, regels, eigen_factuur_id)
+    regels, dag_bezet = zonder_bezette_dagen(conn, regels, eigen_factuur_id)
+    regels, bon_bezet = zonder_bezette_bonnen(conn, regels, eigen_factuur_id)
+    bezet = list(dag_bezet) + list(bon_bezet)
     if bezet:
-        tekst = bezet[0]
+        tekst = " ".join(bezet)
         if eigen_factuur_id:
             tekst += " Er is niets gewijzigd."
         else:
@@ -4666,9 +4993,11 @@ def regels_voor_opslaan(conn, form, klant_id, eigen_factuur_id=None):
         )
     regels = herstel_ongewijzigde_bedragen(conn, regels, "regels", eigen_factuur_id)
     regels, aantal_waarschuwing = bedragen_uit_de_dag(conn, regels, eigen_factuur_id)
-    meldingen = list(bezet)
-    if dubbel:
+    meldingen = []
+    if dag_dubbel:
         meldingen.append(DUBBELE_DAG)
+    if bon_dubbel:
+        meldingen.append(DUBBELE_BON)
     if aantal_waarschuwing:
         meldingen.append(AANTAL_VOLGT_DE_DAG)
     return regels, som_van(regels), meldingen, None
@@ -4678,6 +5007,22 @@ DAG_AL_ELDERS = (
     "Deze dag staat al op een andere rekening. "
     "Hij is niet nog een keer op deze rekening gezet."
 )
+
+BON_AL_ELDERS = (
+    "Deze bon staat al op een andere rekening. "
+    "Hij is niet nog een keer op deze rekening gezet."
+)
+
+
+def _melding_bij_conflict(exc, bestaand=False):
+    """Tekst als het opslaan botst op een dag of bon die net bezet raakte.
+
+    De controle ervoor ziet het meestal al. Dit is de rest: twee schermen
+    die op hetzelfde moment opslaan."""
+    kern = BON_AL_ELDERS if "inkoop_id" in str(exc) else DAG_AL_ELDERS
+    if bestaand:
+        return kern + " Er is niets gewijzigd."
+    return kern + " De rekening is niet aangemaakt."
 
 
 def bewaar_regels(conn, factuur_id, regels):
@@ -4946,15 +5291,28 @@ def _dag_staat_elders(conn, uur_id, eigen_factuur_id):
     )
 
 
+def _bon_staat_elders(conn, inkoop_id, eigen_factuur_id):
+    bon = conn.execute(
+        "SELECT factuur_id FROM inkopen WHERE id=?", (inkoop_id,)
+    ).fetchone()
+    return bool(
+        bon and bon["factuur_id"] and bon["factuur_id"] != eigen_factuur_id
+    )
+
+
 def formulier_van_post(conn, form, eigen_factuur_id=None):
     """Wat er op het scherm terug moet na een geweigerde opslag.
 
-    De geweigerde dagregels gaan eraf: die staan al op een andere rekening.
-    Klant, datums en de overige regels blijven. Er wordt niets opgeslagen."""
+    De geweigerde dag- en bonregels gaan eraf: die staan al op een andere
+    rekening. Klant, datums en de overige regels blijven. Er wordt niets
+    opgeslagen."""
     regels = []
     for regel in _regels_zoals_ingevuld(form):
         uur_id = regel.get("uur_id")
+        inkoop_id = regel.get("inkoop_id")
         if uur_id and _dag_staat_elders(conn, uur_id, eigen_factuur_id):
+            continue
+        if inkoop_id and _bon_staat_elders(conn, inkoop_id, eigen_factuur_id):
             continue
         if uur_id and not regel.get("minuten"):
             dag = conn.execute(
@@ -5005,6 +5363,46 @@ def _render_nieuw_ingevuld(ingevuld):
     )
 
 
+def _factuur_zoals_ingevuld(factuur, ingevuld):
+    """De opgeslagen rekening, met de velden die net geweigerd zijn eroverheen.
+
+    Nummer en status blijven van de rekening. De rest is wat er in het
+    formulier stond, anders verdwijnt een aangepaste naam bij de melding."""
+    kopie = dict(factuur)
+    klant = ingevuld["klant"]
+    kopie["klant_id"] = klant.get("id")
+    kopie["klant_naam"] = klant.get("naam") or ""
+    kopie["klant_adres"] = klant.get("adres") or ""
+    kopie["klant_email"] = klant.get("email") or ""
+    kopie["datum"] = ingevuld["datum"]
+    kopie["vervalt_op"] = ingevuld["vervalt"]
+    kopie["kenmerk"] = ingevuld["kenmerk"]
+    kopie["betaalmethode"] = ingevuld["betaalmethode"]
+    return kopie
+
+
+def _render_bewerk_ingevuld(factuur, ingevuld):
+    """Bestaande rekening, met de geweigerde invoer nog op het scherm."""
+    tonen = _factuur_zoals_ingevuld(factuur, ingevuld)
+    return render_template(
+        "nieuw.html",
+        vandaag=ingevuld["datum"],
+        actief="nieuw",
+        factuur=tonen,
+        regels=ingevuld["regels"],
+        klanten=klantenlijst(),
+        gekozen_klant=None,
+        klussen=geboekte_klussen(factuur["id"], tonen["klant_id"]),
+        open_inkopen=geboekte_inkopen(factuur["id"], tonen["klant_id"]),
+        vooraf_klus="",
+        vervalt=ingevuld["vervalt"],
+        standaard_vervalt=standaard_vervalt(ingevuld["datum"]),
+        kenmerk=ingevuld["kenmerk"],
+        betaalmethode=ingevuld["betaalmethode"],
+        termijn_aan=ingevuld["termijn_aan"],
+    )
+
+
 @app.route("/nieuw", methods=["GET", "POST"])
 def nieuw():
     if request.method == "POST":
@@ -5043,11 +5441,13 @@ def nieuw():
             factuur_id = cur.lastrowid
             uren_meldingen = bewaar_regels(conn, factuur_id, regels)
             conn.commit()
-        except sqlite3.IntegrityError:
-            ingevuld = formulier_van_post(conn, request.form)
+        except sqlite3.IntegrityError as exc:
+            # Eerst terugdraaien: na een mislukte insert weigert SQLite elke
+            # volgende leesopdracht tot de transactie weg is.
             conn.rollback()
+            ingevuld = formulier_van_post(conn, request.form)
             conn.close()
-            melding(DAG_AL_ELDERS, "fout")
+            melding(_melding_bij_conflict(exc), "fout")
             return _render_nieuw_ingevuld(ingevuld)
         conn.close()
 
@@ -5113,10 +5513,11 @@ def bewerk(factuur_id):
             regels, totaal, meldingen, fout = regels_voor_opslaan(
                 conn, request.form, klant_id, factuur_id)
             if fout:
+                ingevuld = formulier_van_post(conn, request.form, factuur_id)
                 conn.rollback()
                 conn.close()
                 melding(fout, "fout")
-                return redirect(url_for("bewerk", factuur_id=factuur_id))
+                return _render_bewerk_ingevuld(factuur, ingevuld)
             datum = geldige_datum(request.form.get("datum"), factuur["datum"])
             conn.execute(
                 """UPDATE facturen SET datum=?, vervalt_op=?, klant_id=?, klant_naam=?,
@@ -5137,11 +5538,12 @@ def bewerk(factuur_id):
             )
             uren_meldingen = bewaar_regels(conn, factuur_id, regels)
             conn.commit()
-        except sqlite3.IntegrityError:
+        except sqlite3.IntegrityError as exc:
             conn.rollback()
+            ingevuld = formulier_van_post(conn, request.form, factuur_id)
             conn.close()
-            melding(DAG_AL_ELDERS, "fout")
-            return redirect(url_for("bewerk", factuur_id=factuur_id))
+            melding(_melding_bij_conflict(exc, bestaand=True), "fout")
+            return _render_bewerk_ingevuld(factuur, ingevuld)
         conn.close()
 
         # De PDF hoort bij de oude gegevens, dus opnieuw tekenen.

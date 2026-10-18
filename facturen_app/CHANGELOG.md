@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.37.0
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **Dagen van een klus zet je één voor één op de rekening**, of allemaal
+  tegelijk met "Alle dagen toevoegen". Elke dag blijft een eigen regel, met
+  datum, begin, eind en een eventuele pauze.
+- **Een dag die al op een rekening staat, zie je niet meer in die lijst.**
+  Haal je de regel eraf, dan komt de dag terug. Een dag die nog bezig is
+  (geen eindtijd) staat er niet tussen.
+- **Hetzelfde voor bonnen.** Per bon, of "Alle bonnen toevoegen". Een bon die
+  al op een rekening staat verdwijnt uit de lijst en komt terug als je hem
+  eraf haalt.
+- **Een dag of een bon kan niet op twee rekeningen tegelijk**, ook niet als
+  je twee schermen open hebt. Je krijgt een melding en het formulier blijft
+  staan zoals je het had ingevuld.
+
 ## 1.36.1
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet

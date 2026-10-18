@@ -184,7 +184,10 @@
      display:contents zodat de knop zelf in de rij blijft staan: een extra
      div eromheen brak de volle breedte op telefoon. */
   .bon-keuze[hidden],
-  .klus-keuze[hidden] { display: none; }
+  .klus-keuze[hidden],
+  .dag-keuze[hidden],
+  #alle-dagen[hidden],
+  #alle-bonnen[hidden] { display: none; }
   #bon-menu,
   #klus-menu { display: contents; }
   #bon-menu[hidden],
@@ -194,6 +197,49 @@
     font-size: 12px;
     color: var(--text-secondary);
     max-width: 24ch;
+  }
+  /* De dagen komen pas tevoorschijn als je een klus kiest. Op de telefoon is
+     dat een lijst in de pagina, niet een tweede menu dat over de regels valt. */
+  .keuze-paneel {
+    margin-top: 12px;
+    padding: 10px 12px 12px;
+    background: var(--bg);
+    border-radius: var(--radius-sm);
+  }
+  .keuze-paneel[hidden] { display: none; }
+  .keuze-kop {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .keuze-kop p { margin: 0; font-weight: 500; }
+  .keuze-lijst { display: flex; flex-direction: column; gap: 6px; }
+  .dag-keuze {
+    display: block;
+    width: 100%;
+    min-height: 44px;
+    text-align: left;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--card);
+    color: var(--text);
+    font: inherit;
+    font-size: 14px;
+    line-height: 1.35;
+    cursor: pointer;
+    white-space: normal;
+  }
+  .keuze-leeg {
+    margin: 0;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+  @media (max-width: 620px) {
+    .keuze-kop .btn { width: 100%; min-height: 44px; justify-content: center; }
   }
 
   @media (max-width: 620px) {
@@ -481,7 +527,7 @@
             zijn verborgen. Wissel je van klant, dan kan het script ze tonen zonder
             opnieuw te laden. Zonder klant alleen klussen die ook geen klant hebben. -#}
         <div id="klus-menu" {% if not klussen|selectattr('past')|list %}hidden{% endif %}>
-        {% call menu('Uren van een klus toevoegen', 'Uren van een klus') %}
+        {% call menu('Dagen van een klus toevoegen', 'Dagen van een klus') %}
           {% for kl in klussen %}
           <button type="button" class="menu-item klus-keuze"
                   data-klus="{{ kl.id }}"
@@ -504,13 +550,17 @@
             opnieuw te laden. Zonder klant alleen bonnen van klussen zonder klant. -#}
         <div id="bon-menu" {% if not open_inkopen|selectattr('past')|list %}hidden{% endif %}>
         {% call menu('Bon van een klus toevoegen', 'Bon van een klus') %}
+          {#- Een bon die al op déze rekening staat begint verborgen. Het script
+              zet hem terug als je de regel weghaalt, vóór je opslaat. -#}
+          {% set gebruikte_bonnen = (regels or [])|map(attribute='inkoop_id')|list %}
+          <button type="button" class="menu-item" id="alle-bonnen">Alle bonnen toevoegen</button>
           {% for b in open_inkopen %}
           <button type="button" class="menu-item bon-keuze"
                   data-inkoop="{{ b.id }}"
                   data-naam="{{ b.omschrijving }}"
                   data-bedrag="{{ '%.2f'|format(b.bedrag or 0) }}"
                   data-klant="{{ b.klant_id or '' }}"
-                  {% if not b.past %}hidden{% endif %}>
+                  {% if not b.past or b.id in gebruikte_bonnen %}hidden{% endif %}>
             {{ b.omschrijving }} · €&nbsp;{{ '%.2f'|format(b.bedrag or 0) }}{% if b.klus_naam %} · {{ b.klus_naam }}{% endif %}
           </button>
           {% endfor %}
@@ -532,6 +582,14 @@
           Gewerkte dagen</a>
       </span>
       <input type="file" id="regels_csv" accept=".csv,text/csv,text/plain" hidden>
+    </div>
+    <div id="dag-paneel" class="keuze-paneel" hidden>
+      <div class="keuze-kop">
+        <p id="dag-paneel-titel">Dagen</p>
+        <button type="button" class="btn btn-outline" id="alle-dagen">Alle dagen toevoegen</button>
+      </div>
+      <div id="dag-lijst" class="keuze-lijst"></div>
+      <p class="keuze-leeg" id="dag-leeg" hidden>Deze dagen staan al op de rekening.</p>
     </div>
     <p class="hint" id="regelmelding" hidden></p>
 
@@ -955,81 +1013,185 @@
 
     // Elke gesloten dag wordt een eigen regel, met datum en tijden in de
     // omschrijving. Eén regel voor het totaal liet die tijden verdwijnen.
+    function idsOpHetFormulier(naam) {
+      var ids = {};
+      container.querySelectorAll('[name="' + naam + '"]').forEach(function (veld) {
+        if (veld.value) ids[veld.value] = true;
+      });
+      return ids;
+    }
+
+    function legeBeginregelWeg() {
+      var eerste = container.children[0];
+      if (container.children.length > 1 && eerste
+          && !eerste.querySelector('[name="omschrijving"]').value
+          && !eerste.querySelector('[name="prijs"]').value) {
+        eerste.remove();
+      }
+    }
+
+    function klantVanOptie(optie) {
+      var klant = optie && optie.dataset.klant;
+      if (klant && klantKeuze && !klantKeuze.value) {
+        klantKeuze.value = klant;
+        pasKlantAan(true);
+      }
+    }
+
+    function zetDagOpRekening(dag, optie) {
+      if (!dag || !dag.id) return false;
+      if (idsOpHetFormulier('regel_uur')[String(dag.id)]) return false;
+      allesTonen = true;
+      var regel = regelErbij();
+      regel.querySelector('.soort').value = 'arbeid_uur';
+      pasRegelAan(regel);
+      regel.querySelector('[name="omschrijving"]').value = dag.omschrijving || '';
+      regel.querySelector('[name="aantal"]').value = dag.uren;
+      regel.querySelector('[name="prijs"]').value = optie.dataset.tarief || dag.prijs || '';
+      // De dag zelf, niet alleen het aantal uren: opnieuw opslaan moet
+      // dezelfde dag houden. Het bedrag komt uit de minuten, niet uit
+      // het afgeronde aantal.
+      regel.querySelector('[name="regel_klus"]').value = optie.dataset.klus;
+      var uur = regel.querySelector('[name="regel_uur"]');
+      if (uur) uur.value = dag.id;
+      var minuten = regel.querySelector('[name="regel_minuten"]');
+      if (minuten) minuten.value = dag.minuten || '';
+      var sub = regel.querySelector('[name="regel_subtotaal"]');
+      if (sub) delete sub.dataset.bewaard;
+      pasDagAantal(regel);
+      zetOpen(regel, false);
+      pasSamenvattingAan(regel);
+      return true;
+    }
+
+    var gekozenKlus = null;
+
+    function dagenVan(optie) {
+      if (!optie) return [];
+      try { return JSON.parse(optie.dataset.dagen || '[]'); }
+      catch (e) { return []; }
+    }
+
+    function verversDaglijst() {
+      var paneel = document.getElementById('dag-paneel');
+      var lijst = document.getElementById('dag-lijst');
+      var leeg = document.getElementById('dag-leeg');
+      var alles = document.getElementById('alle-dagen');
+      if (!paneel || !lijst) return;
+      if (!gekozenKlus || gekozenKlus.hidden) {
+        paneel.hidden = true;
+        return;
+      }
+      var bezet = idsOpHetFormulier('regel_uur');
+      var dagen = dagenVan(gekozenKlus);
+      lijst.textContent = '';
+      var vrij = 0;
+      dagen.forEach(function (dag) {
+        if (!dag || bezet[String(dag.id)]) return;
+        var knop = document.createElement('button');
+        knop.type = 'button';
+        knop.className = 'dag-keuze';
+        knop.dataset.uur = String(dag.id);
+        var uren = fmtAantal(parseFloat(dag.uren) || 0);
+        knop.textContent = (dag.omschrijving || 'Dag') + (uren ? ' · ' + uren + ' u' : '');
+        knop.addEventListener('click', function () {
+          if (zetDagOpRekening(dag, gekozenKlus)) {
+            legeBeginregelWeg();
+            klantVanOptie(gekozenKlus);
+            pasInklappenAan();
+            berekenTotaal();
+            verversDaglijst();
+            verversBonnen();
+          }
+        });
+        lijst.appendChild(knop);
+        vrij += 1;
+      });
+      paneel.hidden = false;
+      if (!dagen.length) {
+        if (alles) alles.hidden = true;
+        if (leeg) {
+          leeg.hidden = false;
+          leeg.textContent = 'Er zijn geen afgesloten dagen. Een dag die nog bezig is telt niet mee.';
+        }
+        return;
+      }
+      if (alles) alles.hidden = vrij === 0;
+      if (leeg) {
+        leeg.hidden = vrij !== 0;
+        leeg.textContent = 'Deze dagen staan al op de rekening.';
+      }
+    }
+
     var zetKlusOpRekening = function (optie) {
         if (!optie || !optie.dataset.klus) return;
-        var dagen = [];
-        try { dagen = JSON.parse(optie.dataset.dagen || '[]'); }
-        catch (e) { dagen = []; }
-        if (!dagen.length) {
+        var dagen = dagenVan(optie).filter(function (dag) {
+          return dag && !idsOpHetFormulier('regel_uur')[String(dag.id)];
+        });
+        if (!dagenVan(optie).length) {
           melding.textContent = 'Er zijn geen afgesloten dagen om op de rekening '
             + 'te zetten. Een dag die nog bezig is telt niet mee.';
           melding.style.color = 'var(--danger)';
           melding.hidden = false;
           return;
         }
-        var al = {};
-        container.querySelectorAll('[name="regel_uur"]').forEach(function (veld) {
-          if (veld.value) al[veld.value] = true;
-        });
-        allesTonen = true;
-        var toegevoegd = 0;
-        dagen.forEach(function (dag) {
-          if (!dag || al[String(dag.id)]) return;
-          var regel = regelErbij();
-          regel.querySelector('.soort').value = 'arbeid_uur';
-          pasRegelAan(regel);
-          regel.querySelector('[name="omschrijving"]').value = dag.omschrijving || '';
-          regel.querySelector('[name="aantal"]').value = dag.uren;
-          regel.querySelector('[name="prijs"]').value = optie.dataset.tarief || '';
-          // De dag zelf, niet alleen het aantal uren: opnieuw opslaan moet
-          // dezelfde dag houden. Het bedrag komt uit de minuten, niet uit
-          // het afgeronde aantal.
-          regel.querySelector('[name="regel_klus"]').value = optie.dataset.klus;
-          var uur = regel.querySelector('[name="regel_uur"]');
-          if (uur) uur.value = dag.id;
-          var minuten = regel.querySelector('[name="regel_minuten"]');
-          if (minuten) minuten.value = dag.minuten || '';
-          var sub = regel.querySelector('[name="regel_subtotaal"]');
-          if (sub) delete sub.dataset.bewaard;
-          pasDagAantal(regel);
-          al[String(dag.id)] = true;
-          toegevoegd++;
-        });
-        if (!toegevoegd) {
+        if (!dagen.length) {
           melding.textContent = 'Deze dagen staan al op de rekening.';
           melding.style.color = '';
           melding.hidden = false;
+          verversDaglijst();
           return;
         }
-
-        // Een lege beginregel is dan alleen nog in de weg.
-        var eerste = container.children[0];
-        if (container.children.length > 1 && !eerste.querySelector('[name="omschrijving"]').value
-            && !eerste.querySelector('[name="prijs"]').value) {
-          eerste.remove();
-        }
-
-        // De klus kent zijn klant al; die hoef je niet nog eens te kiezen.
-        var klant = optie.dataset.klant;
-        if (klant && !klantKeuze.value) {
-          klantKeuze.value = klant;
-          pasKlantAan(true);
-        }
-
+        dagen.forEach(function (dag) { zetDagOpRekening(dag, optie); });
+        legeBeginregelWeg();
+        klantVanOptie(optie);
         container.querySelectorAll('.regel').forEach(function (regel) {
           zetOpen(regel, false);
           pasSamenvattingAan(regel);
         });
         pasInklappenAan();
         berekenTotaal();
+        verversDaglijst();
+        verversBonnen();
     };
 
     document.querySelectorAll('.klus-keuze').forEach(function (knop) {
-      knop.addEventListener('click', function () { zetKlusOpRekening(knop); });
+      knop.addEventListener('click', function () {
+        gekozenKlus = knop;
+        var titel = document.getElementById('dag-paneel-titel');
+        if (titel) titel.textContent = 'Dagen van ' + (knop.dataset.naam || 'deze klus');
+        var menu = knop.closest('details');
+        if (menu) menu.open = false;
+        verversDaglijst();
+      });
     });
 
+    var alleDagen = document.getElementById('alle-dagen');
+    if (alleDagen) {
+      alleDagen.addEventListener('click', function () {
+        zetKlusOpRekening(gekozenKlus);
+      });
+    }
+
+    function verversBonnen() {
+      var gekozen = klantKeuze ? klantKeuze.value : '';
+      var bezet = idsOpHetFormulier('regel_inkoop');
+      var zichtbaar = 0;
+      document.querySelectorAll('.bon-keuze').forEach(function (knop) {
+        var past = bonPastBijKlant(knop.dataset.klant || '', gekozen);
+        var al = !!bezet[knop.dataset.inkoop];
+        knop.hidden = !past || al;
+        if (past && !al) zichtbaar += 1;
+      });
+      var alles = document.getElementById('alle-bonnen');
+      if (alles) alles.hidden = zichtbaar === 0;
+      var menu = document.getElementById('bon-menu');
+      if (menu) menu.hidden = zichtbaar === 0;
+    }
+
     var zetBonOpRekening = function (optie) {
-        if (!optie || !optie.dataset.inkoop) return;
+        if (!optie || !optie.dataset.inkoop) return false;
+        if (idsOpHetFormulier('regel_inkoop')[optie.dataset.inkoop]) return false;
         allesTonen = true;
         var regel = regelErbij();
         regel.querySelector('.soort').value = 'bon';
@@ -1038,28 +1200,36 @@
         regel.querySelector('[name="aantal"]').value = '1';
         regel.querySelector('[name="prijs"]').value = optie.dataset.bedrag || '';
         regel.querySelector('[name="regel_inkoop"]').value = optie.dataset.inkoop;
-
-        var eerste = container.children[0];
-        if (container.children.length > 1 && !eerste.querySelector('[name="omschrijving"]').value
-            && !eerste.querySelector('[name="prijs"]').value) {
-          eerste.remove();
-        }
-
-        var klant = optie.dataset.klant;
-        if (klant && !klantKeuze.value) {
-          klantKeuze.value = klant;
-          pasKlantAan(true);
-        }
-
+        legeBeginregelWeg();
+        klantVanOptie(optie);
         zetOpen(regel, false);
         pasSamenvattingAan(regel);
         pasInklappenAan();
         berekenTotaal();
+        verversBonnen();
+        return true;
     };
 
     document.querySelectorAll('.bon-keuze').forEach(function (knop) {
       knop.addEventListener('click', function () { zetBonOpRekening(knop); });
     });
+
+    var alleBonnen = document.getElementById('alle-bonnen');
+    if (alleBonnen) {
+      alleBonnen.addEventListener('click', function () {
+        var knoppen = Array.prototype.filter.call(
+          document.querySelectorAll('.bon-keuze'),
+          function (knop) { return !knop.hidden; }
+        );
+        if (!knoppen.length) return;
+        knoppen.forEach(function (knop) { zetBonOpRekening(knop); });
+        container.querySelectorAll('.regel').forEach(function (regel) {
+          zetOpen(regel, false);
+          pasSamenvattingAan(regel);
+        });
+        verversBonnen();
+      });
+    }
 
     container.addEventListener('change', function (e) {
       if (!e.target.classList.contains('soort')) return;
@@ -1099,6 +1269,8 @@
         }
         pasInklappenAan();
         berekenTotaal();
+        verversDaglijst();
+        verversBonnen();
         return;
       }
       var samenvatting = e.target.closest('.regel-samenvatting');
@@ -1209,11 +1381,12 @@
     }
 
     function pasBonnenAan() {
-      pasLijstAan('.bon-keuze', 'bon-menu');
+      verversBonnen();
     }
 
     function pasKlussenAan() {
       pasLijstAan('.klus-keuze', 'klus-menu');
+      verversDaglijst();
     }
 
     document.getElementById('klant-bewerken').addEventListener('click', function () {
@@ -1250,6 +1423,8 @@
         if (!container.querySelector('.regel')) regelErbij();
         pasInklappenAan();
         berekenTotaal();
+        verversDaglijst();
+        verversBonnen();
       }
       vorigeKlant = klantKeuze.value;
       klantBewerken = false;

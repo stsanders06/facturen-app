@@ -16,7 +16,7 @@ from test_smalle_weergave import css_van, regel_met
 
 
 def _klus(post, db, naam="Gevel", tarief="45"):
-    post("/klanten/nieuw", {"naam": "Stone"})
+    post("/klanten/nieuw", {"naam": "Test Klant BV"})
     klant_id = db.execute("SELECT id FROM klanten").fetchone()[0]
     post("/klussen/nieuw", {
         "naam": naam, "uurtarief": tarief, "klant_id": str(klant_id),
@@ -1100,7 +1100,7 @@ def test_dagregel_toont_het_aantal_zonder_minuten_ernaast(client, post, db):
     assert "07:00–14:20" in nieuw
 
     post("/nieuw", {
-        "klant_naam": "Stone", "klant_id": str(klant_id), "datum": "2026-10-16",
+        "klant_naam": "Test Klant BV", "klant_id": str(klant_id), "datum": "2026-10-16",
         "omschrijving": "ma 12 okt 2026, 07:00–14:20 · Gevel",
         "type": "arbeid_uur", "aantal": "7.33", "prijs": "45.55",
         "regel_klus": str(klus_id), "regel_uur": str(uur_id),
