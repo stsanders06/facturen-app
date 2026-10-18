@@ -1,4 +1,6 @@
 """Een kopie van elke mail naar jezelf, als BCC. De klant ziet dat adres niet."""
+from email.message import EmailMessage
+
 from conftest import facturen
 
 
@@ -173,6 +175,169 @@ def test_een_kapot_adres_blijft_niet_bewaard(post, client, db):
     rij = db.execute("SELECT bcc_aan, bcc_adres FROM settings").fetchone()
     assert rij["bcc_adres"] == "kopie@example.org"
     assert rij["bcc_aan"] == 1
+
+
+def test_twee_adressen_in_een_veld_worden_twee_ontvangers(monkeypatch, db, maak_factuur):
+    """'a, b' is twee ontvangers. Als één lange RCPT weigert de server hem,
+    terwijl de kopie wél weggaat — en de rekening stond dan op verstuurd."""
+    _server(db)
+    monkeypatch.setattr(facturen.smtplib, "SMTP", _NepSmtp)
+    _NepSmtp.verstuurd.clear()
+    factuur_id = maak_factuur(
+        status="verzonden", email="klant-m@example.org, tweede@example.org",
+    )
+    assert facturen.verstuur_email(factuur_id)[0]
+    _, envelop = _NepSmtp.verstuurd[-1]
+    assert envelop == [
+        "klant-m@example.org", "tweede@example.org", "kopie@example.org",
+    ]
+
+
+def test_een_naam_voor_het_adres_gaat_niet_mee_als_ontvanger(monkeypatch, db, maak_factuur):
+    _server(db)
+    monkeypatch.setattr(facturen.smtplib, "SMTP", _NepSmtp)
+    _NepSmtp.verstuurd.clear()
+    factuur_id = maak_factuur(
+        status="verzonden", email="Voorbeeld Klant <klant@example.org>",
+    )
+    assert facturen.verstuur_email(factuur_id)[0]
+    _, envelop = _NepSmtp.verstuurd[-1]
+    assert envelop == ["klant@example.org", "kopie@example.org"]
+
+
+def test_een_naam_voor_de_afzender_wordt_alleen_het_adres(monkeypatch, db, maak_factuur):
+    """'Naam <afzender@…>' is geen geldig adres als je hem heel laat. Dan viel
+    de kopie stil weg, of er ging een tweede exemplaar naar hetzelfde adres."""
+    _server(db, bcc_adres="", smtp_van="Voorbeeld Bedrijf <afzender@example.org>")
+    monkeypatch.setattr(facturen.smtplib, "SMTP", _NepSmtp)
+    _NepSmtp.verstuurd.clear()
+    factuur_id = maak_factuur(status="verzonden", email="klant@example.org")
+    assert facturen.verstuur_email(factuur_id)[0]
+    _, envelop = _NepSmtp.verstuurd[-1]
+    assert envelop == ["klant@example.org", "afzender@example.org"]
+
+    _NepSmtp.verstuurd.clear()
+    zelf = maak_factuur(
+        nummer="2026-002", status="verzonden",
+        email="Naam <Afzender@Example.org>",
+    )
+    assert facturen.verstuur_email(zelf)[0]
+    _, envelop = _NepSmtp.verstuurd[-1]
+    assert envelop == ["Afzender@Example.org"]
+
+
+def test_de_envelop_knipt_aan_en_cc_en_slaat_dubbele_over():
+    msg = EmailMessage()
+    msg["To"] = "klant-m@example.org, tweede@example.org, "
+    msg["Cc"] = "Voorbeeld <tweede@example.org>, Naam <cc@example.org>"
+    verplicht, envelop = facturen._envelop_adressen(msg, "Tweede@Example.org")
+    assert verplicht == [
+        "klant-m@example.org", "tweede@example.org", "cc@example.org",
+    ]
+    assert envelop == verplicht
+
+
+def test_een_geweigerde_aan_zet_de_rekening_niet_op_verstuurd(
+        monkeypatch, db, post, maak_factuur):
+    """De server nam de kopie aan en de klant niet. Dat is geen gelukte mail:
+    anders staat de rekening op verstuurd en heeft de klant niets."""
+
+    class WeigertAan(_NepSmtp):
+        def send_message(self, msg, to_addrs=None, **k):
+            super().send_message(msg, to_addrs, **k)
+            return {to_addrs[0]: (550, b"User unknown")}
+
+    _server(db)
+    monkeypatch.setattr(facturen.smtplib, "SMTP", WeigertAan)
+    _NepSmtp.verstuurd.clear()
+    factuur_id = maak_factuur(nummer="", status="concept", email="klant@example.org")
+    antwoord = post(f"/factuur/{factuur_id}/verstuur", follow_redirects=True)
+    assert "weigert het adres klant@example.org" in antwoord.data.decode()
+    rij = db.execute(
+        "SELECT nummer, status FROM facturen WHERE id=?", (factuur_id,),
+    ).fetchone()
+    assert rij["status"] == "concept"
+    assert rij["nummer"] == ""
+    _, envelop = _NepSmtp.verstuurd[-1]
+    assert "klant@example.org" in envelop
+    assert "kopie@example.org" in envelop
+
+
+def test_alle_ontvangers_geweigerd_is_ook_geen_gelukte_mail(
+        monkeypatch, db, post, maak_factuur):
+    class WeigertIedereen(_NepSmtp):
+        def send_message(self, msg, to_addrs=None, **k):
+            raise facturen.smtplib.SMTPRecipientsRefused(
+                {adres: (550, b"no") for adres in (to_addrs or [])}
+            )
+
+    _server(db)
+    monkeypatch.setattr(facturen.smtplib, "SMTP", WeigertIedereen)
+    factuur_id = maak_factuur(nummer="", status="concept", email="klant@example.org")
+    antwoord = post(f"/factuur/{factuur_id}/verstuur", follow_redirects=True)
+    assert "weigert" in antwoord.data.decode()
+    rij = db.execute(
+        "SELECT nummer, status FROM facturen WHERE id=?", (factuur_id,),
+    ).fetchone()
+    assert rij["status"] == "concept"
+    assert rij["nummer"] == ""
+
+
+def test_een_geweigerde_kopie_houdt_de_mail_naar_de_klant_niet_tegen(
+        monkeypatch, db, maak_factuur):
+    class WeigertKopie(_NepSmtp):
+        def send_message(self, msg, to_addrs=None, **k):
+            super().send_message(msg, to_addrs, **k)
+            return {"kopie@example.org": (550, b"no")}
+
+    _server(db)
+    monkeypatch.setattr(facturen.smtplib, "SMTP", WeigertKopie)
+    factuur_id = maak_factuur(nummer="", status="concept", email="klant@example.org")
+    assert facturen.verstuur_email(factuur_id)[0]
+    rij = db.execute(
+        "SELECT status FROM facturen WHERE id=?", (factuur_id,),
+    ).fetchone()
+    assert rij["status"] == "verzonden"
+
+
+def test_het_kopieveld_blijft_leeg_en_toont_de_afzender(client, db, post):
+    db.execute(
+        """UPDATE settings SET smtp_van='afzender@example.org', bcc_aan=1,
+           bcc_adres='' WHERE id=1"""
+    )
+    db.commit()
+    pagina = client.get("/instellingen").data.decode()
+    veld = pagina.split('id="bcc_adres"', 1)[1].split(">", 1)[0]
+    assert 'value=""' in veld
+    assert 'placeholder="afzender@example.org"' in veld
+    post("/instellingen", {
+        "naam": "Voorbeeld Bedrijf BV",
+        "smtp_van": "afzender@example.org",
+        "bcc_aan": "ja",
+        "bcc_adres": "",
+    })
+    rij = db.execute("SELECT bcc_aan, bcc_adres FROM settings").fetchone()
+    assert rij["bcc_aan"] == 1
+    assert rij["bcc_adres"] == ""
+
+
+def test_uitvinken_blijft_uit_ook_als_het_adres_niet_klopt(post, client, db):
+    post("/instellingen", {
+        "naam": "Voorbeeld Bedrijf BV",
+        "smtp_van": "afzender@example.org",
+        "bcc_aan": "ja",
+        "bcc_adres": "kopie@example.org",
+    })
+    antwoord = post("/instellingen", {
+        "naam": "Voorbeeld Bedrijf BV",
+        "smtp_van": "afzender@example.org",
+        "bcc_adres": "niet-geldig",
+    }, follow_redirects=True)
+    assert "klopt niet" not in antwoord.data.decode()
+    rij = db.execute("SELECT bcc_aan, bcc_adres FROM settings").fetchone()
+    assert rij["bcc_aan"] == 0
+    assert rij["bcc_adres"] == "kopie@example.org"
+    assert "niet-geldig" not in (rij["bcc_adres"] or "")
 
 
 def test_een_oude_database_krijgt_de_kopie_aan(db):

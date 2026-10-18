@@ -7,10 +7,13 @@ en geen multipart/related — dat klopte al. Apple Mail zette de PDF toch op war
 grootte onder de brief, omdat de brief geen HTML-deel had.
 
 Nu is de brief een multipart/alternative (platte tekst én HTML) en is elk
-bestand een bijlage: Content-Disposition attachment, filename (filename* bij
-een vreemd teken) en name op het Content-Type. Nog steeds geen Content-ID.
+bestand een bijlage: Content-Disposition attachment, filename (een gewone
+ASCII-filename= én filename* bij een vreemd teken) en name op het Content-Type.
+Nog steeds geen Content-ID.
 """
+import re
 from email.message import EmailMessage
+from urllib.parse import unquote
 
 from conftest import facturen
 
@@ -70,19 +73,29 @@ def test_de_brief_is_alternative_en_de_bestanden_zijn_bijlagen():
     assert pdf.get_content_disposition() == "attachment"
     assert 'name="2026-001.pdf"' in ruw
     assert 'filename="2026-001.pdf"' in ruw
+    # Een gewone ASCII-naam heeft geen filename*: die vorm is er voor een
+    # naam die anders niet in de kop past.
+    assert "filename*" not in pdf.as_string()
+    assert "name*" not in pdf.as_string()
 
     assert foto.get_content_type() == "image/png"
     assert foto.get_content_disposition() == "attachment"
     assert foto.get_filename() == "bon café.png"
-    assert foto.get_param("name") == "bon café.png"
-    assert "filename*=utf-8''" in ruw
-    assert "name*=utf-8''" in ruw
-    assert "caf%C3%A9" in ruw
+    foto_ruw = foto.as_string()
+    # filename* eerst, de echte naam. filename= ernaast, voor een programma
+    # dat de ster-vorm niet leest en de bijlage anders laat vallen.
+    assert "filename*=utf-8''bon%20caf%C3%A9.png" in foto_ruw
+    assert 'filename="bon cafe.png"' in foto_ruw
+    assert "name*=utf-8''bon%20caf%C3%A9.png" in foto_ruw
+    assert 'name="bon cafe.png"' in foto_ruw
+    assert "é" not in foto_ruw
 
     assert extra.get_content_type() == "application/pdf"
     assert extra.get_content_disposition() == "attachment"
-    assert extra.get_filename() == "rekening ë.pdf"
-    assert "%C3%AB" in ruw
+    extra_ruw = extra.as_string()
+    assert "filename*=utf-8''rekening%20%C3%AB.pdf" in extra_ruw
+    assert 'filename="rekening e.pdf"' in extra_ruw
+    assert "ë" not in extra_ruw
 
 
 class _NepSmtp:
@@ -141,3 +154,52 @@ def test_versturen_stuurt_die_structuur_de_deur_uit(monkeypatch, tmp_path):
     assert _NepSmtp.envelop == ["klant@example.org", "kopie@example.org"]
     assert "Bcc" not in msg
     assert "kopie@example.org" not in msg.as_string()
+
+
+def _ster_naam(kop, sleutel):
+    """De naam uit filename* of name*, ook als die over meerdere regels staat."""
+    # filename* bevat de letterreeks name*; zonder de grens zou name*
+    # de stukken van filename* meenemen.
+    grens = rf"(?<!file){sleutel}"
+    enkel = re.search(rf"{grens}\*=utf-8''([^;\s]+)", kop)
+    if enkel:
+        return unquote(enkel.group(1))
+    stukken = re.findall(rf"{grens}\*\d+\*=(?:utf-8'')?([^;\s]+)", kop)
+    return unquote("".join(stukken))
+
+
+def test_een_lange_naam_blijft_heel_in_filename_ster():
+    """De stukken van filename* worden aan elkaar geplakt vóór het decoderen.
+    Midden in een procentteken knippen maakt er een andere naam van."""
+    naam = "bon " + "é" * 40 + ".png"
+    s = {"smtp_van": "afzender@example.org", "smtp_user": "", "bcc_aan": 0, "bcc_adres": ""}
+    msg = facturen.bouw_mail(
+        s, "klant@example.org", "Rekening", "Hierbij.", b"%PDF-1.4\n", "a.pdf",
+        [(PNG, naam, "image", "png")],
+    )
+    foto = [deel for deel in msg.iter_parts() if deel.get_content_type() == "image/png"][0]
+    kop = foto.as_string()
+    assert _ster_naam(kop, "filename") == naam
+    assert _ster_naam(kop, "name") == naam
+    assert 'filename="' in kop
+    for regel in kop.splitlines():
+        assert len(regel) <= 78
+
+
+def test_stuurtekens_in_de_bestandsnaam_gaan_eruit():
+    """U+202E draait de getoonde naam om. Die hoort niet in de kop, ook niet
+    als procentcode."""
+    s = {"smtp_van": "afzender@example.org", "smtp_user": "", "bcc_aan": 0, "bcc_adres": ""}
+    naam = "factuur\u202e\u202d\u2066fdp.exe"
+    msg = facturen.bouw_mail(
+        s, "klant@example.org", "Rekening", "Hierbij.", b"%PDF-1.4\n", "a.pdf",
+        [(PNG, naam, "image", "png")],
+    )
+    ruw = msg.as_string()
+    assert "\u202e" not in ruw
+    assert "\u202d" not in ruw
+    assert "\u2066" not in ruw
+    assert "%E2%80%AE" not in ruw
+    assert "%E2%80%AD" not in ruw
+    assert "%E2%81%A6" not in ruw
+    assert 'filename="factuurfdp.exe"' in ruw

@@ -18,7 +18,17 @@ genoeg; anders blijft de vorige versie draaien.
   Onder Instellingen kun je een ander adres invullen of de kopie uitzetten. De
   klant ziet dat adres niet. Op het mailscherm staat het wel, klein onder Aan.
 - **De PDF en de foto's zitten als bijlage aan de mail.** In Apple Mail gingen
-  ze anders meteen op ware grootte open onderaan de brief.
+  ze anders meteen op ware grootte open onderaan de brief. Een naam als «café»
+  blijft leesbaar, ook in een mailprogramma dat de nieuwere schrijfwijze niet kent.
+- **Twee adressen in het veld krijgen allebei de mail.** Weigert de server een
+  adres van de klant, dan blijft de rekening onverstuurd. Je krijgt dan een
+  melding, ook als de kopie naar jou wel aankwam.
+- **Nog een keer op versturen drukken stuurt de mail niet nog eens.**
+- **Duurt het versturen lang, dan komt er een zin met een link** in plaats van
+  een scherm dat op «wordt verstuurd» blijft staan.
+- **Het adres voor de kopie laat je leeg om het afzenderadres te gebruiken.**
+  Dat adres staat als voorbeeld in het veld. De kopie uitzetten blijft uit,
+  ook als het adresveld niet klopt.
 
 ## 1.40.0
 

@@ -12,9 +12,11 @@ import sqlite3
 import smtplib
 import threading
 import time
+import unicodedata
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from email.message import EmailMessage
+from email.utils import getaddresses
 from itertools import zip_longest
 from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import Request, urlopen
@@ -271,16 +273,88 @@ def _onthoud_mailstand(sleutel, stand):
             MAIL_STAND.pop(oud, None)
 
 
-def mail_straks(wat, functie, *argumenten, na=None):
+def nieuw_mailteken(soort, doc_id):
+    """Een eenmalig teken voor het verstuurformulier van dit document.
+
+    Het scherm opnieuw openen mag daarna wél nog een keer mailen. Het oude
+    formulier niet: dat teken hoort bij de lichting van vóór een geslaagde mail.
+    """
+    teken = secrets.token_urlsafe(16)
+    with _MAIL_SLOT:
+        MAIL_TEKENS[teken] = (soort, doc_id, MAIL_LICHTING.get((soort, doc_id), 0))
+        if len(MAIL_TEKENS) > 50:
+            for oud in list(MAIL_TEKENS)[:10]:
+                MAIL_TEKENS.pop(oud, None)
+    return teken
+
+
+def _claim_versturen(soort, doc_id, teken):
+    """Of deze klik de mail mag starten.
+
+    'bezig' als er al een verzending loopt, 'al' als dit formulier al gebruikt
+    is of de mail net weg is. Leeg teken (tests, een oud scherm) mag één keer,
+    tot er een mail gelukt is.
+    """
+    with _MAIL_SLOT:
+        sleutel = (soort, doc_id)
+        if sleutel in MAIL_BEZIG:
+            return False, "bezig"
+        huidige = MAIL_LICHTING.get(sleutel, 0)
+        if teken:
+            # Niet weggooien: een mislukte mail mag met hetzelfde formulier
+            # opnieuw. Na een geslaagde mail klopt de lichting niet meer, en
+            # zolang er een loopt staat het document in MAIL_BEZIG.
+            gevonden = MAIL_TEKENS.get(teken)
+            if gevonden is None or gevonden[0] != soort or gevonden[1] != doc_id:
+                return False, "al"
+            if gevonden[2] != huidige:
+                return False, "al"
+        elif huidige:
+            return False, "al"
+        MAIL_BEZIG.add(sleutel)
+        return True, ""
+
+
+def _vrijgeven(soort, doc_id, gelukt, eenmalig=None):
+    """De verzending is klaar. Een tweede keer voor dezelfde sleutel doet niets,
+    anders telt een mail die nét weg is als twee."""
+    with _MAIL_SLOT:
+        if eenmalig is not None:
+            if eenmalig in MAIL_AFGESLOTEN:
+                return
+            MAIL_AFGESLOTEN.add(eenmalig)
+            if len(MAIL_AFGESLOTEN) > 80:
+                for oud in list(MAIL_AFGESLOTEN)[:20]:
+                    MAIL_AFGESLOTEN.discard(oud)
+        MAIL_BEZIG.discard((soort, doc_id))
+        if gelukt:
+            sleutel = (soort, doc_id)
+            MAIL_LICHTING[sleutel] = MAIL_LICHTING.get(sleutel, 0) + 1
+
+
+def _melding_al_bezig(waarom):
+    if waarom == "bezig":
+        melding("Deze mail wordt al verstuurd. Nog een keer klikken stuurt hem "
+                "niet nog eens.", "fout")
+    else:
+        melding("Deze mail is al verstuurd. Vernieuw de pagina als je hem nog "
+                "een keer wilt sturen.", "fout")
+
+
+def mail_straks(wat, functie, *argumenten, na=None, document=None):
     """Zet een mail klaar en verstuurt hem pas na de bedenktijd.
 
     Tot die tijd verandert er niets aan de rekening — een concept krijgt zijn nummer
     ook pas als de mail echt de deur uit gaat. Houd je hem tegen, dan is er dus niets
-    terug te draaien. `na` is waar het mailscherm heen gaat als de mail wél weg is."""
+    terug te draaien. `na` is waar het mailscherm heen gaat als de mail wél weg is.
+    `document` is (soort, id): zolang die bezig is, start een tweede klik niets."""
     sleutel = secrets.token_urlsafe(8)
 
     def versturen():
         UITGESTELDE_MAILS.pop(sleutel, None)
+        with _MAIL_SLOT:
+            if sleutel in MAIL_AFGESLOTEN:
+                return
         _onthoud_mailstand(sleutel, "bezig")
         try:
             with app.app_context():
@@ -289,17 +363,28 @@ def mail_straks(wat, functie, *argumenten, na=None):
             gelukt, tekst = False, f"{wat} kon niet worden verstuurd: {fout}"
         _onthoud_mailstand(sleutel, "gelukt" if gelukt else "fout")
         MAILUITSLAGEN.append((tekst, "gelukt" if gelukt else "fout"))
+        if document:
+            _vrijgeven(document[0], document[1], gelukt, eenmalig=sleutel)
 
     # Zonder bedenktijd valt er niets te wachten en niets tegen te houden; dan gaat
     # hij meteen weg en zie je de uitslag op dezelfde pagina. De tests draaien zo.
     if MAIL_BEDENKTIJD <= 0:
-        gelukt, tekst = functie(*argumenten)
+        try:
+            gelukt, tekst = functie(*argumenten)
+        except Exception:
+            if document:
+                _vrijgeven(document[0], document[1], False, eenmalig=sleutel)
+            raise
+        if document:
+            _vrijgeven(document[0], document[1], gelukt, eenmalig=sleutel)
         melding(tekst, "gelukt" if gelukt else "fout")
         return
 
     klok = threading.Timer(MAIL_BEDENKTIJD, versturen)
     klok.daemon = True
     UITGESTELDE_MAILS[sleutel] = klok
+    if document:
+        MAIL_DOCUMENT[sleutel] = document
     _onthoud_mailstand(sleutel, "wacht")
     klok.start()
 
@@ -322,6 +407,9 @@ def mail_tegenhouden(sleutel):
     else:
         klok.cancel()
         _onthoud_mailstand(sleutel, "tegengehouden")
+        doc = MAIL_DOCUMENT.get(sleutel)
+        if doc:
+            _vrijgeven(doc[0], doc[1], False, eenmalig=sleutel)
         melding("Tegengehouden; er is niets verstuurd.")
     return redirect(terug_naar(url_for("index")))
 
@@ -375,12 +463,21 @@ def mail_rekening(factuur_id, functie=None, wat=None, eigen_zin="", bon_ids=None
     if reden:
         melding(reden, "fout")
         return
+    ok, waarom = _claim_versturen(
+        "facturen", factuur_id, (request.form.get("mail_teken") or "").strip(),
+    )
+    if not ok:
+        _melding_al_bezig(waarom)
+        return
     if wat is None:
         conn = get_db()
         factuur = conn.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
         conn.close()
         wat = f"Rekening {factuurnaam(factuur)}"
-    mail_straks(wat, functie or verstuur_email, factuur_id, eigen_zin, bon_ids, na=na)
+    mail_straks(
+        wat, functie or verstuur_email, factuur_id, eigen_zin, bon_ids,
+        na=na, document=("facturen", factuur_id),
+    )
 
 
 def mail_offerte(offerte_id, eigen_zin="", na=None):
@@ -388,12 +485,18 @@ def mail_offerte(offerte_id, eigen_zin="", na=None):
     if reden:
         melding(reden, "fout")
         return
+    ok, waarom = _claim_versturen(
+        "offertes", offerte_id, (request.form.get("mail_teken") or "").strip(),
+    )
+    if not ok:
+        _melding_al_bezig(waarom)
+        return
     conn = get_db()
     offerte = conn.execute("SELECT nummer FROM offertes WHERE id=?", (offerte_id,)).fetchone()
     conn.close()
     mail_straks(
         f"Offerte {offerte['nummer']}", verstuur_offerte_email,
-        offerte_id, eigen_zin, na=na,
+        offerte_id, eigen_zin, na=na, document=("offertes", offerte_id),
     )
 
 
@@ -809,6 +912,19 @@ MAIL_BEDENKTIJD = 10
 # verstuurt. Staat in het geheugen en niet in de database: gaat de add-on binnen die
 # tien tellen uit, dan is de mail simpelweg niet verstuurd, en dat is de veilige kant.
 UITGESTELDE_MAILS = {}
+# Welk document bij een uitgestelde sleutel hoort, zodat tegenhouden de
+# verzending weer vrijgeeft en een nieuwe klik daarna wél mag.
+MAIL_DOCUMENT = {}
+
+# Eén verzending tegelijk per document. Een tweede klik — of een tweede tabblad
+# terwijl de eerste nog wacht — stuurt niet nog een mail. MAIL_TEKENS is het
+# formulier (eenmalig), MAIL_BEZIG is "er loopt er al een", MAIL_LICHTING gaat
+# omhoog als hij echt weg is zodat een oud formulier hem niet nog eens stuurt.
+_MAIL_SLOT = threading.Lock()
+MAIL_TEKENS = {}
+MAIL_BEZIG = set()
+MAIL_LICHTING = {}
+MAIL_AFGESLOTEN = set()
 
 # Wat een uitgestelde mail opleverde. De klok loopt buiten een verzoek om, dus er is
 # op dat moment geen pagina om iets op te zetten; dit wordt bij het eerstvolgende
@@ -1349,7 +1465,8 @@ def init_db():
             smtp_van TEXT DEFAULT '',
             betaaltermijn_dagen INTEGER DEFAULT 14,
             bcc_aan INTEGER DEFAULT 1,
-            bcc_adres TEXT DEFAULT ''
+            bcc_adres TEXT DEFAULT '',
+            meesturen_bijgewerkt INTEGER DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS gebruikers (
@@ -1536,6 +1653,9 @@ def init_db():
         # Standaard aan, zonder eigen adres: dan is de afzender de kopie.
         ("bcc_aan", "INTEGER DEFAULT 1"),
         ("bcc_adres", "TEXT DEFAULT ''"),
+        # 1 zodra de eenmalige zet van 'meesturen' gedraaid heeft. Zonder vlag
+        # zette elke start die kolom weer op 1, ook als je hem daarna uitzette.
+        ("meesturen_bijgewerkt", "INTEGER DEFAULT 0"),
     ]:
         if kolom not in bestaand:
             conn.execute(f"ALTER TABLE settings ADD COLUMN {kolom} {definitie}")
@@ -1656,12 +1776,18 @@ def init_db():
 
     # Een bon op de rekening gaat altijd mee met de mail. Een oud vinkje
     # 'niet meesturen' haalde zo'n bon stil van de mail. Notitiefoto's blijven
-    # uit: die hebben geen inkoop.
-    conn.execute(
-        """UPDATE bijlagen SET meesturen=1
-           WHERE inkoop_id IS NOT NULL AND notitie_id IS NULL
-             AND COALESCE(meesturen, 0) = 0"""
-    )
+    # uit: die hebben geen inkoop. Eén keer: anders zet elke start de vlag
+    # terug en is een latere uitzondering bij de volgende start weer weg.
+    vlag = conn.execute(
+        "SELECT meesturen_bijgewerkt FROM settings WHERE id=1"
+    ).fetchone()
+    if not vlag or not vlag["meesturen_bijgewerkt"]:
+        conn.execute(
+            """UPDATE bijlagen SET meesturen=1
+               WHERE inkoop_id IS NOT NULL AND notitie_id IS NULL
+                 AND COALESCE(meesturen, 0) = 0"""
+        )
+        conn.execute("UPDATE settings SET meesturen_bijgewerkt=1 WHERE id=1")
 
     regelkolommen = {rij["name"] for rij in conn.execute("PRAGMA table_info(regels)")}
     if "inkoop_id" not in regelkolommen:
@@ -2840,21 +2966,36 @@ def instellingen():
                 os.remove(doel)
                 melding(f"{filename} kan niet op de rekening worden getekend. Gebruik een "
                       "PNG of JPG; een HEIC-foto van een iPhone of een SVG werkt niet.", "fout")
-        afzender = (request.form.get("smtp_van", "").strip()
-                    or request.form.get("smtp_user", "").strip())
+        # Leeg betekent "de afzender van dit moment". Het veld in het scherm
+        # is daarom leeg, met de afzender als voorbeeld. Wat je intikt en dat
+        # hetzelfde adres is, bewaren we ook niet: anders blijft een oude kopie
+        # staan als je de afzender later wijzigt.
+        afzender = _adres_specificatie(
+            request.form.get("smtp_van", "")
+        ) or _adres_specificatie(request.form.get("smtp_user", ""))
+        # Leeg is expres leeg. Tekst die geen adres is, is dat niet: die
+        # weggooien zou een kapot veld stil tot "volg de afzender" maken.
         bcc_ingevoerd = request.form.get("bcc_adres", "").strip()
-        # Hetzelfde adres als de afzender hoeft niet apart bewaard: leeg betekent
-        # "de afzender". Anders blijft een oude kopie staan als je de afzender wijzigt.
-        if bcc_ingevoerd.casefold() == afzender.casefold():
-            bcc_ingevoerd = ""
-        bcc_fout = bool(bcc_ingevoerd) and not geldig_mailadres(bcc_ingevoerd)
-        if bcc_fout:
-            # Een kapot adres niet opslaan: een regeleinde daarin is een tweede
-            # ontvanger. De rest van het formulier wel, anders ben je je IBAN kwijt.
-            bcc_ingevoerd = (huidig.get("bcc_adres") or "").strip()
-            bcc_aan = 1 if huidig.get("bcc_aan") else 0
+        specs = _adres_specificaties(bcc_ingevoerd) if bcc_ingevoerd else []
+        if not bcc_ingevoerd:
+            bcc_spec = ""
+        elif len(specs) == 1 and geldig_mailadres(specs[0]):
+            bcc_spec = specs[0]
+            if afzender and bcc_spec.casefold() == afzender.casefold():
+                bcc_ingevoerd = ""
+                bcc_spec = ""
+            else:
+                bcc_ingevoerd = bcc_spec
         else:
-            bcc_aan = 1 if request.form.get("bcc_aan") == "ja" else 0
+            bcc_spec = ""
+        bcc_aan = 1 if request.form.get("bcc_aan") == "ja" else 0
+        # Uitvinken moet uit blijven, ook als het adresveld kapot is. Alleen
+        # een aangevinkte kopie met een onbruikbaar adres houden we tegen.
+        bcc_fout = bool(bcc_ingevoerd) and not geldig_mailadres(bcc_spec)
+        if bcc_fout:
+            bcc_ingevoerd = (huidig.get("bcc_adres") or "").strip()
+            if not bcc_aan:
+                bcc_fout = False
         conn.execute(
             """UPDATE settings SET naam=?, adres=?, telefoon=?, email=?, iban=?,
                tenaamstelling=?, logo_bestand=?, smtp_host=?,
@@ -6225,6 +6366,7 @@ def offerte_mail(offerte_id):
         terug_label="Terug naar offertes",
         document_label="PDF van de offerte",
         bonnen=[],
+        mail_teken=nieuw_mailteken("offertes", offerte_id),
         actief="offertes",
     )
 
@@ -6981,27 +7123,91 @@ def geldig_mailadres(adres):
 
 
 def afzender_adres(s):
+    """De afzender zoals hij in de kop Van staat, inclusief een naam ervoor."""
     return (s.get("smtp_van") or s.get("smtp_user") or "").strip()
+
+
+def _adres_specificaties(tekst):
+    """De losse adressen in een veld, zonder de naam ervoor.
+
+    'klant@example.org, tweede@example.org' en 'Naam <klant@example.org>' zijn
+    allebei geldige invoer. Op de komma knippen laat de naam aan het adres
+    plakken, en dat hele stuk is dan één ontvanger die de mailserver weigert.
+    Lege stukken vallen weg. Hetzelfde adres, alleen anders geschreven, één keer.
+    """
+    uit = []
+    gezien = set()
+    for _naam, adres in getaddresses([tekst or ""]):
+        adres = (adres or "").strip()
+        if not adres:
+            continue
+        sleutel = adres.casefold()
+        if sleutel in gezien:
+            continue
+        gezien.add(sleutel)
+        uit.append(adres)
+    return uit
+
+
+def _adres_specificatie(tekst):
+    """Het eerste adres in een veld, of leeg. Voor de afzender en de BCC."""
+    gevonden = _adres_specificaties(tekst)
+    return gevonden[0] if gevonden else ""
 
 
 def kopie_adres(ontvanger, s=None):
     """Het adres voor de BCC-kopie, of leeg als die niet mee mag.
 
-    Standaard aan, en een leeg veld betekent de afzender. Staat dat adres al bij
-    Aan, dan niet nog een keer: de klant is dan zelf de ontvanger en een tweede
-    exemplaar voegt niets toe. Het adres komt niet in de zichtbare koppen; alleen
-    de envelop van de mailserver kent het, anders leest de klant wie de kopie kreeg.
+    Standaard aan, en een leeg veld betekent de afzender. Een naam voor dat
+    adres ('Naam <afzender@…>') telt niet als een ander adres: anders valt de
+    kopie stil weg, of er gaat een tweede exemplaar naar hetzelfde adres.
+    Staat het al bij Aan, dan niet nog een keer. Het adres komt niet in de
+    zichtbare koppen; alleen de envelop van de mailserver kent het.
     """
     s = get_settings() if s is None else s
     if not s.get("bcc_aan"):
         return ""
-    adres = (s.get("bcc_adres") or "").strip() or afzender_adres(s)
-    if not geldig_mailadres(adres):
+    eigen = (s.get("bcc_adres") or "").strip()
+    spec = _adres_specificatie(eigen) if eigen else _adres_specificatie(afzender_adres(s))
+    if not geldig_mailadres(spec):
         return ""
-    bestemd = [stuk.strip() for stuk in re.split(r"[,;]", ontvanger or "") if stuk.strip()]
-    if any(adres.casefold() == stuk.casefold() for stuk in bestemd):
+    if spec.casefold() in {adres.casefold() for adres in _adres_specificaties(ontvanger)}:
         return ""
-    return adres
+    return spec
+
+
+def _envelop_adressen(msg, kopie):
+    """RCPT-adressen: elke Aan en Cc apart, de kopie erbij als die er niet al in zit.
+
+    Geeft (verplicht, envelop) terug. Verplicht zijn de adressen van de klant;
+    weigert de server er daar een van, dan is de mail mislukt ook als de kopie
+    wél aankwam. Anders staat de rekening op verstuurd en heeft de klant niets.
+    """
+    verplicht = []
+    for kop in ("To", "Cc"):
+        for tekst in msg.get_all(kop, []):
+            verplicht.extend(_adres_specificaties(str(tekst)))
+    verplicht = _adres_specificaties(", ".join(verplicht))
+    envelop = list(verplicht)
+    gezien = {adres.casefold() for adres in envelop}
+    if kopie and kopie.casefold() not in gezien:
+        envelop.append(kopie)
+    return verplicht, envelop
+
+
+def _tekst_geweigerd(geweigerd, verplicht):
+    """Gewone taal voor een adres dat de mailserver niet aannam."""
+    verplicht_klein = {adres.casefold() for adres in verplicht}
+    namen = []
+    for adres in geweigerd or {}:
+        adres = str(adres)
+        if adres.casefold() in verplicht_klein and adres not in namen:
+            namen.append(adres)
+    if not namen:
+        namen = [str(adres) for adres in (geweigerd or {})] or ["het adres"]
+    if len(namen) == 1:
+        return f"De mailserver weigert het adres {namen[0]}."
+    return "De mailserver weigert deze adressen: " + ", ".join(namen) + "."
 
 
 app.jinja_env.globals["kopie_adres"] = kopie_adres
@@ -7029,9 +7235,111 @@ def _html_van_tekst(tekst):
 
 
 def _veilige_bestandsnaam(naam):
-    """Een naam die in een kop mag. Een regeleinde daarin breekt de kop open."""
-    schoon = "".join(c for c in (naam or "") if c not in "\r\n\x00")
+    """Een naam die in een kop mag.
+
+    Een regeleinde daarin breekt de kop open. De bidirectionele stuurtekens
+    (U+202A–U+202E en U+2066–U+2069, plus de rest van `_BIDI`) draaien de
+    getoonde naam om, zodat een .txt eruitziet als een .pdf."""
+    schoon = "".join(
+        c for c in (naam or "")
+        if c not in _BIDI and c not in "\r\n\x00\"\\"
+    )
     return schoon.strip() or "bijlage"
+
+
+def _ascii_bestandsnaam(naam):
+    """Een naam die oude mailprogramma's ook kunnen lezen, naast filename*.
+
+    Zonder die gewone filename= laten ze de bijlage vallen of tonen ze een
+    kapotte naam. De echte naam blijft in filename* staan."""
+    plat = unicodedata.normalize("NFKD", naam).encode("ascii", "ignore").decode("ascii")
+    plat = "".join(c if 32 <= ord(c) < 127 else "_" for c in plat).strip(" ._")
+    if not plat:
+        plat = "bijlage"
+    if len(plat) > 40:
+        stam, punt, ext = plat.rpartition(".")
+        plat = ((stam or "bijlage")[:30]) + (punt + ext if punt else "")
+    return plat or "bijlage"
+
+
+def _rfc2231_stukken(sleutel, waarde, ruimte=60):
+    """filename* (of name*), in stukken als de naam anders de regel uit duwt.
+
+    Een te lange regel vouwt de bibliotheek opnieuw, en dan blijft alleen de
+    ASCII-naam over. De stukken blijven zelf kort en bestaan uit gewone tekens.
+    """
+    encoded = quote(waarde, safe="", encoding="utf-8")
+    enkel = f"{sleutel}*=utf-8''{encoded}"
+    if len(enkel) <= ruimte:
+        return [enkel]
+    stukken = []
+    rest = encoded
+    eerste = True
+    while rest:
+        label = f"{sleutel}*{len(stukken)}*="
+        voor = "utf-8''" if eerste else ""
+        ruimte_brok = max(8, ruimte - len(label) - len(voor))
+        brok = rest[:ruimte_brok]
+        # De stukken worden eerst aan elkaar geplakt en dan gedecodeerd.
+        # Midden in %XX knippen maakt van het procentteken een ander teken.
+        if len(rest) > len(brok):
+            procent = brok.rfind("%")
+            if procent > 0 and len(brok) - procent < 3:
+                brok = brok[:procent]
+        if not brok:
+            brok = rest[:3]
+        rest = rest[len(brok):]
+        stukken.append(label + voor + brok)
+        eerste = False
+    return stukken
+
+
+def _vouw_kop(kopnaam, stukken):
+    """Zet de parameters op regels die de mailbibliotheek niet opnieuw vouwt.
+
+    Doet ze dat wel, dan verdwijnt filename* en blijft alleen de ASCII-naam.
+    De eerste regel telt de kopnaam mee; die moet onder de 78 tekens blijven.
+    """
+    eerste_max = 78 - len(kopnaam) - 2
+    regels = []
+    huidig = ""
+    maxnu = eerste_max
+    for stuk in stukken:
+        extra = stuk if not huidig else "; " + stuk
+        if huidig and len(huidig) + len(extra) + 1 <= maxnu:
+            huidig += extra
+        elif not huidig and len(stuk) + 1 <= maxnu:
+            huidig = stuk
+        else:
+            if huidig:
+                regels.append(huidig + ";")
+            huidig = (" " + stuk) if regels else stuk
+            maxnu = 78
+    if huidig:
+        regels.append(huidig)
+    return "\n".join(regels)
+
+
+def _kop_met_naam(kopnaam, basis, sleutel, naam):
+    """ASCII-naam én, als de naam vreemde tekens heeft, filename* ervoor.
+
+    filename* eerst: een programma dat hem begrijpt gebruikt die, de rest de
+    gewone filename=. Alleen de ster-vorm laat oude programma's de bijlage
+    vallen; alleen de ASCII-vorm verminkt de naam.
+    """
+    ascii_naam = _ascii_bestandsnaam(naam)
+    stukken = [basis]
+    if naam != ascii_naam:
+        stukken.extend(_rfc2231_stukken(sleutel, naam))
+    stukken.append(f'{sleutel}="{ascii_naam}"')
+    return _vouw_kop(kopnaam, stukken)
+
+
+def _zet_ruwe_kop(deel, naam, waarde):
+    """De kop als platte tekst. Via de normale weg vouwt de bibliotheek een
+    naam met een vreemd teken terug tot alleen filename*."""
+    deel._headers = [(kop, inhoud) for kop, inhoud in deel._headers if kop.lower() != naam.lower()]
+    deel._headers.append((naam, waarde))
 
 
 def _voeg_bijlage_toe(msg, data, hoofd, onder, naam):
@@ -7040,16 +7348,18 @@ def _voeg_bijlage_toe(msg, data, hoofd, onder, naam):
     `name` op het type en `filename` op de dispositie horen bij elkaar; zonder
     die twee opent Mail de PDF als onderdeel van de tekst. Een Content-ID doet
     hetzelfde, dan hoort het bestand bij de HTML zoals een logo in de brief.
-    Een naam met een vreemd teken gaat als filename* (RFC 2231), anders ziet de
-    ontvanger een kapotte naam."""
+    """
     naam = _veilige_bestandsnaam(naam)
-    msg.add_attachment(
-        data,
-        maintype=hoofd or "application",
-        subtype=onder or "octet-stream",
-        filename=naam,
-        params={"name": naam},
-    )
+    hoofd = hoofd or "application"
+    onder = onder or "octet-stream"
+    msg.add_attachment(data, maintype=hoofd, subtype=onder)
+    deel = list(msg.iter_attachments())[-1]
+    _zet_ruwe_kop(deel, "Content-Type", _kop_met_naam(
+        "Content-Type", f"{hoofd}/{onder}", "name", naam,
+    ))
+    _zet_ruwe_kop(deel, "Content-Disposition", _kop_met_naam(
+        "Content-Disposition", "attachment", "filename", naam,
+    ))
 
 
 def bouw_mail(s, ontvanger, onderwerp, tekst, pdf, bestandsnaam, extra=None):
@@ -7094,19 +7404,28 @@ def _mail_pdf(s, ontvanger, onderwerp, tekst, pad, bestandsnaam, extra=None):
     # in het bericht tot dat moment — en een test die het bericht bekijkt zou
     # hem zien. Helemaal niet in het bericht is duidelijker.
     kopie = kopie_adres(ontvanger, s)
-    envelop = [ontvanger] + ([kopie] if kopie else [])
+    verplicht, envelop = _envelop_adressen(msg, kopie)
+    ongeldig = [adres for adres in verplicht if not geldig_mailadres(adres)]
+    if not verplicht or ongeldig:
+        voorbeeld = ongeldig[0] if ongeldig else (ontvanger or "").strip()
+        return False, ("Dit e-mailadres klopt niet"
+                       + (f": {voorbeeld}" if voorbeeld else "")
+                       + ". Vul een adres in zoals klant@example.org.")
 
     try:
         with smtplib.SMTP(s["smtp_host"], int(s["smtp_port"]), timeout=20) as server:
             server.starttls()
             if s.get("smtp_user"):
                 server.login(s["smtp_user"], s["smtp_pass"])
-            server.send_message(msg, to_addrs=envelop)
+            # Een dict: de server nam een deel aan en weigerde de rest. Alleen
+            # als iedereen geweigerd is, komt SMTPRecipientsRefused. Een
+            # geweigerde Aan terwijl de BCC wél weg is, is geen gelukte mail.
+            geweigerd = server.send_message(msg, to_addrs=envelop) or {}
     except smtplib.SMTPAuthenticationError:
         return False, ("De mailserver weigert je gebruikersnaam of wachtwoord. Bij iCloud "
                        "en Gmail heb je een app-specifiek wachtwoord nodig, niet je gewone.")
-    except smtplib.SMTPRecipientsRefused:
-        return False, f"De mailserver weigert het adres {ontvanger}."
+    except smtplib.SMTPRecipientsRefused as fout:
+        return False, _tekst_geweigerd(getattr(fout, "recipients", {}) or {}, verplicht)
     except smtplib.SMTPSenderRefused:
         return False, ("De mailserver staat niet toe dat je vanaf dit afzenderadres mailt. "
                        "Vul bij Afzender een adres in dat bij deze mailbox hoort.")
@@ -7118,6 +7437,13 @@ def _mail_pdf(s, ontvanger, onderwerp, tekst, pad, bestandsnaam, extra=None):
                        f"({fout}). Gebruik poort 587.")
     except smtplib.SMTPException as fout:
         return False, f"De mailserver gaf een fout terug: {fout}"
+
+    if isinstance(geweigerd, dict) and geweigerd:
+        klein = {adres.casefold() for adres in verplicht}
+        if any(str(adres).casefold() in klein for adres in geweigerd):
+            return False, _tekst_geweigerd(
+                {str(adres): fout for adres, fout in geweigerd.items()}, verplicht,
+            )
 
     return True, ""
 
@@ -7590,6 +7916,7 @@ def mail_voorbeeld(factuur_id):
         terug_label="Terug naar rekeningen",
         document_label="PDF van de rekening",
         bonnen=bonnen,
+        mail_teken=nieuw_mailteken("facturen", factuur_id),
         actief="index",
     )
 
@@ -7864,6 +8191,7 @@ def herinnering(factuur_id):
             terug_label="Terug naar rekeningen",
             document_label="PDF van de rekening",
             bonnen=bonnen,
+            mail_teken=nieuw_mailteken("facturen", factuur_id),
             actief="index",
         )
 

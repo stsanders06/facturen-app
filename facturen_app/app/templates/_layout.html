@@ -1028,7 +1028,41 @@
     if (!melding || !standUrl || !na) return;
     var bezig = false;
 
-    function vraag(poging) {
+    // Een trage mailserver is langer dan tien seconden bezig. Na 25 keer
+    // 400 ms stopte het scherm op "wordt verstuurd" en kwam er niets meer.
+    // Langer blijven vragen, steeds iets trager, en daarna een zin met een
+    // link in plaats van een balk die blijft staan.
+    var POLL_GRENS_MS = 90000;
+    var POLL_STAP_MS = 400;
+    var POLL_STAP_MAX_MS = 4000;
+
+    function volgendeStap(stap) {
+      return Math.min(POLL_STAP_MAX_MS, Math.round(stap * 1.5));
+    }
+
+    function geefOp() {
+      var woorden = melding.querySelector('.woorden');
+      if (woorden) {
+        woorden.textContent = 'Het versturen duurt langer dan verwacht. De mail kan nog onderweg zijn.';
+      }
+      if (!melding.querySelector('a.melding-link')) {
+        var link = document.createElement('a');
+        link.className = 'melding-link';
+        link.href = na;
+        link.textContent = 'Kijk of hij weg is';
+        melding.appendChild(link);
+      }
+    }
+
+    function later(gewacht, stap) {
+      if (gewacht >= POLL_GRENS_MS) {
+        geefOp();
+        return;
+      }
+      setTimeout(function () { vraag(gewacht + stap, volgendeStap(stap)); }, stap);
+    }
+
+    function vraag(gewacht, stap) {
       fetch(standUrl, { headers: { 'Accept': 'application/json' } })
         .then(function (antwoord) { return antwoord.json(); })
         .then(function (data) {
@@ -1037,23 +1071,21 @@
             window.location.assign(na);
             return;
           }
-          if (stand === 'fout') {
+          if (stand === 'fout' || stand === 'tegengehouden') {
             window.location.reload();
             return;
           }
-          if ((stand === 'wacht' || stand === 'bezig') && poging < 25) {
-            setTimeout(function () { vraag(poging + 1); }, 400);
-          }
+          later(gewacht, stap);
         })
         .catch(function () {
-          if (poging < 25) setTimeout(function () { vraag(poging + 1); }, 400);
+          later(gewacht, stap);
         });
     }
 
     function klaar() {
       if (bezig || melding.dataset.weg) return;
       bezig = true;
-      vraag(0);
+      vraag(0, POLL_STAP_MS);
     }
 
     balk.addEventListener('animationend', klaar);
@@ -1169,11 +1201,16 @@
   document.querySelectorAll('.melding .balk').forEach(function (balk) {
     var seconden = parseFloat(balk.style.animationDuration) || 0;
     if (!seconden) { return; }
+    // Het mailscherm (data-na) blijft de melding tonen tot de mail weg is
+    // of het vragen stopt. Weghalen na twee seconden liet die zin verdwijnen
+    // terwijl de server nog bezig was.
+    var wacht_op_uitslag = balk.hasAttribute('data-na');
     setTimeout(function () {
       var melding = balk.closest('.melding');
       var formulier = melding.querySelector('form');
       if (formulier) { formulier.remove(); }
       balk.remove();
+      if (wacht_op_uitslag) return;
       // Tegenhouden kan niet meer, en of het lukte zie je op de volgende
       // pagina. De regel zelf mag daarna weg, anders blijft hij over de
       // pagina hangen.

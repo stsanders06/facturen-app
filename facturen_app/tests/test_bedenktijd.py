@@ -4,6 +4,8 @@ De rest van de tests zet de bedenktijd op nul, zodat een mail meteen weggaat en 
 uitslag in hetzelfde antwoord staat. Hier draaien we hem juist op, want het gaat om
 het uitstel zelf.
 """
+import re
+
 import pytest
 
 from conftest import facturen
@@ -236,6 +238,76 @@ def test_het_scherm_gaat_alleen_dicht_als_de_mail_gelukt_is(post, mailbare_reken
     assert na_balk("gelukt").endswith("/terug")
     assert not na_balk("fout").endswith("/terug")
     assert not na_balk("tegengehouden").endswith("/terug")
+
+
+def test_een_tweede_klik_stuurt_de_mail_niet_nog_eens(monkeypatch, client, post,
+                                                     mailbare_rekening, met_bedenktijd):
+    """Hetzelfde formulier nog een keer: niet een tweede mail. Ook niet nadat
+    de eerste echt weg is."""
+    telling = {"n": 0}
+
+    def nep(*a, **k):
+        telling["n"] += 1
+        return True, ""
+
+    monkeypatch.setattr(facturen, "_mail_pdf", nep)
+    pagina = client.get(f"/factuur/{mailbare_rekening}/mail").data.decode()
+    teken = re.search(r'name="mail_teken" value="([^"]+)"', pagina).group(1)
+    url = f"/factuur/{mailbare_rekening}/verstuur"
+    eerste = post(url, {"mail_teken": teken}, follow_redirects=True)
+    assert "wordt verstuurd" in eerste.data.decode()
+    tweede = post(url, {"mail_teken": teken}, follow_redirects=True)
+    assert "wordt al verstuurd" in tweede.data.decode()
+    assert len(facturen.UITGESTELDE_MAILS) == 1
+    _laat_de_klok_aflopen(next(iter(facturen.UITGESTELDE_MAILS)))
+    assert telling["n"] == 1
+    derde = post(url, {"mail_teken": teken}, follow_redirects=True)
+    assert "is al verstuurd" in derde.data.decode()
+    assert telling["n"] == 1
+
+
+def test_een_trage_mail_krijgt_een_zin_in_plaats_van_te_blijven_wachten(
+        post, mailbare_rekening, met_bedenktijd):
+    """Na een paar seconden stopte het vragen. Een trage server liet het scherm
+    dan op 'wordt verstuurd' staan. Langer vragen, en daarna een zin met een link."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    html = post(
+        f"/factuur/{mailbare_rekening}/verstuur",
+        headers={"Referer": f"http://localhost/factuur/{mailbare_rekening}/mail"},
+        follow_redirects=True,
+    ).data.decode()
+    assert "POLL_GRENS_MS = 90000" in html
+    assert "POLL_STAP_MAX_MS = 4000" in html
+
+    with sync_playwright() as p:
+        browser = p.webkit.launch()
+        pagina = browser.new_page()
+        pagina.clock.install()
+        pagina.route("**/*", lambda route: route.fulfill(
+            status=200, content_type="text/html", body=html,
+        ))
+        pagina.goto("http://test.example/mail")
+        pagina.evaluate(
+            """() => {
+              window.fetch = () => Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve({stand: 'wacht'}),
+              });
+            }"""
+        )
+        # Bedenktijd van 30s plus het vragen tot de grens. run_for vuurt ook
+        # de time-outs die tijdens een eerdere time-out worden gezet; een
+        # sprong doet dat niet. De klok is nep, dus dit wacht niet echt.
+        pagina.clock.run_for(160000)
+        tekst = pagina.locator(".melding.bezig .woorden").inner_text()
+        link = pagina.locator("a.melding-link")
+        assert "langer dan verwacht" in tekst
+        assert "wordt verstuurd" not in tekst
+        assert link.inner_text() == "Kijk of hij weg is"
+        assert link.get_attribute("href") == "/"
+        browser.close()
 
 
 def test_de_uitslag_komt_op_de_volgende_pagina(client, met_bedenktijd):
