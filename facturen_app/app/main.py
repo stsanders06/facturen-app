@@ -161,9 +161,13 @@ def veilig_pad(map_, naam):
 
     De naam in de database is een willekeurig voorvoegsel plus de extensie.
     Staat er toch een map of .. in, dan wijst het pad naar buiten de app en
-    mag niemand dat bestand opvragen of meesturen."""
-    kale = os.path.basename(naam or "")
-    if not kale or kale != (naam or "") or kale in {".", ".."}:
+    mag niemand dat bestand opvragen of meesturen. Een NUL of een regeleinde
+    in de naam laat het bestandssysteem of de antwoordkop stuklopen; dat is
+    geen bestand, dus ook geen pad."""
+    if not naam or any(teken in naam for teken in ("\x00", "\r", "\n")):
+        return None
+    kale = os.path.basename(naam)
+    if not kale or kale != naam or kale in {".", ".."}:
         return None
     wortel = os.path.realpath(map_)
     pad = os.path.realpath(os.path.join(wortel, kale))
@@ -427,6 +431,25 @@ def via_ingress():
     except ValueError:
         return False
     return any(afzender in netwerk for netwerk in INGRESS_NETWERKEN)
+
+
+def toon_bestand(pad, mimetype, download_name):
+    """Stuur een foto of PDF om te bekijken, niet om te bewaren in een cache.
+
+    nosniff: de browser houdt zich aan het type dat we meesturen en gaat niet
+    zelf raden. no-store: het bestand hoort bij een ingelogde sessie en mag
+    niet in een gedeelde of blijvende cache terechtkomen. send_file zet
+    anders alleen no-cache, en dat mag een cache nog wel bewaren."""
+    antwoord = send_file(
+        pad,
+        mimetype=mimetype,
+        as_attachment=als_download(),
+        download_name=download_name,
+        max_age=0,
+    )
+    antwoord.headers["X-Content-Type-Options"] = "nosniff"
+    antwoord.headers["Cache-Control"] = "private, no-store"
+    return antwoord
 
 
 def als_download():
@@ -3892,8 +3915,7 @@ def bijlage(bijlage_id):
     mime = BIJLAGE_MIMES.get(os.path.splitext(pad)[1].lower())
     if mime is None:
         abort(404)
-    return send_file(pad, mimetype=mime, as_attachment=als_download(),
-                     download_name=rij["naam"])
+    return toon_bestand(pad, mime, rij["naam"])
 
 
 @app.route("/bijlage/<int:bijlage_id>/meesturen", methods=["POST"])
@@ -5950,8 +5972,7 @@ def _offerte_pdf_pad(offerte_id):
 @app.route("/offerte/<int:offerte_id>/bekijk")
 def bekijk_offerte(offerte_id):
     pad, nummer = _offerte_pdf_pad(offerte_id)
-    return send_file(pad, mimetype="application/pdf", as_attachment=als_download(),
-                     download_name=f"{nummer}.pdf")
+    return toon_bestand(pad, "application/pdf", f"{nummer}.pdf")
 
 
 @app.route("/offerte/<int:offerte_id>/pdf")
@@ -7161,8 +7182,7 @@ def _pdf_pad(factuur_id):
 def bekijk_pdf(factuur_id):
     """Toont de rekening in de browser zelf; in de zijbalk wordt het een download."""
     pad, bestandsnaam = _pdf_pad(factuur_id)
-    return send_file(pad, mimetype="application/pdf", as_attachment=als_download(),
-                     download_name=bestandsnaam)
+    return toon_bestand(pad, "application/pdf", bestandsnaam)
 
 
 @app.route("/factuur/<int:factuur_id>/vernieuw", methods=["POST"])
@@ -7260,8 +7280,7 @@ def mail_pdf(factuur_id):
         pad = os.path.join(PDF_DIR, f"voorbeeld-{factuur_id}.pdf")
         maak_pdf(factuur_id, weergavenummer=zoals["nummer"], pad=pad)
         naam = f"{zoals['nummer']}.pdf"
-    return send_file(pad, mimetype="application/pdf", as_attachment=als_download(),
-                     download_name=naam)
+    return toon_bestand(pad, "application/pdf", naam)
 
 
 @app.route("/factuur/<int:factuur_id>/verstuur", methods=["POST"])

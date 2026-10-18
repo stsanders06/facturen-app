@@ -71,6 +71,8 @@ def test_bijlage_is_op_te_halen(post, db, client, klus_id):
     # Inline, zodat een tik op het voorbeeld de foto in beeld zet en niet
     # meteen een download start.
     assert antwoord.headers["Content-Disposition"].startswith("inline")
+    assert antwoord.headers["X-Content-Type-Options"] == "nosniff"
+    assert antwoord.headers["Cache-Control"] == "private, no-store"
 
 
 def test_een_pdf_bijlage_komt_inline_als_pdf(post, db, client, klus_id):
@@ -89,6 +91,23 @@ def test_bijlage_zonder_inlog_gaat_naar_inloggen(post, db, uitgelogde_client, kl
     assert antwoord.status_code == 302
     assert "/inloggen" in antwoord.headers["Location"]
     assert antwoord.data != PNG
+
+
+def test_stuurtekens_in_de_bestandsnaam_geven_404(client, db, klus_id):
+    """Een NUL of een regeleinde in de opgeslagen naam mag geen 500 geven.
+    Zo'n naam wijst niet naar een bestand dat we willen tonen."""
+    for naam in ("plaat\x00je.png", "plaat\r\nje.png", "plaat\nje.png"):
+        assert facturen.veilig_pad(facturen.BIJLAGE_DIR, naam) is None
+        db.execute("DELETE FROM bijlagen")
+        db.execute(
+            """INSERT INTO bijlagen (klus_id, bestand, naam, toegevoegd)
+               VALUES (?, ?, 'plaatje.png', '2026-08-14')""",
+            (klus_id, naam),
+        )
+        db.commit()
+        bijlage_id = db.execute("SELECT id FROM bijlagen").fetchone()[0]
+        antwoord = client.get(f"/bijlage/{bijlage_id}")
+        assert antwoord.status_code == 404, naam
 
 
 def test_een_pad_buiten_de_bijlagenmap_geeft_404(client, db, klus_id):

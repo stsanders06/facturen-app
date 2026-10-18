@@ -99,7 +99,18 @@
     font-size: 12px;
     line-height: 1.35;
     color: var(--text-secondary);
-    overflow-wrap: anywhere;
+  }
+  /* De bestandsnaam op een eigen regel. In de grijze zin brak "2026-001.pdf"
+     op een smalle telefoon midden in de naam. */
+  .bijlage-bestand {
+    display: block;
+    margin-top: 2px;
+    font-size: 12px;
+    line-height: 1.35;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .reden {
     margin: 0;
@@ -143,6 +154,10 @@
     font-size: 28px;
     line-height: 1;
     cursor: pointer;
+  }
+  .lichtbak-sluit:focus {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
   }
 </style>
 {% endblock %}
@@ -225,7 +240,10 @@
   {% macro voorbeeld(plaatje, url, naam) %}
   <span class="bijlage-voorbeeld">
     {% if plaatje %}
-    <img src="{{ url }}" alt="" loading="lazy">
+    {# Geen verkleinde kopie op de server: dat vraagt Pillow in de add-on, en
+       een HEIC-foto van een iPhone tekent die toch niet. lazy en async zodat
+       de lijst niet op de volle foto hoeft te wachten. #}
+    <img src="{{ url }}" alt="" loading="lazy" decoding="async">
     {% elif naam.lower().endswith('.heic') or naam.lower().endswith('.heif') %}
     <span class="bestand-merk">HEIC</span>
     {% else %}
@@ -254,7 +272,8 @@
         {{ voorbeeld(false, pdf_url, inhoud.pdf) }}
         <span class="bijlage-tekst">
           <span class="bijlage-naam" title="{{ inhoud.pdf }}">{{ document_label }}</span>
-          <span class="bijlage-info">PDF{% if document_grootte %} · {{ document_grootte }}{% endif %} · {{ inhoud.pdf }}</span>
+          <span class="bijlage-bestand">{{ inhoud.pdf }}</span>
+          <span class="bijlage-info">PDF{% if document_grootte %} · {{ document_grootte }}{% endif %}</span>
         </span>
       </a>
     </li>
@@ -313,7 +332,7 @@
 
 </div>
 
-<div id="lichtbak" class="lichtbak" hidden>
+<div id="lichtbak" class="lichtbak" hidden role="dialog" aria-modal="true" aria-label="">
   <button type="button" class="lichtbak-sluit" data-sluit aria-label="Sluiten">×</button>
   <img id="lichtbak-foto" alt="">
 </div>
@@ -346,27 +365,64 @@
   (function () {
     var bak = document.getElementById('lichtbak');
     var img = document.getElementById('lichtbak-foto');
-    if (!bak || !img) return;
+    var sluitknop = bak && bak.querySelector('[data-sluit]');
+    if (!bak || !img || !sluitknop) return;
+    var geopendVanaf = null;
+
     function sluit() {
+      if (bak.hidden) return;
       bak.hidden = true;
       img.removeAttribute('src');
+      var terug = geopendVanaf;
+      geopendVanaf = null;
+      if (terug) terug.focus();
     }
+
+    function focusbaar() {
+      return bak.querySelectorAll(
+        'button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      );
+    }
+
     // Alleen het voorbeeld en de naam. Het vinkje is geen link en doet hier
     // niet mee, anders opent een tik om iets uit te vinken meteen de foto.
     document.querySelectorAll('a.bijlage-open[data-soort="foto"]').forEach(function (link) {
       link.addEventListener('click', function (ev) {
         if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || ev.button !== 0) return;
         ev.preventDefault();
-        img.alt = link.getAttribute('data-naam') || '';
+        geopendVanaf = link;
+        var naam = link.getAttribute('data-naam') || 'Foto';
+        bak.setAttribute('aria-label', naam);
+        img.alt = naam;
         img.src = link.getAttribute('href');
         bak.hidden = false;
+        sluitknop.focus();
       });
     });
     bak.addEventListener('click', function (ev) {
       if (ev.target === bak || ev.target.closest('[data-sluit]')) sluit();
     });
-    document.addEventListener('keydown', function (ev) {
-      if (ev.key === 'Escape' && !bak.hidden) sluit();
+    // Tab blijft in de lichtbak. Er is nu één knop; die vangt beide richtingen,
+    // zodat de focus niet naar de pagina erachter gaat terwijl de foto open is.
+    bak.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape') {
+        ev.preventDefault();
+        ev.stopPropagation();
+        sluit();
+        return;
+      }
+      if (ev.key !== 'Tab') return;
+      var lijst = focusbaar();
+      if (!lijst.length) return;
+      var eerste = lijst[0];
+      var laatste = lijst[lijst.length - 1];
+      if (ev.shiftKey && document.activeElement === eerste) {
+        ev.preventDefault();
+        laatste.focus();
+      } else if (!ev.shiftKey && document.activeElement === laatste) {
+        ev.preventDefault();
+        eerste.focus();
+      }
     });
   })();
 </script>

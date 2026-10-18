@@ -11,6 +11,8 @@ genoeg; anders blijft de vorige versie draaien.
   gaat mee, en notitiefoto's gaan nooit mee.
 - **Het kruisje van een melding staat rechtsboven**, op de hoogte van het
   icoon. De tekst loopt er niet meer onderdoor.
+- **De bestandsnaam van de rekening staat op een eigen regel**, zodat hij op
+  een smalle telefoon niet midden in de naam afbreekt.
 
 ## 1.37.2
 
