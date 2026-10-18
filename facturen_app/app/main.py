@@ -35,7 +35,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.37.0"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.37.1"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -2725,7 +2725,7 @@ def klanten_import():
             (rij.get(kop, "") or "").strip() for kop in extra_adres
         ]
         # Ook wat uit een CSV komt in dezelfde vorm zetten; die bestanden zijn juist
-        # een bron van "5932ch tegelen" en "06-12345678".
+        # een bron van "1234ab voorbeeldstad" en "06-12345678".
         adres = net_adres("\n".join(deel for deel in adres_delen if deel))
         email, notitie = waarde("email"), waarde("notitie")
         telefoon = net_telefoon(waarde("telefoon"))
@@ -2790,8 +2790,8 @@ def klanten_voorbeeld():
     uitvoer = io.StringIO()
     schrijver = csv.writer(uitvoer, delimiter=";")
     schrijver.writerow(["naam", "adres", "email", "telefoon", "notitie"])
-    schrijver.writerow(["Jan Jansen", "Dorpsstraat 1\n5900 AA Venlo",
-                        "jan@voorbeeld.nl", "0612345678", "Vaste klant"])
+    schrijver.writerow(["Voorbeeld Bedrijf BV", "Voorbeeldstraat 1\n1234 AB Voorbeeldstad",
+                        "info@example.org", "0123456789", "Vaste klant"])
     return send_file(
         io.BytesIO(uitvoer.getvalue().encode("utf-8-sig")),
         mimetype="text/csv", as_attachment=True, download_name="klanten-voorbeeld.csv",
@@ -4172,7 +4172,7 @@ def regels_uit_form(form):
 
 # ---------- Adressen en telefoonnummers netjes maken ----------
 # Wat je intikt komt overal terug: op de rekening, in de mail, op de klantpagina. Dat
-# hoort er hetzelfde uit te zien of je nu "5932ch tegelen" of "5932 CH Tegelen" typt.
+# hoort er hetzelfde uit te zien of je nu "1234ab voorbeeldstad" of "1234 AB Voorbeeldstad" typt.
 # Alles gaat door deze twee functies op het moment van opslaan, zodat het ook klopt
 # voor wat er via een CSV binnenkomt.
 
@@ -4180,7 +4180,7 @@ def regels_uit_form(form):
 # cijfers aan staan of er los van.
 POSTCODE = re.compile(r"\b(\d{4})\s*([A-Za-z]{2})\b(?![A-Za-z0-9])")
 
-# Tussenvoegsels in plaatsnamen blijven klein: "Alphen aan den Rijn", niet "Aan Den".
+# Tussenvoegsels in plaatsnamen blijven klein: "Dorp aan den Berg", niet "Aan Den".
 KLEINE_WOORDEN = {"aan", "de", "den", "der", "des", "het", "in", "op", "over", "te",
                   "ten", "ter", "'t", "'s", "van", "bij"}
 
@@ -4193,7 +4193,7 @@ def _hoofdletters(tekst):
         if i and woord.lower() in KLEINE_WOORDEN:
             uit.append(woord.lower())
         else:
-            # Ook na een koppelteken hoort een hoofdletter: Berkel-Enschot.
+            # Ook na een koppelteken hoort een hoofdletter: Voorbeeld-Stad.
             uit.append("-".join(deel[:1].upper() + deel[1:] for deel in woord.split("-")))
     return " ".join(uit)
 
@@ -4212,8 +4212,8 @@ def net_adres(tekst):
     if not gevonden:
         regels = [" ".join(regel.split()) for regel in tekst.splitlines() if regel.strip()]
         # Zonder postcode maar met een komma op één regel: die komma scheidt de straat
-        # van de plaats. Komt zo uit de adressenlijst van het Kadaster ("Molenstraat
-        # 14, Lieshout") en zo typen mensen het ook.
+        # van de plaats. Komt zo uit de adressenlijst van het Kadaster ("Voorbeeldstraat
+        # 14, Voorbeeldstad") en zo typen mensen het ook.
         if len(regels) == 1 and "," in regels[0]:
             straat, _, plaats = regels[0].rpartition(",")
             regels = [straat.strip(), plaats.strip()]
@@ -4227,7 +4227,7 @@ def net_adres(tekst):
 
     postcode = f"{gevonden.group(1)} {gevonden.group(2).upper()}"
     # Alleen bijwerken wat helemaal klein is getypt; wie zelf hoofdletters zet,
-    # bedoelt dat waarschijnlijk zo (McDonald, IJmuiden, 's-Gravenhage).
+    # bedoelt dat waarschijnlijk zo (McVoorbeeld, IJvoorbeeld, 's-Voorbeeld).
     if plaats and plaats == plaats.lower():
         plaats = _hoofdletters(plaats)
     if straat and straat == straat.lower():
@@ -4268,7 +4268,7 @@ KORTE_NETNUMMERS = {
 
 
 def net_telefoon(tekst):
-    """06 12345678 voor een mobiel nummer, 077 3512244 voor een vast nummer.
+    """06 12345678 voor een mobiel nummer, 010 1234567 voor een vast nummer.
 
     Een nummer met landcode wordt +31 6 12345678. Wat er niet als Nederlands nummer
     uitziet, wordt alleen opgeschoond en verder met rust gelaten: een buitenlands

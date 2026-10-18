@@ -142,7 +142,7 @@ def test_dezelfde_dag_op_twee_rekeningen_wordt_geweigerd(post, db):
     uur_id = db.execute("SELECT id FROM uren").fetchone()[0]
     formulier = {
         "klant_naam": "Test Klant BV", "klant_id": str(klant_id),
-        "klant_adres": "Dorpsstraat 1", "datum": "2026-10-16",
+        "klant_adres": "Voorbeeldstraat 1", "datum": "2026-10-16",
         "kenmerk": "eerste scherm",
         "omschrijving": ["dag", "kit"],
         "type": ["arbeid_uur", "materiaal"],

@@ -59,9 +59,9 @@ def _ontsnap(tekst):
 
 
 def zet_bedrijf(db, **velden):
-    velden.setdefault("naam", "Hogedruk Venlo")
-    velden.setdefault("adres", "Kerkstraat 1\n5900 AA Venlo")
-    velden.setdefault("iban", "NL12RABO0123456789")
+    velden.setdefault("naam", "Voorbeeld Bedrijf BV")
+    velden.setdefault("adres", "Voorbeeldstraat 1\n1234 AB Voorbeeldstad")
+    velden.setdefault("iban", "NL91ABNA0417164300")
     kolommen = ", ".join(f"{k}=?" for k in velden)
     db.execute(f"UPDATE settings SET {kolommen} WHERE id=1", tuple(velden.values()))
     db.commit()
@@ -81,7 +81,7 @@ def test_op_de_rekening_staan_de_klant_het_bedrag_en_de_iban(db, maak_factuur):
     tekst = tekst_uit_pdf(facturen.maak_pdf(maak_factuur(klant="Jan Jansen", totaal=121.0)))
     assert "Jan Jansen" in tekst
     assert "121,00" in tekst
-    assert "NL12RABO0123456789" in tekst
+    assert "NL91ABNA0417164300" in tekst
     assert "Rekening" in tekst
 
 
@@ -92,7 +92,7 @@ def test_contante_rekening_toont_voldaan_en_geen_bankgegevens(db, maak_factuur):
     db.commit()
     tekst = tekst_uit_pdf(facturen.maak_pdf(factuur_id))
     assert "Contant afgehandeld." in tekst
-    assert "NL12RABO0123456789" not in tekst
+    assert "NL91ABNA0417164300" not in tekst
 
 
 def test_offerte_heeft_geen_betaalstrook_maar_wel_de_toelichting(db, maak_offerte):
@@ -100,7 +100,7 @@ def test_offerte_heeft_geen_betaalstrook_maar_wel_de_toelichting(db, maak_offert
     tekst = tekst_uit_pdf(facturen.maak_offerte_pdf(maak_offerte()))
     assert "Offerte" in tekst
     assert "Inclusief materiaal." in tekst
-    assert "NL12RABO0123456789" not in tekst
+    assert "NL91ABNA0417164300" not in tekst
 
 
 def test_offerte_zonder_einddatum_zegt_niets_over_geldigheid(db, maak_offerte):

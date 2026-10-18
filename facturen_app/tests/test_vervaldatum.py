@@ -103,7 +103,7 @@ def test_herinnering_met_termijn_noemt_dagen_te_laat(monkeypatch, db, maak_factu
         return True, ""
 
     monkeypatch.setattr(facturen, "_mail_pdf", nep_mail)
-    db.execute("UPDATE settings SET smtp_host='smtp.example.com', naam='Hogedruk Venlo' WHERE id=1")
+    db.execute("UPDATE settings SET smtp_host='smtp.example.com', naam='Voorbeeld Bedrijf BV' WHERE id=1")
     db.commit()
 
     factuur_id = maak_factuur(
@@ -123,7 +123,7 @@ def test_herinnering_zonder_termijn_zonder_te_laat_taal(monkeypatch, db, maak_fa
         return True, ""
 
     monkeypatch.setattr(facturen, "_mail_pdf", nep_mail)
-    db.execute("UPDATE settings SET smtp_host='smtp.example.com', naam='Hogedruk Venlo' WHERE id=1")
+    db.execute("UPDATE settings SET smtp_host='smtp.example.com', naam='Voorbeeld Bedrijf BV' WHERE id=1")
     db.commit()
 
     factuur_id = maak_factuur(
