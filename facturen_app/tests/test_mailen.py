@@ -1,4 +1,5 @@
 """Mailen gaat via een controlescherm, en nooit vanzelf bij opslaan."""
+import base64
 import io
 import re
 
@@ -166,7 +167,9 @@ def test_mail_pdf_en_offerte_bekijken_sturen_nosniff(client, maak_factuur, maak_
     for pad in (
         "/factuur/9999/mail-pdf",
         "/factuur/9999/bekijk",
+        "/factuur/9999/pdf",
         "/offerte/9999/bekijk",
+        "/offerte/9999/pdf",
     ):
         antwoord = client.get(pad)
         assert antwoord.status_code == 404, pad
@@ -280,8 +283,26 @@ def test_de_lichtbak_houdt_de_focus_en_geeft_hem_terug(post, db, client):
         pagina = browser.new_page(
             viewport={"width": 390, "height": 844}, device_scale_factor=1)
         pagina.set_content(html)
+        # Een losse pagina haalt /bijlage niet op. Zonder echte foto verschijnt
+        # de terugval en komt «Openen» in de tabvolgorde.
+        pagina.evaluate(
+            """(url) => {
+              document.querySelectorAll('a[data-soort="foto"]').forEach(function (a) {
+                a.setAttribute('href', url);
+              });
+            }""",
+            "data:image/png;base64," + base64.b64encode(PNG).decode(),
+        )
         link = pagina.locator('a.bijlage-open[data-soort="foto"]')
         link.click()
+        pagina.wait_for_function(
+            """() => {
+              const img = document.getElementById('lichtbak-foto');
+              const mis = document.getElementById('lichtbak-mislukt');
+              return img && img.complete && img.naturalWidth > 0 && mis && mis.hidden;
+            }"""
+        )
+        assert pagina.locator("#lichtbak-teller").inner_text() == "Foto 1 van 1"
         bak = pagina.locator("#lichtbak")
         assert bak.get_attribute("role") == "dialog"
         assert bak.get_attribute("aria-modal") == "true"

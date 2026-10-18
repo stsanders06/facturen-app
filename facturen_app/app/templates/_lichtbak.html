@@ -1,0 +1,282 @@
+{# Eén lichtbak voor elke pagina. Een foto (ook HEIC) opent hierin; een PDF
+   blijft een gewone link naar een tabblad. In de zijbalk van Home Assistant
+   heeft een nieuw venster de cookie niet, dus de foto blijft op deze pagina. #}
+<style>
+  .lichtbak {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    background: rgba(0, 0, 0, .88);
+    /* Ruimte voor het kruis boven en de pijlen opzij, anders vallen die over de foto. */
+    padding: 64px 60px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .lichtbak[hidden] { display: none; }
+  .lichtbak img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+  }
+  .lichtbak-sluit,
+  .lichtbak-vorige,
+  .lichtbak-volgende {
+    position: absolute;
+    z-index: 2;
+    width: 44px;
+    height: 44px;
+    border: 0;
+    border-radius: 22px;
+    background: rgba(255, 255, 255, .16);
+    color: #fff;
+    font-size: 28px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+  /* display:flex hierboven wint van het hidden-attribuut. Zonder deze regel
+     blijven vorige en volgende in de tabvolgorde als er maar één foto is. */
+  .lichtbak-vorige[hidden],
+  .lichtbak-volgende[hidden] { display: none; }
+  .lichtbak-sluit { top: 12px; right: 12px; }
+  .lichtbak-vorige { left: 8px; top: 50%; margin-top: -22px; }
+  .lichtbak-volgende { right: 8px; top: 50%; margin-top: -22px; }
+  .lichtbak-sluit:focus,
+  .lichtbak-vorige:focus,
+  .lichtbak-volgende:focus,
+  .lichtbak-openen:focus {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+  }
+  .lichtbak-mislukt {
+    color: #fff;
+    text-align: center;
+    max-width: 280px;
+  }
+  .lichtbak-mislukt[hidden] { display: none; }
+  .lichtbak-mislukt p { margin: 0 0 16px; font-size: 17px; line-height: 1.4; }
+  .lichtbak-openen {
+    color: #fff;
+    font-size: 17px;
+    min-height: 44px;
+    min-width: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 18px;
+    border: 1px solid rgba(255, 255, 255, .45);
+    border-radius: 22px;
+    text-decoration: none;
+  }
+  .lichtbak-teller {
+    position: absolute;
+    left: 50%;
+    bottom: 12px;
+    transform: translateX(-50%);
+    z-index: 2;
+    margin: 0;
+    padding: 6px 12px;
+    border-radius: 14px;
+    background: rgba(0, 0, 0, .55);
+    color: #fff;
+    font-size: 15px;
+    white-space: nowrap;
+  }
+</style>
+
+<div id="lichtbak" class="lichtbak" hidden role="dialog" aria-modal="true" aria-label="">
+  <button type="button" class="lichtbak-sluit" data-sluit aria-label="Sluiten">×</button>
+  <button type="button" class="lichtbak-vorige" data-stap="-1" aria-label="Vorige foto" hidden>‹</button>
+  <button type="button" class="lichtbak-volgende" data-stap="1" aria-label="Volgende foto" hidden>›</button>
+  <img id="lichtbak-foto" alt="">
+  <div id="lichtbak-mislukt" class="lichtbak-mislukt" hidden>
+    <p>Deze foto kan hier niet getoond worden</p>
+    {# Op poort 8099 een nieuw tabblad. In de zijbalk niet: dat venster heeft
+       de cookie van Ingress niet. Zelfde regel als de andere bestandslinks. #}
+    <a id="lichtbak-openen" class="lichtbak-openen" href="" {{ nieuw_tabblad }}>Openen</a>
+  </div>
+  <p id="lichtbak-teller" class="lichtbak-teller" aria-live="polite"></p>
+</div>
+
+<script>
+  (function () {
+    var bak = document.getElementById('lichtbak');
+    var img = document.getElementById('lichtbak-foto');
+    var sluitknop = bak && bak.querySelector('[data-sluit]');
+    var vorige = bak && bak.querySelector('[data-stap="-1"]');
+    var volgende = bak && bak.querySelector('[data-stap="1"]');
+    var mislukt = document.getElementById('lichtbak-mislukt');
+    var openen = document.getElementById('lichtbak-openen');
+    var teller = document.getElementById('lichtbak-teller');
+    if (!bak || !img || !sluitknop || !vorige || !volgende || !mislukt || !openen || !teller) return;
+    // De link die de lichtbak opende. Bladeren verandert die niet: anders
+    // springt de pagina na sluiten naar een foto verderop.
+    var geopendVanaf = null;
+    var huidige = null;
+    var poging = 0;
+    var raak = null;
+
+    function fotos() {
+      return Array.prototype.slice.call(document.querySelectorAll('a[data-soort="foto"]'));
+    }
+
+    function focusbaar() {
+      return Array.prototype.filter.call(
+        bak.querySelectorAll(
+          'button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+        ),
+        function (el) {
+          // hidden op een voorouder telt niet via el.hidden. De link «Openen»
+          // zit in een verborgen blok zolang de foto wél laadt.
+          return !el.hidden && !(el.closest && el.closest('[hidden]'));
+        }
+      );
+    }
+
+    function sluit() {
+      if (bak.hidden) return;
+      // Weghalen, anders blijft Escape de lichtbak claimen terwijl die al
+      // dicht is en de menu's niet meer sluit.
+      poging += 1;
+      document.removeEventListener('keydown', opToets, true);
+      bak.hidden = true;
+      img.removeAttribute('src');
+      img.hidden = false;
+      mislukt.hidden = true;
+      vorige.hidden = true;
+      volgende.hidden = true;
+      teller.textContent = '';
+      var terug = geopendVanaf;
+      geopendVanaf = null;
+      huidige = null;
+      if (terug) terug.focus();
+    }
+
+    // Chrome en Firefox tekenen geen HEIC. Zonder deze terugval blijft een
+    // kapot icoon staan en is het bestand niet meer te openen.
+    function toonMislukt(link) {
+      img.hidden = true;
+      mislukt.hidden = false;
+      openen.href = link.getAttribute('href') || '';
+    }
+
+    function zetFoto(link, focusSluiten) {
+      var lijst = fotos();
+      var index = lijst.indexOf(link);
+      if (index < 0) {
+        if (!lijst.length) return;
+        index = 0;
+      }
+      var gekozen = lijst[index];
+      huidige = gekozen;
+      var naam = gekozen.getAttribute('data-naam') || 'Foto';
+      bak.setAttribute('aria-label', naam);
+      img.alt = naam;
+      teller.textContent = 'Foto ' + (index + 1) + ' van ' + lijst.length;
+      var meer = lijst.length > 1;
+      vorige.hidden = !meer;
+      volgende.hidden = !meer;
+      img.hidden = false;
+      mislukt.hidden = true;
+      var deze = ++poging;
+      img.onload = function () {
+        if (deze !== poging) return;
+        if (!img.naturalWidth) toonMislukt(gekozen);
+      };
+      img.onerror = function () {
+        if (deze !== poging) return;
+        toonMislukt(gekozen);
+      };
+      img.src = gekozen.getAttribute('href');
+      if (bak.hidden) {
+        bak.hidden = false;
+        document.removeEventListener('keydown', opToets, true);
+        document.addEventListener('keydown', opToets, true);
+      }
+      if (focusSluiten) sluitknop.focus();
+    }
+
+    function stap(delta) {
+      var lijst = fotos();
+      if (lijst.length < 2 || !huidige) return;
+      var index = lijst.indexOf(huidige);
+      if (index < 0) index = 0;
+      var nieuw = (index + delta) % lijst.length;
+      if (nieuw < 0) nieuw += lijst.length;
+      zetFoto(lijst[nieuw], false);
+    }
+
+    // De toetsen horen bij het document, niet bij de lichtbak. Een tik op de
+    // foto zelf zet de focus op de pagina: een plaatje is niet te focussen,
+    // en dan bereikt Escape een listener op de lichtbak niet meer. De
+    // listener staat er alleen zolang de foto open is.
+    function opToets(ev) {
+      if (ev.key === 'Escape') {
+        ev.preventDefault();
+        ev.stopPropagation();
+        sluit();
+        return;
+      }
+      if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') {
+        ev.preventDefault();
+        stap(ev.key === 'ArrowLeft' ? -1 : 1);
+        return;
+      }
+      if (ev.key !== 'Tab') return;
+      var lijst = focusbaar();
+      if (!lijst.length) return;
+      var eerste = lijst[0];
+      var laatste = lijst[lijst.length - 1];
+      var binnen = bak.contains(document.activeElement);
+      if (ev.shiftKey && (!binnen || document.activeElement === eerste)) {
+        ev.preventDefault();
+        laatste.focus();
+      } else if (!ev.shiftKey && (!binnen || document.activeElement === laatste)) {
+        ev.preventDefault();
+        eerste.focus();
+      }
+    }
+
+    // Alleen een link naar een foto. Een vinkje, verwijderen of een PDF is
+    // geen zo'n link, anders opent een tik om iets uit te vinken de foto.
+    document.querySelectorAll('a[data-soort="foto"]').forEach(function (link) {
+      link.addEventListener('click', function (ev) {
+        if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || ev.button !== 0) return;
+        ev.preventDefault();
+        geopendVanaf = link;
+        zetFoto(link, true);
+      });
+    });
+
+    bak.addEventListener('click', function (ev) {
+      var knop = ev.target.closest ? ev.target.closest('[data-stap]') : null;
+      if (knop) {
+        stap(Number(knop.getAttribute('data-stap')));
+        return;
+      }
+      if (ev.target === bak || (ev.target.closest && ev.target.closest('[data-sluit]'))) sluit();
+    });
+
+    // Vegen op een iPhone: naar links is de volgende foto. Een tik op een
+    // knop telt niet mee, anders springt de foto terwijl je hem sluit.
+    bak.addEventListener('touchstart', function (ev) {
+      if (ev.touches.length !== 1 || (ev.target.closest && ev.target.closest('button'))) {
+        raak = null;
+        return;
+      }
+      raak = {x: ev.touches[0].clientX, y: ev.touches[0].clientY};
+    }, {passive: true});
+    bak.addEventListener('touchend', function (ev) {
+      if (!raak || !ev.changedTouches.length) { raak = null; return; }
+      var dx = ev.changedTouches[0].clientX - raak.x;
+      var dy = ev.changedTouches[0].clientY - raak.y;
+      raak = null;
+      if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy)) return;
+      stap(dx < 0 ? 1 : -1);
+    });
+  })();
+</script>
