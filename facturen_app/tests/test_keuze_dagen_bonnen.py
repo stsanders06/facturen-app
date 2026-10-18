@@ -4,6 +4,7 @@ Een dag of bon die al op een rekening staat hoort niet meer in de lijst.
 Haal je hem eraf, dan komt hij terug. Twee rekeningen kunnen hem niet allebei
 hebben.
 """
+import html
 import re
 
 import pytest
@@ -36,7 +37,8 @@ def _dag_knoppen(pagina, klus_id=None):
 def _zichtbare_tekst(knop):
     tekst = re.search(r">([^<]*)</button>", knop, re.S)
     assert tekst, knop
-    return re.sub(r"\s+", " ", tekst.group(1)).strip()
+    # &nbsp; houdt '· Gevel' bij de tijd. Voor de leesbare regel telt die als spatie.
+    return re.sub(r"\s+", " ", html.unescape(tekst.group(1))).strip()
 
 
 def _bon_knop(pagina, naam):
@@ -80,6 +82,8 @@ def test_elke_gesloten_dag_staat_apart_in_de_lijst(post, db, client):
     assert "(pauze" not in _zichtbare_tekst(pauze)
     assert "7 u 20 min" not in pagina
     assert "3 u 30 min" not in pagina
+    # De klusnaam breekt niet los van het puntje ervoor.
+    assert "&nbsp;·&nbsp;Gevel" in pagina
 
 
 def test_een_dag_erbij_en_alle_dagen_slaan_elk_een_eigen_regel_op(post, db, client):
@@ -194,6 +198,7 @@ def test_bonnen_per_stuk_en_de_lijst_zonder_wat_al_op_een_rekening_staat(post, d
     zichtbaar = pagina[pagina.find(">", start) + 1:pagina.find("</button>", start)]
     assert "12,50" in zichtbaar
     assert "12.50" not in zichtbaar
+    assert "&nbsp;·&nbsp;Gevel" in zichtbaar
 
     kit = db.execute(
         "SELECT id FROM inkopen WHERE omschrijving='Kitvoeg'"
@@ -452,6 +457,25 @@ def test_pdf_van_dagen_en_een_bon_noemt_de_tijden_niet_de_duur(post, db):
     assert "334,03" in tekst
 
 
+def test_dagen_staan_op_datum_en_dan_op_begintijd(post, db, client):
+    """06:00 vóór 07:00 op dezelfde dag, en een eerdere datum vóór een latere."""
+    klant_id, klus_id = _klant_en_klus(post, db)
+    post("/klussen/nieuw", {
+        "naam": "Dakgoot", "uurtarief": "45", "klant_id": str(klant_id),
+    })
+    dak_id = db.execute("SELECT id FROM klussen WHERE naam='Dakgoot'").fetchone()[0]
+    post(f"/klus/{klus_id}/dag", {"datum": "2026-10-13", "van": "07:00", "tot": "12:00"})
+    post(f"/klus/{klus_id}/dag", {"datum": "2026-10-12", "van": "09:00", "tot": "12:00"})
+    post(f"/klus/{dak_id}/dag", {"datum": "2026-10-12", "van": "06:00", "tot": "08:00"})
+    pagina = client.get(f"/nieuw?klant={klant_id}").data.decode()
+    teksten = [_zichtbare_tekst(knop) for knop in _dag_knoppen(pagina)]
+    assert teksten == [
+        "ma 12 okt 2026 · 06:00–08:00 · Dakgoot",
+        "ma 12 okt 2026 · 09:00–12:00 · Gevel",
+        "di 13 okt 2026 · 07:00–12:00 · Gevel",
+    ]
+
+
 def test_kiezen_in_de_lijst_haalt_een_dag_en_een_bon_uit_het_menu(post, db, client):
     """Met script: één dag, daarna de rest, en een bon verdwijnt zodra hij erop staat."""
     pytest.importorskip("playwright.sync_api")
@@ -469,22 +493,90 @@ def test_kiezen_in_de_lijst_haalt_een_dag_en_een_bon_uit_het_menu(post, db, clie
         pagina.set_content(html_pagina)
         pagina.locator("summary", has_text="Dag van een klus").click()
         assert pagina.locator(".dag-keuze:visible").count() == 2
-        assert "ma 12 okt 2026 · 08:00–12:00 · Gevel" in pagina.locator(
-            "details.menu[open] .menu-lijst").inner_text()
+        tekst = pagina.locator("details.menu[open] .menu-lijst").inner_text()
+        assert "ma 12 okt 2026 · 08:00–12:00 · Gevel" in tekst.replace("\xa0", " ")
         pagina.locator(".dag-keuze").first.click()
-        assert pagina.locator(".dag-keuze:visible").count() == 1
+        assert pagina.locator("details.menu[open]").count() == 0
         assert pagina.locator('[name="regel_uur"]').nth(0).input_value()
+        pagina.locator("summary", has_text="Dag van een klus").click()
+        assert pagina.locator(".dag-keuze:visible").count() == 1
         pagina.locator("#alle-dagen").click()
+        assert pagina.locator("details.menu[open]").count() == 0
         assert pagina.locator(".dag-keuze:visible").count() == 0
-        # De dagregel weghalen zet hem terug in hetzelfde menu.
+        # De dagregel weghalen zet hem terug. Het menu blijft dicht tot je het opent.
         dagregel = pagina.locator(".regel", has_text="08:00–12:00")
         dagregel.locator(".weg").click()
+        pagina.locator("summary", has_text="Dag van een klus").click()
         assert pagina.locator('.dag-keuze:visible', has_text="08:00–12:00").count() == 1
+        pagina.keyboard.press("Escape")
+        pagina.locator("summary", has_text="Bon van een klus").click()
+        pagina.locator(".bon-keuze", has_text="Kitvoeg").click()
+        assert pagina.locator("details.menu[open]").count() == 0
         pagina.locator("summary", has_text="Bon van een klus").click()
         pagina.locator("#alle-bonnen").click()
         assert pagina.locator(".bon-keuze:visible").count() == 0
         # De bonnenregel weghalen zet hem terug in de lijst.
         bonregel = pagina.locator(".regel", has_text="Kitvoeg")
         bonregel.locator(".weg").click()
+        pagina.locator("summary", has_text="Bon van een klus").click()
         assert pagina.locator('.bon-keuze:visible', has_text="Kitvoeg").count() == 1
+        browser.close()
+
+
+def _menu_valt_samen_met_de_knop(pagina, opschrift):
+    knop = pagina.locator("summary", has_text=opschrift)
+    knop.click()
+    lijst = pagina.locator("details.menu[open] .menu-lijst")
+    knopdoos = knop.bounding_box()
+    lijstdoos = lijst.bounding_box()
+    assert knopdoos and lijstdoos
+    assert abs(knopdoos["x"] - lijstdoos["x"]) <= 1, (opschrift, knopdoos, lijstdoos)
+    assert abs(knopdoos["width"] - lijstdoos["width"]) <= 1, (opschrift, knopdoos, lijstdoos)
+    pagina.keyboard.press("Escape")
+
+
+def test_menu_is_even_breed_als_de_knop_en_dekt_aanmaken_niet_af(post, db, client):
+    """Op 390 en 320 px volgt het menu de knop. Een tik op Aanmaken blijft aanmaken."""
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+
+    klant_id, klus_id = _klant_en_klus(post, db)
+    for dag in range(1, 13):
+        post(f"/klus/{klus_id}/dag", {
+            "datum": f"2026-10-{dag:02d}", "van": "08:00", "tot": "12:00",
+        })
+    post(f"/klus/{klus_id}/inkoop", {"omschrijving": "Kit", "bedrag": "4"})
+    html_pagina = client.get(f"/nieuw?klant={klant_id}").data.decode()
+    with sync_playwright() as p:
+        browser = p.webkit.launch()
+        for breedte in (390, 320):
+            pagina = browser.new_page(viewport={"width": breedte, "height": 700})
+            pagina.set_content(html_pagina)
+            _menu_valt_samen_met_de_knop(pagina, "Dag van een klus")
+            _menu_valt_samen_met_de_knop(pagina, "Bon van een klus")
+
+            pagina.locator("summary", has_text="Dag van een klus").click()
+            lijst = pagina.locator("details.menu[open] .menu-lijst")
+            maten = lijst.evaluate(
+                """el => ({
+                  scroll: el.scrollHeight,
+                  zichtbaar: el.clientHeight,
+                  overflow: getComputedStyle(el).overflowY
+                })"""
+            )
+            assert maten["overflow"] == "auto", maten
+            assert maten["scroll"] > maten["zichtbaar"], maten
+
+            aanmaken = pagina.locator("button[type=submit]")
+            aanmaken.scroll_into_view_if_needed()
+            tref = pagina.evaluate(
+                """() => {
+                  const knop = document.querySelector('button[type=submit]');
+                  const r = knop.getBoundingClientRect();
+                  const el = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+                  return el ? el.closest('button, a, .menu-item') === knop : false;
+                }"""
+            )
+            assert tref, "een open menu vangt de tik op Aanmaken"
+            pagina.close()
         browser.close()

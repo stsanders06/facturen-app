@@ -4490,7 +4490,9 @@ def geboekte_dagen(factuur_id=None, klant_id=None):
                 "past": klus["past"],
                 "uurtarief": klus["uurtarief"] or 0,
             })
-    uit.sort(key=lambda dag: (dag.get("datum") or "", dag["id"]))
+    # Op datum, en op één dag de vroegste begintijd eerst. Het id houdt twee
+    # gelijke tijden stabiel. Bonnen houden hun eigen volgorde.
+    uit.sort(key=lambda dag: (dag.get("datum") or "", dag.get("van") or "", dag["id"]))
     return uit
 
 
@@ -4535,7 +4537,7 @@ def dagen_voor_keuze(conn, klus, factuur_id=None):
         f"""SELECT id, datum, van, tot, notitie, pauze_minuten, factuur_id
             FROM uren
             WHERE klus_id=? {waar} AND {_GESLOTEN_DAG}
-            ORDER BY datum, id""",
+            ORDER BY datum, van, id""",
         params,
     ).fetchall()
     prijs = float(klus["uurtarief"] or 0)
@@ -4548,6 +4550,7 @@ def dagen_voor_keuze(conn, klus, factuur_id=None):
         uit.append({
             "id": rij["id"],
             "datum": rij["datum"],
+            "van": (rij["van"] or "")[:5],
             "label": label_van_dag(rij["datum"], rij["van"], rij["tot"]),
             "omschrijving": omschrijving_van_dag(
                 rij["datum"], rij["van"], rij["tot"], _pauze(rij),
@@ -4556,7 +4559,6 @@ def dagen_voor_keuze(conn, klus, factuur_id=None):
             "uren": uren,
             "minuten": minuten,
             "prijs": prijs,
-            "op_deze": bool(factuur_id and rij["factuur_id"] == factuur_id),
         })
     return uit
 

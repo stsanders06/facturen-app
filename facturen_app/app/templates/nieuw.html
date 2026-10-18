@@ -194,6 +194,16 @@
   /* Zelfde raakvlak als de knop erboven. Geldt voor dagen én bonnen, anders
      wijkt het ene menu af van het andere. */
   .regelknoppen .menu-item { min-height: 44px; box-sizing: border-box; }
+  /* Een lange lijst mag niet over Aanmaken heen groeien. Scrollen houdt de
+     rest bereikbaar. */
+  .regelknoppen .haal-op .menu-lijst {
+    max-height: min(40vh, 18rem);
+    overflow-y: auto;
+  }
+  /* De kaart met het open menu ligt boven de kaart eronder. Alleen de knoppen
+     zelf komen erboven: een tik op Aanmaken mag geen dag kiezen, de rest van
+     de lijst blijft wel aantikbaar. */
+  form.cards .indienen .btn { position: relative; z-index: 40; }
   .menu-uitleg {
     margin: 4px 12px 8px;
     font-size: 12px;
@@ -224,6 +234,14 @@
       align-items: center;
       justify-content: center;
       text-align: center;
+      box-sizing: border-box;
+    }
+    /* Het menu hoort de knop te volgen, niet de tekst. right:0 en min-width
+       maakten een korte bon smaller en rechts uitgelijnd. */
+    .regelknoppen .haal-op .menu-lijst {
+      left: 0;
+      right: 0;
+      min-width: 0;
       box-sizing: border-box;
     }
     /* Zelfde stapeling als de menu's: anders blijft deze knop een smalle
@@ -501,7 +519,7 @@
                   data-prijs="{{ '%.2f'|format(d.uurtarief or 0) }}"
                   data-klant="{{ d.klant_id or '' }}"
                   {% if not d.past or d.id in gebruikte_dagen %}hidden{% endif %}>
-            {{ d.label }}{% if d.klus_naam %} · {{ d.klus_naam }}{% endif %}
+            {{ d.label }}{% if d.klus_naam %}&nbsp;·&nbsp;{{ d.klus_naam }}{% endif %}
           </button>
           {% endfor %}
         {% endcall %}
@@ -525,7 +543,7 @@
                   data-bedrag="{{ '%.2f'|format(b.bedrag or 0) }}"
                   data-klant="{{ b.klant_id or '' }}"
                   {% if not b.past or b.id in gebruikte_bonnen %}hidden{% endif %}>
-            {{ b.omschrijving }} · €&nbsp;{{ b.bedrag|bedrag }}{% if b.klus_naam %} · {{ b.klus_naam }}{% endif %}
+            {{ b.omschrijving }} · €&nbsp;{{ b.bedrag|bedrag }}{% if b.klus_naam %}&nbsp;·&nbsp;{{ b.klus_naam }}{% endif %}
           </button>
           {% endfor %}
         {% endcall %}
@@ -1053,8 +1071,18 @@
       verversKeuzes('.bon-keuze', 'regel_inkoop', 'inkoop', 'alle-bonnen', 'bon-menu');
     }
 
+    // Na een keuze dicht, anders blijft een lange lijst over Aanmaken liggen
+    // en zet de volgende tik nog een dag op de rekening.
+    function sluitKeuzemenu(knop) {
+      var menu = knop && knop.closest('details');
+      if (menu) menu.removeAttribute('open');
+    }
+
     document.querySelectorAll('.dag-keuze').forEach(function (knop) {
-      knop.addEventListener('click', function () { zetDagOpRekening(knop); });
+      knop.addEventListener('click', function () {
+        zetDagOpRekening(knop);
+        sluitKeuzemenu(knop);
+      });
     });
 
     var alleDagen = document.getElementById('alle-dagen');
@@ -1066,6 +1094,7 @@
         );
         if (!knoppen.length) return;
         knoppen.forEach(function (knop) { zetDagOpRekening(knop); });
+        sluitKeuzemenu(alleDagen);
       });
     }
 
@@ -1091,7 +1120,10 @@
     };
 
     document.querySelectorAll('.bon-keuze').forEach(function (knop) {
-      knop.addEventListener('click', function () { zetBonOpRekening(knop); });
+      knop.addEventListener('click', function () {
+        zetBonOpRekening(knop);
+        sluitKeuzemenu(knop);
+      });
     });
 
     var alleBonnen = document.getElementById('alle-bonnen');
@@ -1108,6 +1140,7 @@
           pasSamenvattingAan(regel);
         });
         verversBonnen();
+        sluitKeuzemenu(alleBonnen);
       });
     }
 
