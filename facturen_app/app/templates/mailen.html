@@ -16,8 +16,91 @@
     line-height: 1.5;
   }
   .bijlagen { margin: 0; padding-left: 0; list-style: none; }
-  .bijlagen li { margin: 8px 0; }
-  .bijlagen label { display: flex; gap: 8px; align-items: flex-start; }
+  .bijlage-regel {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0;
+    border-top: 1px solid var(--divider);
+  }
+  .bijlage-regel:first-child { border-top: 0; padding-top: 0; }
+  /* 44 px is het tikvlak. De invoer van de rest van de app is 100% breed;
+     zonder deze maten wordt het vinkje een tekstveld en is het op een
+     telefoon niet meer raak te tikken zonder de link ernaast te raken. */
+  .vink-plek {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    margin: 0;
+  }
+  .bijlagen .vink-plek input {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    box-shadow: none;
+    accent-color: var(--primary);
+  }
+  .bijlage-open {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+    min-height: 44px;
+    color: inherit;
+    text-decoration: none;
+  }
+  .bijlage-voorbeeld {
+    flex: none;
+    width: 48px;
+    height: 48px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg);
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+  }
+  .bijlage-voorbeeld img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .pdf-icoon { width: 32px; height: 32px; }
+  .bestand-merk {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .04em;
+  }
+  .bijlage-tekst { min-width: 0; flex: 1; }
+  /* Een uuid als bestandsnaam brak over drie regels. Eén regel met ellips
+     houdt de lijst leesbaar; de hele naam zit in het title-attribuut. */
+  .bijlage-naam {
+    display: block;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .bijlage-info {
+    display: block;
+    margin-top: 2px;
+    font-size: 12px;
+    line-height: 1.35;
+    color: var(--text-secondary);
+    overflow-wrap: anywhere;
+  }
   .reden {
     margin: 0;
     padding: 12px 14px;
@@ -25,6 +108,41 @@
     border: 1px solid var(--warn-border);
     color: var(--warn-text);
     border-radius: var(--radius-sm);
+  }
+  /* Zelfde pagina, zodat het ook in de zijbalk van Home Assistant werkt: een
+     nieuw venster heeft daar de cookie niet. Een PDF gaat wél naar een
+     tabblad, want die wil je bladeren en niet als plaatje in deze lijst. */
+  .lichtbak {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    background: rgba(0, 0, 0, .88);
+    /* Ruimte bovenin, anders valt de sluitknop over de foto heen. */
+    padding: 64px 16px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .lichtbak[hidden] { display: none; }
+  .lichtbak img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+  }
+  .lichtbak-sluit {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 2;
+    width: 44px;
+    height: 44px;
+    border: 0;
+    border-radius: 22px;
+    background: rgba(255, 255, 255, .16);
+    color: #fff;
+    font-size: 28px;
+    line-height: 1;
+    cursor: pointer;
   }
 </style>
 {% endblock %}
@@ -104,20 +222,62 @@
   <div class="card-head">
     <h2>Bijlagen</h2>
   </div>
+  {% macro voorbeeld(plaatje, url, naam) %}
+  <span class="bijlage-voorbeeld">
+    {% if plaatje %}
+    <img src="{{ url }}" alt="" loading="lazy">
+    {% elif naam.lower().endswith('.heic') or naam.lower().endswith('.heif') %}
+    <span class="bestand-merk">HEIC</span>
+    {% else %}
+    <svg class="pdf-icoon" viewBox="0 0 48 48" aria-hidden="true">
+      <path fill="currentColor" opacity=".15"
+            d="M12 4h16l10 10v28a2 2 0 0 1-2 2H12a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/>
+      <path fill="none" stroke="currentColor" stroke-width="2"
+            d="M12 4h16l10 10v28a2 2 0 0 1-2 2H12a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/>
+      <path fill="none" stroke="currentColor" stroke-width="2" d="M28 4v10h10"/>
+      <text x="24" y="34" text-anchor="middle" font-size="11" font-weight="700"
+            fill="currentColor">PDF</text>
+    </svg>
+    {% endif %}
+  </span>
+  {% endmacro %}
   <ul class="bijlagen">
     {% if inhoud.pdf %}
-    <li>{{ document_label }} ({{ inhoud.pdf }})</li>
+    <li class="bijlage-regel">
+      {% if not reden %}
+      {# Geen vinkje: de rekening-PDF gaat altijd mee. De lege plek houdt het
+         voorbeeld op één lijn met de bonnen eronder. #}
+      <span class="vink-plek" aria-hidden="true"></span>
+      {% endif %}
+      <a class="bijlage-open" href="{{ pdf_url }}" {{ nieuw_tabblad }} data-soort="pdf"
+         aria-label="{{ document_label }} ({{ inhoud.pdf }}) bekijken">
+        {{ voorbeeld(false, pdf_url, inhoud.pdf) }}
+        <span class="bijlage-tekst">
+          <span class="bijlage-naam" title="{{ inhoud.pdf }}">{{ document_label }}</span>
+          <span class="bijlage-info">PDF{% if document_grootte %} · {{ document_grootte }}{% endif %} · {{ inhoud.pdf }}</span>
+        </span>
+      </a>
+    </li>
     {% endif %}
     {% for bon in bonnen %}
-    <li>
+    <li class="bijlage-regel">
       {% if not reden %}
-      <label>
-        <input type="checkbox" name="mee" value="{{ bon.id }}" form="mailform" checked>
-        {{ bon.naam }}
+      {# Buiten de link: een tik op het vinkje wisselt alleen of het meegaat. #}
+      <label class="vink-plek">
+        <input type="checkbox" name="mee" value="{{ bon.id }}" form="mailform" checked
+               aria-label="{{ bon.naam }} meesturen">
       </label>
-      {% else %}
-      {{ bon.naam }}
       {% endif %}
+      <a class="bijlage-open" href="{{ url_for('bijlage', bijlage_id=bon.id) }}" {{ nieuw_tabblad }}
+         data-soort="{{ 'foto' if bon.plaatje else ('pdf' if bon.soort == 'PDF' else 'bestand') }}"
+         data-naam="{{ bon.naam }}"
+         aria-label="{{ bon.naam }} bekijken, {{ bon.info }}">
+        {{ voorbeeld(bon.plaatje, url_for('bijlage', bijlage_id=bon.id), bon.naam) }}
+        <span class="bijlage-tekst">
+          <span class="bijlage-naam" title="{{ bon.naam }}">{{ bon.naam }}</span>
+          <span class="bijlage-info">{{ bon.info }}</span>
+        </span>
+      </a>
     </li>
     {% endfor %}
   </ul>
@@ -153,6 +313,11 @@
 
 </div>
 
+<div id="lichtbak" class="lichtbak" hidden>
+  <button type="button" class="lichtbak-sluit" data-sluit aria-label="Sluiten">×</button>
+  <img id="lichtbak-foto" alt="">
+</div>
+
 {% if not reden %}
 <script>
   (function () {
@@ -176,5 +341,34 @@
   })();
 </script>
 {% endif %}
+
+<script>
+  (function () {
+    var bak = document.getElementById('lichtbak');
+    var img = document.getElementById('lichtbak-foto');
+    if (!bak || !img) return;
+    function sluit() {
+      bak.hidden = true;
+      img.removeAttribute('src');
+    }
+    // Alleen het voorbeeld en de naam. Het vinkje is geen link en doet hier
+    // niet mee, anders opent een tik om iets uit te vinken meteen de foto.
+    document.querySelectorAll('a.bijlage-open[data-soort="foto"]').forEach(function (link) {
+      link.addEventListener('click', function (ev) {
+        if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || ev.button !== 0) return;
+        ev.preventDefault();
+        img.alt = link.getAttribute('data-naam') || '';
+        img.src = link.getAttribute('href');
+        bak.hidden = false;
+      });
+    });
+    bak.addEventListener('click', function (ev) {
+      if (ev.target === bak || ev.target.closest('[data-sluit]')) sluit();
+    });
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape' && !bak.hidden) sluit();
+    });
+  })();
+</script>
 
 {% endblock %}

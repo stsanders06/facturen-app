@@ -1,6 +1,7 @@
 """Foto's en bonnetjes bij een klus."""
 import io
 import os
+import pathlib
 
 import pytest
 
@@ -66,6 +67,58 @@ def test_bijlage_is_op_te_halen(post, db, client, klus_id):
     antwoord = client.get(f"/bijlage/{bijlage_id}")
     assert antwoord.status_code == 200
     assert antwoord.data == PNG
+    assert antwoord.mimetype == "image/png"
+    # Inline, zodat een tik op het voorbeeld de foto in beeld zet en niet
+    # meteen een download start.
+    assert antwoord.headers["Content-Disposition"].startswith("inline")
+
+
+def test_een_pdf_bijlage_komt_inline_als_pdf(post, db, client, klus_id):
+    upload(post, klus_id, "bon.pdf", b"%PDF-1.4 test")
+    bijlage_id = db.execute("SELECT id FROM bijlagen").fetchone()[0]
+    antwoord = client.get(f"/bijlage/{bijlage_id}")
+    assert antwoord.status_code == 200
+    assert antwoord.mimetype == "application/pdf"
+    assert antwoord.headers["Content-Disposition"].startswith("inline")
+
+
+def test_bijlage_zonder_inlog_gaat_naar_inloggen(post, db, uitgelogde_client, klus_id):
+    upload(post, klus_id)
+    bijlage_id = db.execute("SELECT id FROM bijlagen").fetchone()[0]
+    antwoord = uitgelogde_client.get(f"/bijlage/{bijlage_id}")
+    assert antwoord.status_code == 302
+    assert "/inloggen" in antwoord.headers["Location"]
+    assert antwoord.data != PNG
+
+
+def test_een_pad_buiten_de_bijlagenmap_geeft_404(client, db, klus_id):
+    """Een naam met .. of een snelkoppeling mag niet buiten de map wijzen."""
+    buiten = pathlib.Path(facturen.BIJLAGE_DIR).parent / "geheim.txt"
+    buiten.write_text("geheim", encoding="utf-8")
+    try:
+        db.execute(
+            """INSERT INTO bijlagen (klus_id, bestand, naam, toegevoegd)
+               VALUES (?, '../geheim.txt', 'geheim.txt', '2026-08-14')""",
+            (klus_id,),
+        )
+        db.commit()
+        bijlage_id = db.execute("SELECT id FROM bijlagen").fetchone()[0]
+        antwoord = client.get(f"/bijlage/{bijlage_id}")
+        assert antwoord.status_code == 404
+        assert b"geheim" not in antwoord.data
+
+        koppeling = pathlib.Path(facturen.BIJLAGE_DIR) / "via.png"
+        koppeling.symlink_to(buiten)
+        db.execute(
+            "UPDATE bijlagen SET bestand='via.png', naam='via.png' WHERE id=?",
+            (bijlage_id,),
+        )
+        db.commit()
+        antwoord = client.get(f"/bijlage/{bijlage_id}")
+        assert antwoord.status_code == 404
+        assert b"geheim" not in antwoord.data
+    finally:
+        buiten.unlink(missing_ok=True)
 
 
 def test_bijlage_verwijderen_bewaart_het_bestand_voor_het_geval_je_terugwilt(post, db, klus_id):

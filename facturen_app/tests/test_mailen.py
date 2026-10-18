@@ -1,5 +1,6 @@
 """Mailen gaat via een controlescherm, en nooit vanzelf bij opslaan."""
 import io
+import re
 
 from conftest import facturen
 
@@ -123,6 +124,88 @@ def test_de_kaarten_op_mail_controleren_staan_uit_elkaar(client, maak_factuur):
     assert '<section class="card">' not in pagina[:begin]
     assert pagina[begin:].count('<section class="card">') == 4
     assert ".cards { display: flex; flex-direction: column; gap: 12px; }" in pagina
+
+
+def test_de_rekening_pdf_zonder_inlog_gaat_naar_inloggen(maak_factuur, uitgelogde_client, client):
+    factuur_id = maak_factuur(nummer="", status="concept")
+    zonder = uitgelogde_client.get(f"/factuur/{factuur_id}/mail-pdf")
+    assert zonder.status_code == 302
+    assert "/inloggen" in zonder.headers["Location"]
+
+    met = client.get(f"/factuur/{factuur_id}/mail-pdf")
+    assert met.status_code == 200
+    assert met.mimetype == "application/pdf"
+    assert met.headers["Content-Disposition"].startswith("inline")
+
+
+def test_bijlagen_zijn_een_voorbeeld_en_het_vinkje_opent_ze_niet(post, db, client):
+    """Het vinkje staat buiten de link. Een tik erop wisselt alleen of het
+    bestand meegaat; het voorbeeld en de naam wijzen naar de bijlage zelf."""
+    mailserver(db)
+    post("/klussen/nieuw", {"naam": "Badkamer Voorbeeldstraat", "uurtarief": "45"})
+    klus_id = db.execute("SELECT id FROM klussen").fetchone()[0]
+    lange_naam = "4ea30bc9-dab2-40d9-ab58-5095140a495c.jpeg"
+    post(f"/klus/{klus_id}/bijlage", {
+        "bijlage": [
+            (io.BytesIO(PNG), lange_naam),
+            (io.BytesIO(b"%PDF-1.4 test"), "bon-gamma.pdf"),
+        ],
+    }, content_type="multipart/form-data")
+    # Eerst de id's ophalen. De cursor open laten terwijl de app schrijft
+    # zet de database op slot.
+    bijlage_ids = [rij["id"] for rij in db.execute("SELECT id FROM bijlagen")]
+    for bijlage_id in bijlage_ids:
+        post(f"/bijlage/{bijlage_id}/meesturen")
+    db.execute("UPDATE inkopen SET omschrijving='Tegellijm'")
+    db.commit()
+    inkoop_id = db.execute("SELECT id FROM inkopen").fetchone()[0]
+    post("/nieuw", {
+        "klant_naam": "Voorbeeld Bedrijf BV", "klant_email": "klant@example.com",
+        "datum": "2026-08-14",
+        "omschrijving": "Tegellijm", "type": "bon", "aantal": "1", "prijs": "12",
+        "regel_inkoop": str(inkoop_id),
+    })
+    factuur_id = db.execute("SELECT id FROM facturen").fetchone()[0]
+    ids = [rij["id"] for rij in db.execute("SELECT id FROM bijlagen ORDER BY id")]
+
+    pagina = client.get(f"/factuur/{factuur_id}/mail").data.decode()
+    assert "PDF van de rekening" in pagina
+    assert f'href="/factuur/{factuur_id}/mail-pdf"' in pagina
+    assert "Tegellijm" in pagina
+    assert "Badkamer Voorbeeldstraat" in pagina
+    assert "Foto" in pagina
+    assert "PDF" in pagina
+    assert "bytes" in pagina
+    assert 'text-overflow: ellipsis' in pagina
+    assert "white-space: nowrap" in pagina
+    assert "width: 44px" in pagina
+    assert "height: 44px" in pagina
+    # Twee bonnen, niet ook een vinkje op de rekening-PDF: die gaat altijd mee.
+    assert pagina.count('name="mee"') == 2
+    foto_id, pdf_id = ids
+    assert f'href="/bijlage/{foto_id}"' in pagina
+    assert f'src="/bijlage/{foto_id}"' in pagina
+    assert f'href="/bijlage/{pdf_id}"' in pagina
+    assert f'src="/bijlage/{pdf_id}"' not in pagina
+
+    regels = re.findall(r'<li class="bijlage-regel">.*?</li>', pagina, re.S)
+    assert len(regels) == 3
+    with_vink = [regel for regel in regels if 'name="mee"' in regel]
+    assert len(with_vink) == 2
+    for regel in with_vink:
+        link = regel.index("<a ")
+        assert regel.index('name="mee"') < link
+        assert "</label>" in regel[:link]
+        assert "<input" not in regel[link:]
+    pdf_regel = next(regel for regel in regels if "PDF van de rekening" in regel)
+    assert 'name="mee"' not in pdf_regel
+    assert 'data-soort="pdf"' in pdf_regel
+    foto_regel = next(regel for regel in regels if lange_naam in regel)
+    assert 'data-soort="foto"' in foto_regel
+    assert f'title="{lange_naam}"' in foto_regel
+    # De lange naam is de titel, niet nog eens de grijze regel (die werd drie regels).
+    info = foto_regel.split('class="bijlage-info"', 1)[1]
+    assert lange_naam not in info
 
 
 def test_mail_versturen_vanaf_het_voorbeeld_stuurt_wel(monkeypatch, post, db, maak_factuur):

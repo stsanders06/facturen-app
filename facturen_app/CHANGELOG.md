@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.38.0
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **Bijlagen op het mailscherm kun je nog even bekijken.** Elke bijlage is een
+  regel met een vinkje, een voorbeeld en de naam. Een foto opent groot in beeld,
+  een PDF in een nieuw tabblad. Het vinkje zelf opent niets. Wat aangevinkt is
+  gaat mee, en notitiefoto's gaan nooit mee.
+
 ## 1.37.2
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
