@@ -8,7 +8,9 @@ genoeg; anders blijft de vorige versie draaien.
 - **De regels op een offerte vullen de pagina.** Ze stopten te vroeg, met een
   leeg vlak onder de laatste regel. Nu lopen ze door tot onderaan, net als op
   een rekening. Alleen het totaal en de toelichting gaan samen naar de volgende
-  pagina als ze er niet meer onder passen. De laatste regel blijft staan.
+  pagina als ze er niet meer onder passen. De toelichting blijft in haar geheel
+  bij het totaal. Alleen een toelichting die niet op één vel past, loopt door;
+  het kopje blijft dan bij de eerste regels. De laatste regel blijft staan.
 
 ## 1.41.1
 

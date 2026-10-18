@@ -6840,10 +6840,22 @@ STROOK_GRENS = 80 * mm
 # Een offerte heeft geen strook. Het totaal mag daarom lager, tot boven de
 # voettekst op 14 mm. 28 mm houdt het bedrag van 17 pt daar los van.
 TOTAAL_GRENS = 28 * mm
-# De toelichting begint zelf een nieuw vel onder 40 mm. Het totaal van een
-# offerte hoort daar nog boven; anders blijft het bedrag achter en gaat de
-# toelichting met de voetregel alleen verder.
+# Alleen een rekening gebruikt deze grens nog. De toelichting staat daar vóór
+# de strook, en die volgorde is al uitgeleverd. Een offerte meet het slot
+# zelf: een vaste 40 mm keek niet naar de lengte, waardoor het kopje alleen
+# onderaan bleef of de tekst halverwege scheurde.
 TOELICHTING_GRENS = 40 * mm
+# Opbouw van het slot, dezelfde stappen als bij het tekenen. Het totaal staat
+# op de cursor. 14 mm lager het kopje, 5,5 mm daaronder de eerste tekstregel,
+# en elke volgende regel 4,6 mm lager. Onder 24 mm loopt de tekst door de
+# voetregel op 14 mm.
+TOELICHTING_VOOR_KOP = 14 * mm
+TOELICHTING_NA_KOP = 5.5 * mm
+TOELICHTING_REGELHOOGTE = 4.6 * mm
+TOELICHTING_TEKST_BODEM = 24 * mm
+# Het kopje blijft niet alleen staan. Minstens twee tekstregels gaan mee,
+# tenzij de toelichting zelf korter is.
+TOELICHTING_MIN_REGELS = 2
 # Koppen boven de regels: 3 mm tot de streep en 4,5 mm erna.
 KOLOMKOP = 7.5 * mm
 
@@ -6963,28 +6975,61 @@ def _teken_totaal(vel, totaal):
     vel.c.drawRightString(vel.rechts, vel.y - 1 * mm, f"€ {nl_bedrag(totaal)}")
 
 
-def _teken_toelichting(vel, toelichting):
+def _toelichting_tekstregels(c, toelichting, breedte):
+    """De tekstregels van een toelichting, inclusief een lege alinea.
+
+    Een lege alinea wordt toch getekend en kost dus hoogte. Dezelfde knip als
+    bij het tekenen, anders meet het slot een andere lengte dan er op papier
+    komt."""
+    regels = []
+    for alinea in toelichting.split("\n"):
+        regels.extend(_regels_afbreken(c, alinea.strip(), "Helvetica", 9, breedte))
+    return regels
+
+
+def _slot_past(y, aantal):
+    """Of totaal, kopje, alle tekstregels en de voetregel nog op dit vel passen.
+
+    `y` is de cursor na de laatste rekeningregel, waar het totaal komt. De
+    stappen zijn dezelfde als in `_teken_toelichting`. Past het niet, dan
+    schuift het hele slot op. Alleen als het ook op een leeg vel niet past,
+    mag de tekst daar verdergaan."""
+    y -= TOELICHTING_VOOR_KOP
+    y -= TOELICHTING_NA_KOP
+    for _ in range(aantal):
+        if y < TOELICHTING_TEKST_BODEM:
+            return False
+        y -= TOELICHTING_REGELHOOGTE
+    return True
+
+
+def _teken_toelichting(vel, toelichting, zelf_breken=True):
     """Wat er wel en niet bij de prijs zit; staat vooral op een offerte.
 
     Een lange toelichting gaat door op een volgend vel in plaats van door de
-    voettekst heen te lopen. De betaalstrook van een rekening heeft die check
-    al; de toelichting had hem niet."""
-    if vel.y < TOELICHTING_GRENS:
+    voettekst heen te lopen. `zelf_breken` is de oude vaste grens, alleen nog
+    voor een rekening: die PDF is al uitgeleverd. Een offerte beslist zelf of
+    het slot nog past, en laat het kopje niet alleen achter."""
+    if zelf_breken and vel.y < TOELICHTING_GRENS:
         vel.nieuwe_pagina(vervolg=True)
-    vel.y -= 14 * mm
+    vel.y -= TOELICHTING_VOOR_KOP
     vel.label("Toelichting", vel.links, vel.y)
-    vel.y -= 5.5 * mm
+    vel.y -= TOELICHTING_NA_KOP
     vel.c.setFont("Helvetica", 9)
     vel.c.setFillColor(GRIJS_DONKER)
-    for alinea in toelichting.split("\n"):
-        for regel in _regels_afbreken(vel.c, alinea.strip(), "Helvetica", 9,
-                                      vel.rechts - vel.links):
-            if vel.y < 24 * mm:
-                vel.nieuwe_pagina(vervolg=True)
-                vel.c.setFont("Helvetica", 9)
-                vel.c.setFillColor(GRIJS_DONKER)
-            vel.c.drawString(vel.links, vel.y, regel)
-            vel.y -= 4.6 * mm
+    geplaatst = 0
+    for regel in _toelichting_tekstregels(vel.c, toelichting, vel.rechts - vel.links):
+        # Op een rekening mag de tekst al vóór de tweede regel doorlopen.
+        # Op een offerte blijven minstens twee regels bij het kopje.
+        if vel.y < TOELICHTING_TEKST_BODEM and (
+            zelf_breken or geplaatst >= TOELICHTING_MIN_REGELS
+        ):
+            vel.nieuwe_pagina(vervolg=True)
+            vel.c.setFont("Helvetica", 9)
+            vel.c.setFillColor(GRIJS_DONKER)
+        vel.c.drawString(vel.links, vel.y, regel)
+        vel.y -= TOELICHTING_REGELHOOGTE
+        geplaatst += 1
 
 
 def _teken_betaalstrook(vel, doc, s, vervalt):
@@ -7090,18 +7135,21 @@ def _teken_document(pad, doc, regels, s):
     toelichting = (doc.get("toelichting") or "").strip()
     if offerte:
         # Alleen het slot schuift op, niet de laatste regel. Het slot is het
-        # totaal en, als die er is, de toelichting. De voetregel wordt aan het
-        # eind op het laatste vel gezet en gaat dus mee zolang de toelichting
-        # niet zelf nog een blad nodig heeft. Past ze niet meer direct onder
-        # het totaal, dan moet het bedrag mee; anders blijft het alleen achter.
-        # De kolomkoppen horen bij regels; een blad met alleen het slot heeft
-        # ze niet nodig.
-        grens = TOELICHTING_GRENS if toelichting else TOTAAL_GRENS
-        if vel.y < grens:
+        # totaal, het kopje, de hele toelichting en de voetregel. Past dat
+        # niet meer onder de regels, dan gaat het in zijn geheel naar het
+        # volgende vel. Splitsen mag pas als het ook op een leeg vel niet
+        # past; het kopje blijft dan bij de eerste regels. De kolomkoppen
+        # horen bij regels; een blad met alleen het slot heeft ze niet nodig.
+        if toelichting:
+            tekstregels = _toelichting_tekstregels(
+                vel.c, toelichting, vel.rechts - vel.links)
+            if not _slot_past(vel.y, len(tekstregels)):
+                vel.nieuwe_pagina(vervolg=True)
+        elif vel.y < TOTAAL_GRENS:
             vel.nieuwe_pagina(vervolg=True)
         _teken_totaal(vel, doc["totaal"])
         if toelichting:
-            _teken_toelichting(vel, toelichting)
+            _teken_toelichting(vel, toelichting, zelf_breken=False)
     else:
         # De toelichting mag de pagina vullen. Het totaal en de strook blijven
         # daarna bij elkaar: past dat blok niet meer, dan gaan ze samen naar
