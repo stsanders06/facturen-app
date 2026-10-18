@@ -819,7 +819,12 @@
       <a class="melding-link" href="{{ m.link.url }}">{{ m.link.label }}</a>
       {% endif %}
       {% if m.knop and m.knop.seconden %}
-      <span class="balk" style="animation-duration: {{ m.knop.seconden }}s"></span>
+      {#- data-na: na de bedenktijd het mailscherm sluiten, maar alleen als
+          de mail echt weg is. Zonder dit adres blijft de pagina staan. -#}
+      <span class="balk" style="animation-duration: {{ m.knop.seconden }}s"
+            data-seconden="{{ m.knop.seconden }}"
+            {% if m.knop.stand %}data-stand="{{ m.knop.stand }}"{% endif %}
+            {% if m.knop.na %}data-na="{{ m.knop.na }}"{% endif %}></span>
       {% endif %}
     </div>
     {% endfor %}
@@ -835,9 +840,9 @@
   // Op een lange kluspagina stond je bij de bon of de uren; die plek is bij het
   // versturen bewaard en zetten we hier terug. Alleen als het dezelfde pagina
   // is: een gewone klik, of een post die ergens anders uitkomt, hoort wél
-  // bovenaan te beginnen. Een melding is geen voorwaarde — een gewerkte dag,
-  // een dag wijzigen en "meesturen" komen terug zonder tekst, en anders spring
-  // je daar alsnog naar boven. Safari op de iPhone schuift na het laden soms
+  // bovenaan te beginnen. Een melding is geen voorwaarde — een gewerkte dag
+  // en een dag wijzigen komen terug zonder tekst, en anders spring je daar
+  // alsnog naar boven. Safari op de iPhone schuift na het laden soms
   // alsnog naar boven, vandaar dat we het even blijven herhalen.
   var SCHUIFSLEUTEL = 'facturen-schuif';
   var bewaardeSchuif = 0;
@@ -1013,6 +1018,81 @@
     melding._timer = setTimeout(function () { verdwijnMelding(melding); }, duur);
   });
 
+  // Het mailscherm blijft open zolang je de mail nog kunt tegenhouden. Is de
+  // balk leeg én de mail echt weg, dan terug naar de rekening of de offerte.
+  // Mislukt of tegengehouden: blijven, anders zie je de fout niet.
+  document.querySelectorAll('.melding.bezig .balk[data-na]').forEach(function (balk) {
+    var melding = balk.closest('.melding');
+    var standUrl = balk.getAttribute('data-stand');
+    var na = balk.getAttribute('data-na');
+    if (!melding || !standUrl || !na) return;
+    var bezig = false;
+
+    // Een trage mailserver is langer dan tien seconden bezig. Na 25 keer
+    // 400 ms stopte het scherm op "wordt verstuurd" en kwam er niets meer.
+    // Langer blijven vragen, steeds iets trager, en daarna een zin met een
+    // link in plaats van een balk die blijft staan.
+    var POLL_GRENS_MS = 90000;
+    var POLL_STAP_MS = 400;
+    var POLL_STAP_MAX_MS = 4000;
+
+    function volgendeStap(stap) {
+      return Math.min(POLL_STAP_MAX_MS, Math.round(stap * 1.5));
+    }
+
+    function geefOp() {
+      var woorden = melding.querySelector('.woorden');
+      if (woorden) {
+        woorden.textContent = 'Het versturen duurt langer dan verwacht. De mail kan nog onderweg zijn.';
+      }
+      if (!melding.querySelector('a.melding-link')) {
+        var link = document.createElement('a');
+        link.className = 'melding-link';
+        link.href = na;
+        link.textContent = 'Kijk of hij weg is';
+        melding.appendChild(link);
+      }
+    }
+
+    function later(gewacht, stap) {
+      if (gewacht >= POLL_GRENS_MS) {
+        geefOp();
+        return;
+      }
+      setTimeout(function () { vraag(gewacht + stap, volgendeStap(stap)); }, stap);
+    }
+
+    function vraag(gewacht, stap) {
+      fetch(standUrl, { headers: { 'Accept': 'application/json' } })
+        .then(function (antwoord) { return antwoord.json(); })
+        .then(function (data) {
+          var stand = data && data.stand;
+          if (stand === 'gelukt') {
+            window.location.assign(na);
+            return;
+          }
+          if (stand === 'fout' || stand === 'tegengehouden') {
+            window.location.reload();
+            return;
+          }
+          later(gewacht, stap);
+        })
+        .catch(function () {
+          later(gewacht, stap);
+        });
+    }
+
+    function klaar() {
+      if (bezig || melding.dataset.weg) return;
+      bezig = true;
+      vraag(0, POLL_STAP_MS);
+    }
+
+    balk.addEventListener('animationend', klaar);
+    var seconden = parseFloat(balk.getAttribute('data-seconden')) || 0;
+    if (seconden > 0) setTimeout(klaar, seconden * 1000 + 200);
+  });
+
   // Bevestiging vragen voor onomkeerbare acties. De vraag staat in een
   // data-attribuut en niet in de HTML-regel zelf: een apostrof in een naam
   // ("Anne d'Hondt") brak anders de code, waarna er zonder vragen werd verwijderd.
@@ -1121,11 +1201,16 @@
   document.querySelectorAll('.melding .balk').forEach(function (balk) {
     var seconden = parseFloat(balk.style.animationDuration) || 0;
     if (!seconden) { return; }
+    // Het mailscherm (data-na) blijft de melding tonen tot de mail weg is
+    // of het vragen stopt. Weghalen na twee seconden liet die zin verdwijnen
+    // terwijl de server nog bezig was.
+    var wacht_op_uitslag = balk.hasAttribute('data-na');
     setTimeout(function () {
       var melding = balk.closest('.melding');
       var formulier = melding.querySelector('form');
       if (formulier) { formulier.remove(); }
       balk.remove();
+      if (wacht_op_uitslag) return;
       // Tegenhouden kan niet meer, en of het lukte zie je op de volgende
       // pagina. De regel zelf mag daarna weg, anders blijft hij over de
       // pagina hangen.

@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.41.0
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **De lijst met bonnen of dagen schuift niet meer onder de knoppen.** Annuleren
+  en Rekening aanmaken blijven onder de lijst staan, zodat je de onderste regel
+  kunt lezen en aantikken. Hetzelfde geldt voor een offerte.
+- **Na het versturen gaat het mailscherm vanzelf dicht.** Zodra de bedenktijd om
+  is en de mail echt weg is, kom je terug bij de rekeningen of de offertes. Lukt
+  het versturen niet, of houd je de mail tegen, dan blijf je op dat scherm.
+- **Een bon op de rekening gaat mee met de mail.** Het vinkje per bon op de klus
+  is weg. Op het mailscherm staat hij aan; daar kun je hem nog uitvinken. Staat
+  de bon niet op de rekening, dan gaat hij niet mee.
+- **Elke mail gaat ook naar jou, als BCC.** Standaard naar het afzenderadres.
+  Onder Instellingen kun je een ander adres invullen of de kopie uitzetten. De
+  klant ziet dat adres niet. Op het mailscherm staat het wel, klein onder Aan.
+- **De PDF en de foto's zitten als bijlage aan de mail.** In Apple Mail gingen
+  ze anders meteen op ware grootte open onderaan de brief. Een naam als «café»
+  blijft leesbaar, ook in een mailprogramma dat de nieuwere schrijfwijze niet kent.
+- **Twee adressen in het veld krijgen allebei de mail.** Weigert de server een
+  adres van de klant, dan blijft de rekening onverstuurd. Je krijgt dan een
+  melding, ook als de kopie naar jou wel aankwam.
+- **Nog een keer op versturen drukken stuurt de mail niet nog eens.**
+- **Duurt het versturen lang, dan komt er een zin met een link** in plaats van
+  een scherm dat op «wordt verstuurd» blijft staan.
+- **Het adres voor de kopie laat je leeg om het afzenderadres te gebruiken.**
+  Dat adres staat als voorbeeld in het veld. De kopie uitzetten blijft uit,
+  ook als het adresveld niet klopt.
+
 ## 1.40.0
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet

@@ -122,6 +122,21 @@
         <input type="email" id="smtp_van" name="smtp_van" value="{{ s.smtp_van }}">
         <p class="hint">Laat leeg om je gebruikersnaam te gebruiken.</p>
       </div>
+      <div class="checkregel">
+        <input type="checkbox" id="bcc_aan" name="bcc_aan" value="ja"
+               {% if s.bcc_aan %}checked{% endif %}>
+        <label for="bcc_aan">BCC naar mezelf</label>
+      </div>
+      <div class="field">
+        <label for="bcc_adres">Adres voor de kopie</label>
+        {# Leeg = de afzender van dit moment. Het adres hier invullen maakt er
+           een vast adres van; de afzender als placeholder laat dat zien zonder
+           hem bij het opslaan vast te leggen. #}
+        <input type="email" id="bcc_adres" name="bcc_adres" value="{{ s.bcc_adres }}"
+               placeholder="{{ s.smtp_van or s.smtp_user or 'het afzenderadres' }}">
+        <p class="hint">Laat leeg om het afzenderadres te gebruiken. De klant ziet
+          dit adres niet. Vink uit om geen kopie te sturen.</p>
+      </div>
     </div>
   </section>
 

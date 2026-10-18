@@ -3,6 +3,12 @@
 {% block head %}
 <style>
   .mailregel { margin: 0 0 10px; }
+  /* Klein en grijs: het is een bevestiging, geen veld dat je nog moet invullen. */
+  .kopie {
+    margin: -4px 0 10px;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
   .mailregel .label {
     display: block;
     font-size: 13px;
@@ -187,6 +193,10 @@
     <span class="label">Aan</span>
     {{ inhoud.ontvanger or 'geen e-mailadres' }}
   </p>
+  {% set kopie = kopie_adres(inhoud.ontvanger) %}
+  {% if kopie %}
+  <p class="kopie">Kopie (BCC) naar {{ kopie }}</p>
+  {% endif %}
   <p class="mailregel">
     <span class="label">Onderwerp</span>
     {{ inhoud.onderwerp }}
@@ -276,6 +286,7 @@
 <section class="card">
   <form method="post" action="{{ form_action }}" id="mailform">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="mail_teken" value="{{ mail_teken }}">
     <input type="hidden" name="bonnen_gekozen" value="1">
     <div class="field">
       <label for="eigen_zin">Eigen zin</label>
@@ -296,6 +307,19 @@
 {% if not reden %}
 <script>
   (function () {
+    // Een tweede klik, of een formulier dat twee keer verstuurt, mag niet
+    // nog een mail de deur uit doen. De server weigert hetzelfde teken ook.
+    var form = document.getElementById('mailform');
+    if (form) {
+      var al = false;
+      form.addEventListener('submit', function (e) {
+        if (al) {
+          e.preventDefault();
+          return;
+        }
+        al = true;
+      });
+    }
     var veld = document.getElementById('eigen_zin');
     var blok = document.getElementById('mailtekst');
     if (!veld || !blok) return;

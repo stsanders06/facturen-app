@@ -1,6 +1,6 @@
 """De lichtbak opent een foto overal, niet alleen op het mailscherm.
 
-Een PDF blijft een gewone link. Verwijderen en meesturen zijn knoppen buiten
+Een PDF blijft een gewone link. Verwijderen is een knop buiten
 de link, dus een tik daarop opent de foto niet.
 """
 import base64
@@ -174,7 +174,7 @@ def test_een_notitiefoto_opent_in_de_lichtbak(post, db, client):
 
 
 def test_een_bonfoto_en_een_heic_openen_in_de_lichtbak(post, db, client):
-    """Een bon en een HEIC op de klus. Meesturen opent de foto niet."""
+    """Een bon en een HEIC op de klus. Weghalen opent de foto niet."""
     html = _vul(post, db, client)
     assert 'data-naam="scherm.heic"' in html
     assert 'data-soort="foto"' in html.split('data-naam="scherm.heic"', 1)[0][-80:]
@@ -206,9 +206,9 @@ def test_een_bonfoto_en_een_heic_openen_in_de_lichtbak(post, db, client):
         assert pagina.evaluate(
             "() => document.activeElement.getAttribute('data-naam') === 'scherm.heic'")
 
-        pagina.locator("button", has_text="Meesturen").first.evaluate(
+        pagina.locator("button", has_text="Weg").first.evaluate(
             "el => el.addEventListener('click', e => e.preventDefault(), true)")
-        pagina.locator("button", has_text="Meesturen").first.click()
+        pagina.locator("button", has_text="Weg").first.click()
         assert bak.get_attribute("hidden") is not None
     finally:
         _dicht(p, browser)
@@ -225,7 +225,6 @@ def test_een_heic_op_het_mailscherm_is_een_foto(post, db, client):
         "bijlage": (io.BytesIO(b"heic-voorbeeld"), "scherm.heic"),
     }, content_type="multipart/form-data")
     bijlage_id = db.execute("SELECT id FROM bijlagen").fetchone()[0]
-    post(f"/bijlage/{bijlage_id}/meesturen")
     inkoop_id = db.execute("SELECT id FROM inkopen").fetchone()[0]
     post("/nieuw", {
         "klant_naam": "Voorbeeld Bedrijf BV", "klant_email": "klant@example.com",

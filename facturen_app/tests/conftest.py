@@ -57,6 +57,11 @@ def app():
     conn.commit()
     conn.close()
     facturen.MISLUKTE_POGINGEN.clear()
+    facturen.MAIL_BEZIG.clear()
+    facturen.MAIL_TEKENS.clear()
+    facturen.MAIL_LICHTING.clear()
+    facturen.MAIL_AFGESLOTEN.clear()
+    facturen.MAIL_DOCUMENT.clear()
     facturen._MIGRATIE_STAP = None
     # Opgezochte adressen blijven anders van de ene test in de andere hangen.
     facturen._ADRESCACHE.clear()

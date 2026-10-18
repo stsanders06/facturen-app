@@ -113,11 +113,11 @@ def test_na_een_formulier_blijft_de_pagina_waar_je_was(client):
 
 
 def test_een_gewerkte_dag_houdt_de_plek_vast_zonder_melding(post, db, client, maak_factuur):
-    """Dag toevoegen, een dag wijzigen en 'meesturen' laden de klus opnieuw
-    zonder melding. Juist daardoor sprong de pagina naar boven: herstellen
-    hing aan die melding. Hetzelfde geldt voor Betaald op een lange lijst.
-    Het formulier blijft een gewone POST, zodat het submit-event de plek
-    bewaart."""
+    """Dag toevoegen en een dag wijzigen laden de klus opnieuw zonder melding.
+
+    Juist daardoor sprong de pagina naar boven: herstellen hing aan die
+    melding. Hetzelfde geldt voor Betaald op een lange lijst. Het formulier
+    blijft een gewone POST, zodat het submit-event de plek bewaart."""
     # De aanmaak-melding moet eerst verbruikt zijn, anders hangt die nog aan
     # de dag-post en lijkt het alsof een dag wél een melding geeft.
     post("/klussen/nieuw", {"naam": "Badkamer", "uurtarief": "45"},
@@ -159,7 +159,8 @@ def test_een_gewerkte_dag_houdt_de_plek_vast_zonder_melding(post, db, client, ma
     mee = post(f"/bijlage/{bijlage_id}/meesturen", follow_redirects=True)
     mee_html = mee.data.decode()
     assert 'class="melding' not in mee_html
-    assert f'action="/bijlage/{bijlage_id}/meesturen"' in mee_html
+    assert "Gaat mee" not in mee_html
+    assert f'action="/klus/{klus_id}/dag"' in mee_html
 
     factuur_id = maak_factuur(status="verzonden")
     betaald = post(f"/factuur/{factuur_id}/betaald", follow_redirects=True)

@@ -213,14 +213,18 @@ def test_klus_verwijderen_neemt_de_bijlagen_mee(post, db, klus_id):
     assert os.path.exists(pad)
 
 
-def test_meesturen_gaat_aan_en_uit(post, db, klus_id):
+def test_de_klus_heeft_geen_meesturen_knop_meer(post, client, db, klus_id):
+    """Een bon op de rekening gaat mee. Het vinkje per bestand is weg."""
     upload(post, klus_id)
     bijlage_id = db.execute("SELECT id FROM bijlagen").fetchone()[0]
     assert db.execute("SELECT meesturen FROM bijlagen").fetchone()[0] == 0
 
-    post(f"/bijlage/{bijlage_id}/meesturen")
-    assert db.execute("SELECT meesturen FROM bijlagen").fetchone()[0] == 1
+    pagina = client.get(f"/klus/{klus_id}").data.decode()
+    assert "Gaat mee" not in pagina
+    assert "Meesturen met de rekening" not in pagina
+    assert f'action="/bijlage/{bijlage_id}/meesturen"' not in pagina
 
+    # Een oude knop die nog ergens openstaat mag de vlag niet meer omzetten.
     post(f"/bijlage/{bijlage_id}/meesturen")
     assert db.execute("SELECT meesturen FROM bijlagen").fetchone()[0] == 0
 
@@ -230,11 +234,13 @@ def test_de_kluspagina_toont_de_bijlage(post, db, client, klus_id):
     assert "bonnetje-gamma.png" in client.get(f"/klus/{klus_id}").data.decode()
 
 
-def test_alleen_aangevinkte_bonnen_gaan_mee_met_de_rekening(post, db, klus_id):
+def test_alleen_een_bon_op_de_rekening_gaat_mee(post, db, klus_id):
+    """Ook als het oude vinkje uit stond. Een andere bon van de klus niet."""
     upload(post, klus_id, "meesturen.png")
     upload(post, klus_id, "prive.png")
     eerste = db.execute("SELECT id FROM bijlagen ORDER BY id").fetchone()[0]
-    post(f"/bijlage/{eerste}/meesturen")
+    db.execute("UPDATE bijlagen SET meesturen=0")
+    db.commit()
 
     inkoop_id = db.execute(
         "SELECT inkoop_id FROM bijlagen WHERE id=?", (eerste,)
@@ -267,7 +273,8 @@ def test_de_bonnen_gaan_echt_als_bijlage_mee(monkeypatch, post, db, klus_id):
 
     upload(post, klus_id, "bon.png")
     bijlage_id = db.execute("SELECT id FROM bijlagen").fetchone()[0]
-    post(f"/bijlage/{bijlage_id}/meesturen")
+    db.execute("UPDATE bijlagen SET meesturen=0 WHERE id=?", (bijlage_id,))
+    db.commit()
     inkoop_id = db.execute(
         "SELECT inkoop_id FROM bijlagen WHERE id=?", (bijlage_id,)
     ).fetchone()[0]

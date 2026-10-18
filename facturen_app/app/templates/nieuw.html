@@ -266,16 +266,28 @@
   /* Zelfde raakvlak als de knop erboven. Geldt voor dagen én bonnen, anders
      wijkt het ene menu af van het andere. */
   .regelknoppen .menu-item { min-height: 44px; box-sizing: border-box; }
-  /* Een lange lijst mag niet over Aanmaken heen groeien. Scrollen houdt de
-     rest bereikbaar. */
+  /* De lijst hoort in de pagina, niet eroverheen. Absolute zette hem over
+     Annuleren en Rekening aanmaken, en die knoppen lagen er met een hogere
+     laag dwars doorheen: de onderste regels waren niet te lezen en niet te
+     tikken. In de stroom schuiven die knoppen mee omlaag. */
+  .regelknoppen .haal-op .menu { flex-direction: column; align-items: stretch; }
   .regelknoppen .haal-op .menu-lijst {
-    max-height: min(40vh, 18rem);
+    position: static;
+    top: auto;
+    right: auto;
+    left: auto;
+    width: 100%;
+    min-width: 0;
+    margin-top: 4px;
+    max-height: min(50vh, 22rem);
     overflow-y: auto;
+    /* De laatste regel moet boven de thuisbalk van de iPhone uit kunnen
+       schuiven. scroll-margin telt mee bij scrollIntoView. */
+    scroll-margin-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
   }
-  /* De kaart met het open menu ligt boven de kaart eronder. Alleen de knoppen
-     zelf komen erboven: een tik op Aanmaken mag geen dag kiezen, de rest van
-     de lijst blijft wel aantikbaar. */
-  form.cards .indienen .btn { position: relative; z-index: 40; }
+  form.cards .indienen {
+    scroll-margin-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  }
   .menu-uitleg {
     margin: 4px 12px 8px;
     font-size: 12px;
@@ -1525,6 +1537,17 @@
 
     // Een lege rekening of offerte levert een PDF van € 0,00 op en verbruikt wel een
     // nummer; daar waarschuwen we voor voordat het formulier weggaat.
+    // Een net geopende lijst kan onderaan het scherm vallen. In beeld brengen,
+    // anders staat de laatste bon alsnog achter de knoppenrij of de thuisbalk.
+    document.querySelectorAll('.regelknoppen details.menu').forEach(function (menu) {
+      menu.addEventListener('toggle', function () {
+        if (!menu.open) return;
+        var lijst = menu.querySelector('.menu-lijst');
+        if (!lijst) return;
+        lijst.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      });
+    });
+
     document.querySelector('form.cards').addEventListener('submit', function (e) {
       var ingevuld = [...container.querySelectorAll('[name="omschrijving"]')]
         .some(function (veld) { return veld.value.trim() !== ''; });
