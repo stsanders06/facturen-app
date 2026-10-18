@@ -17,15 +17,15 @@ def vandaag(dagen=0):
     return (date.today() + timedelta(days=dagen)).isoformat()
 
 conn = sqlite3.connect(DB)
-conn.execute("UPDATE settings SET naam='Venlo Hogedruk', adres='Kaldenkerkerweg 214\n5915 AC Venlo', "
-             "telefoon='077 351 24 80', email='info@venlohogedruk.nl', iban='NL91 ABNA 0417 1643 00' WHERE id=1")
+conn.execute("UPDATE settings SET naam='Voorbeeld Bedrijf BV', adres='Voorbeeldstraat 1\n1234 AB Voorbeeldstad', "
+             "telefoon='012 345 67 89', email='info@example.org', iban='NL91ABNA0417164300' WHERE id=1")
 
 klanten = [
-    ("Bouwbedrijf Janssen", "Straelseweg 112\n5911 CN Venlo", "administratie@janssenbouw.nl", "077 351 24 80"),
-    ("J. Peters", "Molenstraat 8\n5913 XJ Venlo", "j.peters@example.com", "06 21 44 90 12"),
-    ("VvE Kazernestraat", "Kazernestraat 45\n5928 NL Venlo", "bestuur@vvekazernestraat.nl", ""),
-    ("Garage Nabben", "Hogeweg 3\n5916 PA Venlo", "", "077 382 11 90"),
-    ("Fam. de Wit", "Kerkstraat 21\n5931 AB Tegelen", "dewit@example.com", "06 55 12 88 03"),
+    ("Voorbeeld Bedrijf BV", "Voorbeeldstraat 1\n1234 AB Voorbeeldstad", "administratie@example.org", "012 345 67 89"),
+    ("Testklant A", "Voorbeeldstraat 2\n1234 AB Voorbeeldstad", "testklant-a@example.org", "012 345 67 89"),
+    ("Voorbeeld VvE", "Voorbeeldstraat 3\n1234 AB Voorbeeldstad", "bestuur@example.org", ""),
+    ("Voorbeeld Garage", "Voorbeeldstraat 4\n1234 AB Voorbeeldstad", "", "012 345 67 89"),
+    ("Testklant B", "Voorbeeldstraat 5\n1234 AB Voorbeeldstad", "testklant-b@example.org", "012 345 67 89"),
 ]
 klant_id = {}
 for naam, adres, mail, tel in klanten:
@@ -61,20 +61,20 @@ lang = [(naam, "materiaal", 1, prijs) for naam, prijs in [
     ("Sproeikop 25 graden", 21.00), ("Slangkoppeling 3/8", 7.35), ("Emmer 20 l", 5.60),
     ("Microvezeldoeken (10)", 11.20), ("Ontvetter 2 l", 16.90), ("Schuurpapier korrel 120", 4.75),
     ("Voegenplamuur", 8.30), ("Sanitairkit wit", 6.95), ("Voorrijkosten", 35.00)]]
-rekening("", "Bouwbedrijf Janssen", vandaag(0), "concept", lang, kenmerk="Gevel Straelseweg")
+rekening("", "Voorbeeld Bedrijf BV", vandaag(0), "concept", lang, kenmerk="Gevel Voorbeeldstraat")
 
-rekening("2026-014", "Bouwbedrijf Janssen", vandaag(-28), "verzonden",
-         [("Gevel reinigen, hogedruk 200 bar", "arbeid_uur", 11, 55.0),
+rekening("2026-014", "Voorbeeld Bedrijf BV", vandaag(-28), "verzonden",
+         [("Gevel reinigen, 200 bar", "arbeid_uur", 11, 55.0),
           ("Reinigingsmiddel", "materiaal", 2, 18.5),
           ("Voorrijkosten", "arbeid_klus", 1, 35.0)],
-         kenmerk="Gevel Straelseweg", betaald=292.0)
-rekening("2026-016", "J. Peters", vandaag(-12), "verzonden",
+         kenmerk="Gevel Voorbeeldstraat", betaald=292.0)
+rekening("2026-016", "Testklant A", vandaag(-12), "verzonden",
          [("Oprit en tuinpad reinigen", "arbeid_dag", 2, 310.0)], kenmerk="Oprit")
-rekening("2026-017", "VvE Kazernestraat", vandaag(-7), "verzonden",
+rekening("2026-017", "Voorbeeld VvE", vandaag(-7), "verzonden",
          [("Terras en bergingen", "arbeid_uur", 4.5, 52.5)])
-rekening("2026-013", "Fam. de Wit", vandaag(-41), "betaald",
+rekening("2026-013", "Testklant B", vandaag(-41), "betaald",
          [("Zonnepanelen reinigen", "arbeid_klus", 1, 275.0)])
-rekening("2026-012", "Garage Nabben", vandaag(-53), "betaald",
+rekening("2026-012", "Voorbeeld Garage", vandaag(-53), "betaald",
          [("Bestrating loods", "arbeid_dag", 3, 310.0), ("Zand aanvullen", "materiaal", 5, 8.9)])
 
 # Offertes in elke stand.
@@ -94,13 +94,13 @@ def offerte(nummer, klant, datum, status, regels, geldig=None, factuur_id=None, 
                      (oid, oms, soort, aantal, prijs, round(aantal * prijs, 2)))
     return oid
 
-offerte("O2026-006", "Bouwbedrijf Janssen", vandaag(-18), "verzonden",
+offerte("O2026-006", "Voorbeeld Bedrijf BV", vandaag(-18), "verzonden",
         [("Gevel reinigen inclusief steiger", "arbeid_klus", 1, 1450.0)], geldig=vandaag(12))
-offerte("O2026-007", "VvE Kazernestraat", vandaag(-40), "verzonden",
+offerte("O2026-007", "Voorbeeld VvE", vandaag(-40), "verzonden",
         [("Alle bergingen en het binnenterrein", "arbeid_dag", 4, 310.0)], geldig=vandaag(-5))
-offerte("O2026-005", "J. Peters", vandaag(-60), "geaccepteerd",
+offerte("O2026-005", "Testklant A", vandaag(-60), "geaccepteerd",
         [("Oprit en tuinpad", "arbeid_dag", 2, 310.0)], geldig=vandaag(-30))
-offerte("", "Garage Nabben", vandaag(-2), "concept",
+offerte("", "Voorbeeld Garage", vandaag(-2), "concept",
         [("Voorterrein reinigen", "arbeid_uur", 8, 55.0)], kenmerk="Nog bespreken")
 
 # Klussen in elke fase.
@@ -114,18 +114,18 @@ def klus(naam, klant, status, gestart, tarief=55.0, aangevraagd=None, intake="",
                         VALUES (?, ?, ?, ?, ?)""", (kid, datum, van, tot, notitie))
     return kid
 
-lopend = klus("Gevel reinigen Straelseweg", "Bouwbedrijf Janssen", "open", vandaag(-8),
+lopend = klus("Gevel reinigen Voorbeeldstraat", "Voorbeeld Bedrijf BV", "open", vandaag(-8),
               aangevraagd=vandaag(-18), intake=vandaag(-14),
               dagen=[(vandaag(-8), "08:00", "12:30", "Steiger opgebouwd, voorzijde"),
                      (vandaag(-7), "08:00", "11:00", "Zijgevel en kozijnen"),
                      (vandaag(-6), "13:00", "15:30", "Achtergevel, nabehandeling"),
                      (vandaag(-5), "08:00", "09:00", "Steiger afgebouwd")])
-klus("Oprit Garage Nabben", "Garage Nabben", "open", vandaag(-3), tarief=52.5,
+klus("Oprit Voorbeeld Garage", "Voorbeeld Garage", "open", vandaag(-3), tarief=52.5,
      dagen=[(vandaag(-3), "09:00", "16:30", "Hele oprit gedaan")])
-klus("Dakgoot Molenstraat", "J. Peters", "aangevraagd", vandaag(-9), aangevraagd=vandaag(-9))
-klus("Terras Kazernestraat", "VvE Kazernestraat", "aangevraagd", vandaag(-3),
+klus("Dakgoot Voorbeeldstraat", "Testklant A", "aangevraagd", vandaag(-9), aangevraagd=vandaag(-9))
+klus("Terras Voorbeeldstraat", "Voorbeeld VvE", "aangevraagd", vandaag(-3),
      aangevraagd=vandaag(-3), intake=vandaag(-1))
-klus("Zonnepanelen Fam. de Wit", "Fam. de Wit", "afgerond", vandaag(-45), tarief=55.0,
+klus("Zonnepanelen Testklant B", "Testklant B", "afgerond", vandaag(-45), tarief=55.0,
      dagen=[(vandaag(-45), "08:00", "13:00", "")])
 klus("Losse klus zonder klant", None, "open", vandaag(-1), tarief=0)
 

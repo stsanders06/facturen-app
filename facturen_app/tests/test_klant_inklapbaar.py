@@ -11,7 +11,7 @@ def test_nieuw_formulier_heeft_inklapbare_klantgegevens(client):
 def test_bewerken_met_klant_id_toont_samenvatting_chrome(post, client, db, maak_factuur):
     post("/klanten/nieuw", {
         "naam": "Jan Jansen",
-        "adres": "Kerkstraat 1\n5900 AA Venlo",
+        "adres": "Voorbeeldstraat 1\n1234 AB Voorbeeldstad",
         "email": "jan@example.com",
     })
     klant_id = db.execute("SELECT id FROM klanten WHERE naam='Jan Jansen'").fetchone()[0]

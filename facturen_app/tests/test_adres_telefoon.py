@@ -1,7 +1,7 @@
 """Adressen en telefoonnummers krijgen overal dezelfde vorm.
 
 Wat je intikt komt terug op de rekening, in de mail en op de klantpagina. Of je nu
-"5932ch tegelen" of "5932 CH Tegelen" typt, er hoort hetzelfde uit te komen. Het
+"1234ab voorbeeldstad" of "1234 AB Voorbeeldstad" typt, er hoort hetzelfde uit te komen. Het
 gebeurt bij het opslaan, dus ook voor wat er uit een CSV komt.
 """
 import io
@@ -16,18 +16,18 @@ net_telefoon = facturen.net_telefoon
 
 @pytest.mark.parametrize("invoer, verwacht", [
     # Al goed: blijft zoals het is.
-    ("Nachtegaalstraat 212\n5932 CH Tegelen", "Nachtegaalstraat 212\n5932 CH Tegelen"),
+    ("Voorbeeldstraat 1\n1234 AB Voorbeeldstad", "Voorbeeldstraat 1\n1234 AB Voorbeeldstad"),
     # Op één regel met een komma.
-    ("Nachtegaalstraat 212, 5932 CH Tegelen", "Nachtegaalstraat 212\n5932 CH Tegelen"),
+    ("Voorbeeldstraat 1, 1234 AB Voorbeeldstad", "Voorbeeldstraat 1\n1234 AB Voorbeeldstad"),
     # Alles aan elkaar en klein getypt.
-    ("nachtegaalstraat 212 5932ch tegelen", "Nachtegaalstraat 212\n5932 CH Tegelen"),
+    ("voorbeeldstraat 1 1234ab voorbeeldstad", "Voorbeeldstraat 1\n1234 AB Voorbeeldstad"),
     # Rommel ertussen: lege regels en dubbele spaties.
-    ("Molenstraat 14\n\n5911AB   venlo", "Molenstraat 14\n5911 AB Venlo"),
+    ("Voorbeeldstraat 14\n\n1234AB   voorbeeldstad", "Voorbeeldstraat 14\n1234 AB Voorbeeldstad"),
     # Tussenvoegsels blijven klein.
-    ("kerkstraat 1, 5932CH, alphen aan den rijn",
-     "Kerkstraat 1\n5932 CH Alphen aan den Rijn"),
+    ("voorbeeldstraat 1, 1234AB, dorp aan den berg",
+     "Voorbeeldstraat 1\n1234 AB Dorp aan den Berg"),
     # Na een koppelteken hoort weer een hoofdletter.
-    ("dorpsweg 3, 1234ab berkel-enschot", "Dorpsweg 3\n1234 AB Berkel-Enschot"),
+    ("voorbeeldstraat 3, 1234ab voorbeeld-stad", "Voorbeeldstraat 3\n1234 AB Voorbeeld-Stad"),
     ("", ""),
 ])
 def test_een_adres_krijgt_de_vaste_vorm(invoer, verwacht):
@@ -36,7 +36,7 @@ def test_een_adres_krijgt_de_vaste_vorm(invoer, verwacht):
 
 def test_eigen_hoofdletters_blijven_staan():
     """Wie zelf hoofdletters zet, bedoelt dat waarschijnlijk zo."""
-    assert net_adres("Lange Voorhout 1, 2514EA 's-Gravenhage").endswith("'s-Gravenhage")
+    assert net_adres("Voorbeeldstraat 1, 1234EA 's-Voorbeeld").endswith("'s-Voorbeeld")
 
 
 def test_zonder_postcode_blijft_de_inhoud_ongemoeid():
@@ -51,11 +51,11 @@ def test_zonder_postcode_blijft_de_inhoud_ongemoeid():
 def test_een_adres_uit_de_adressenlijst_zonder_postcode(client):
     """Niet elk adres bij het Kadaster heeft een postcode; dan hoort de komma toch
     een regelovergang te worden in plaats van in het veld te blijven staan."""
-    assert net_adres("Molenstraat 14, Lieshout") == "Molenstraat 14\nLieshout"
+    assert net_adres("Voorbeeldstraat 14, Voorbeeldstad") == "Voorbeeldstraat 14\nVoorbeeldstad"
 
 
 def test_een_adres_zonder_postcode_wordt_wel_opgeschoond():
-    assert net_adres("  Dorpsweg   3 \n\n  Tegelen  ") == "Dorpsweg 3\nTegelen"
+    assert net_adres("  Voorbeeldweg   3 \n\n  Voorbeeldstad  ") == "Voorbeeldweg 3\nVoorbeeldstad"
 
 
 @pytest.mark.parametrize("invoer, verwacht", [
@@ -66,10 +66,10 @@ def test_een_adres_zonder_postcode_wordt_wel_opgeschoond():
     ("0031 6 12345678", "+31 6 12345678"),
     ("+31 (0)6 12345678", "+31 6 12345678"),
     # Vaste nummers: het netnummer is drie of vier cijfers lang.
-    ("077-3512244", "077 3512244"),
+    ("010-1234567", "010 1234567"),
     ("0201234567", "020 1234567"),
     ("0161234567", "0161 234567"),
-    ("+31 (0)77 3512244", "+31 77 3512244"),
+    ("+31 (0)10 1234567", "+31 10 1234567"),
     ("", ""),
 ])
 def test_een_telefoonnummer_krijgt_de_vaste_vorm(invoer, verwacht):
@@ -85,43 +85,43 @@ def test_wat_geen_nederlands_nummer_is_blijft_staan(invoer):
 def test_een_klant_wordt_netjes_opgeslagen(post, db):
     post("/klanten/nieuw", {
         "naam": "Jan Jansen",
-        "adres": "nachtegaalstraat 212, 5932ch tegelen",
+        "adres": "voorbeeldstraat 1, 1234ab voorbeeldstad",
         "telefoon": "06-12345678",
     })
     klant = db.execute("SELECT adres, telefoon FROM klanten").fetchone()
-    assert klant["adres"] == "Nachtegaalstraat 212\n5932 CH Tegelen"
+    assert klant["adres"] == "Voorbeeldstraat 1\n1234 AB Voorbeeldstad"
     assert klant["telefoon"] == "06 12345678"
 
 
 def test_het_adres_bij_een_rekening_ook(post, db):
     post("/nieuw", {
         "klant_naam": "Jan Jansen",
-        "klant_adres": "molenstraat 14, 5911ab venlo",
+        "klant_adres": "voorbeeldstraat 14, 1234ab voorbeeldstad",
         "datum": "2026-08-14",
         "omschrijving": "Kraan vervangen", "type": "arbeid_uur",
         "aantal": "2", "prijs": "60,50",
     })
     assert db.execute("SELECT klant_adres FROM facturen").fetchone()[0] == \
-        "Molenstraat 14\n5911 AB Venlo"
+        "Voorbeeldstraat 14\n1234 AB Voorbeeldstad"
 
 
 def test_je_eigen_gegevens_ook(post, db):
-    post("/instellingen", {"naam": "Testbedrijf", "adres": "kerkstraat 1 5932ch tegelen",
-                           "telefoon": "0773512244"})
+    post("/instellingen", {"naam": "Testbedrijf", "adres": "voorbeeldstraat 1 1234ab voorbeeldstad",
+                           "telefoon": "0101234567"})
     rij = db.execute("SELECT adres, telefoon FROM settings").fetchone()
-    assert rij["adres"] == "Kerkstraat 1\n5932 CH Tegelen"
-    assert rij["telefoon"] == "077 3512244"
+    assert rij["adres"] == "Voorbeeldstraat 1\n1234 AB Voorbeeldstad"
+    assert rij["telefoon"] == "010 1234567"
 
 
 def test_uit_een_csv_ook(post, db):
     """Juist daar staat het vaak slordig."""
     bestand = (io.BytesIO(
-        "naam;adres;telefoon\nJan Jansen;molenstraat 14 5911ab venlo;06-12345678\n"
+        "naam;adres;telefoon\nJan Jansen;voorbeeldstraat 14 1234ab voorbeeldstad;06-12345678\n"
         .encode()), "klanten.csv")
     post("/klanten/import", {"bestand": bestand}, content_type="multipart/form-data")
 
     klant = db.execute("SELECT adres, telefoon FROM klanten").fetchone()
-    assert klant["adres"] == "Molenstraat 14\n5911 AB Venlo"
+    assert klant["adres"] == "Voorbeeldstraat 14\n1234 AB Voorbeeldstad"
     assert klant["telefoon"] == "06 12345678"
 
 
@@ -129,7 +129,7 @@ def test_wat_er_al_stond_wordt_eenmalig_opgeschoond(db):
     """Anders zou alleen wat je ná deze versie opslaat netjes worden en blijft je
     lijst er door elkaar uitzien."""
     db.execute("""INSERT INTO klanten (naam, adres, telefoon)
-                  VALUES ('Slordig', 'molenstraat 14, 5911ab venlo', '06-12345678')""")
+                  VALUES ('Slordig', 'voorbeeldstraat 14, 1234ab voorbeeldstad', '06-12345678')""")
     db.execute("""INSERT INTO klanten (naam, adres, telefoon)
                   VALUES ('Buitenland', 'Baker Street 221B, London NW1 6XE',
                           '+49 30 12345678')""")
@@ -138,7 +138,7 @@ def test_wat_er_al_stond_wordt_eenmalig_opgeschoond(db):
     aangepast = facturen.net_bestaande_gegevens()
 
     slordig = db.execute("SELECT * FROM klanten WHERE naam='Slordig'").fetchone()
-    assert slordig["adres"] == "Molenstraat 14\n5911 AB Venlo"
+    assert slordig["adres"] == "Voorbeeldstraat 14\n1234 AB Voorbeeldstad"
     assert slordig["telefoon"] == "06 12345678"
 
     buiten = db.execute("SELECT * FROM klanten WHERE naam='Buitenland'").fetchone()
@@ -149,7 +149,7 @@ def test_wat_er_al_stond_wordt_eenmalig_opgeschoond(db):
 
 
 def test_een_tweede_keer_opschonen_verandert_niets_meer(db):
-    db.execute("""INSERT INTO klanten (naam, adres) VALUES ('Slordig', '5911ab venlo')""")
+    db.execute("""INSERT INTO klanten (naam, adres) VALUES ('Slordig', '1234ab voorbeeldstad')""")
     db.commit()
 
     facturen.net_bestaande_gegevens()
@@ -158,10 +158,10 @@ def test_een_tweede_keer_opschonen_verandert_niets_meer(db):
 
 def test_ook_het_adres_op_een_bestaande_rekening(db, maak_factuur):
     factuur_id = maak_factuur()
-    db.execute("UPDATE facturen SET klant_adres='molenstraat 14 5911ab venlo' WHERE id=?",
+    db.execute("UPDATE facturen SET klant_adres='voorbeeldstraat 14 1234ab voorbeeldstad' WHERE id=?",
                (factuur_id,))
     db.commit()
 
     facturen.net_bestaande_gegevens()
     assert db.execute("SELECT klant_adres FROM facturen WHERE id=?",
-                      (factuur_id,)).fetchone()[0] == "Molenstraat 14\n5911 AB Venlo"
+                      (factuur_id,)).fetchone()[0] == "Voorbeeldstraat 14\n1234 AB Voorbeeldstad"
