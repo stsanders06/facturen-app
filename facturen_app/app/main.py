@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import io
 import ipaddress
 import json
@@ -7,9 +8,12 @@ import mimetypes
 import os
 import re
 import secrets
+import shutil
 import socket
 import sqlite3
 import smtplib
+import subprocess
+import tempfile
 import threading
 import time
 import unicodedata
@@ -23,8 +27,8 @@ from urllib.request import Request, urlopen
 from urllib.error import URLError
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from flask import (
-    Flask, abort, make_response, request, redirect, url_for, render_template,
-    send_file, flash, session,
+    Flask, abort, after_this_request, make_response, request, redirect, url_for,
+    render_template, send_file, flash, session,
 )
 from markupsafe import Markup, escape
 from reportlab.lib.pagesizes import A4
@@ -39,18 +43,23 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.41.2"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.42.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
 PDF_DIR = os.path.join(DATA_DIR, "pdfs")
 LOGO_DIR = os.path.join(DATA_DIR, "logo")
 BIJLAGE_DIR = os.path.join(DATA_DIR, "bijlagen")
+# Scans van de iPhone blijven hier tot je ze aan een bon of notitie koppelt.
+# Apart van de bijlagen, zodat een scan die je nog niet hebt ingedeeld niet
+# al tussen de bonnen van een klus staat.
+SCAN_DIR = os.path.join(DATA_DIR, "scans")
 
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(PDF_DIR, exist_ok=True)
 os.makedirs(LOGO_DIR, exist_ok=True)
 os.makedirs(BIJLAGE_DIR, exist_ok=True)
+os.makedirs(SCAN_DIR, exist_ok=True)
 
 
 def _activeer_tijdzone():
@@ -133,7 +142,9 @@ app.wsgi_app = IngressMiddleware(app.wsgi_app)
 
 # Zonder grens kan één upload de opslag van Home Assistant volschrijven. Een logo is
 # hooguit een paar honderd kilobyte, maar een foto van een telefoon is zo vijf megabyte
-# en je kunt er meerdere tegelijk kiezen; vandaar deze ruimere grens voor het geheel.
+# en je kunt er meerdere tegelijk kiezen; vandaar deze grens voor het geheel.
+# Scans vanaf de iPhone mogen samen meer zijn; die ruimere grens geldt alleen
+# voor dat ene adres, niet voor de rest van de app.
 app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024
 # Laat de browser de sessiecookie niet meesturen met verzoeken die van een andere
 # site komen. Het CSRF-kenmerk vangt dat al af; dit is de tweede grendel.
@@ -164,6 +175,29 @@ BIJLAGE_MIMES = {
     ".pdf": "application/pdf",
 }
 
+# Eén scan vanaf de iPhone. Meer dan dit weigeren we per bestand: één PDF van
+# 80 MB hoort niet in de inbox, ook al past het verzoek nog onder het totaal.
+SCAN_PER_BESTAND = 25 * 1024 * 1024
+# Een paar scans tegelijk mogen samen meer zijn dan een gewone upload. Alleen
+# /api/scans gebruikt deze grens; de rest van de app blijft op 32 MB.
+SCAN_VERZOEK_GRENS = 100 * 1024 * 1024
+# De opdracht stuurt normaal één bestand per verzoek. Een hogere lading is
+# bijna nooit een echte scan en vult de inbox anders in één keer.
+SCAN_MAX_AANTAL = 20
+# Stukken, zodat een te groot bestand stopt met lezen in plaats van eerst helemaal
+# in het geheugen te belanden.
+_SCAN_STUK = 64 * 1024
+# Zelfde lengte als een echte sha256-hex, zodat compare_digest niet weigert als
+# er nog geen code is opgeslagen. Een kortere tekst gooit hij anders meteen weg
+# en dan verraadt de fout juist dát er geen code is.
+LEEG_SCAN_HASH = hashlib.sha256(b"").hexdigest()
+# Merken in een HEIC/HEIF-bestand, op positie 8 achter "ftyp". GIF en WEBP staan
+# hier expres niet bij: die mogen als bijlage wel, als scan niet.
+_HEIC_MERKEN = {
+    b"heic", b"heix", b"hevc", b"hevx", b"heim", b"heis", b"mif1", b"msf1", b"heif",
+}
+_HEIF_MERKEN = {b"heif", b"mif1", b"msf1"}
+
 
 def veilig_pad(map_, naam):
     """Alleen een kale bestandsnaam binnen deze map.
@@ -188,12 +222,8 @@ def veilig_pad(map_, naam):
     return pad
 
 
-def formaat_grootte(pad):
-    """Bestandsgrootte in gewone taal, voor onder de bestandsnaam."""
-    try:
-        aantal = os.path.getsize(pad)
-    except OSError:
-        return ""
+def formaat_bytes(aantal):
+    """Een aantal bytes in gewone taal."""
     if aantal < 1024:
         return "1 byte" if aantal == 1 else f"{aantal} bytes"
     if aantal < 1024 * 1024:
@@ -202,6 +232,15 @@ def formaat_grootte(pad):
         waarde, eenheid = aantal / (1024 * 1024), "MB"
     tekst = f"{waarde:.0f}" if waarde >= 10 else f"{waarde:.1f}".replace(".", ",")
     return f"{tekst} {eenheid}"
+
+
+def formaat_grootte(pad):
+    """Bestandsgrootte in gewone taal, voor onder de bestandsnaam."""
+    try:
+        aantal = os.path.getsize(pad)
+    except OSError:
+        return ""
+    return formaat_bytes(aantal)
 
 
 def soort_bijlage(ext):
@@ -520,9 +559,36 @@ def toon_wat_er_intussen_gebeurde():
     return None
 
 
+def _tekst_voor_grens(aantal):
+    """1024 wordt '1 kB', een veelvoud van een megabyte wordt '32 MB'."""
+    if aantal >= 1024 * 1024 and aantal % (1024 * 1024) == 0:
+        return f"{aantal // (1024 * 1024)} MB"
+    if aantal >= 1024 and aantal % 1024 == 0:
+        return f"{aantal // 1024} kB"
+    return f"{aantal} bytes"
+
+
+@app.before_request
+def _ruimere_scangrens():
+    """De iPhone-opdracht mag meer sturen dan een formulier in de app.
+
+    De grens van 32 MB geldt voor logo's en bonnen. Een paar scans van 25 MB
+    komen daar niet doorheen. De hogere grens hangt aan dit verzoek, niet aan
+    de app: anders mag een ander formulier intussen ook 100 MB sturen."""
+    if request.endpoint == "scans_ontvangen":
+        request.max_content_length = SCAN_VERZOEK_GRENS
+    return None
+
+
 @app.before_request
 def controleer_csrf():
     if request.method != "POST":
+        return None
+    # De opdracht op de iPhone heeft geen sessie en dus geen CSRF-kenmerk.
+    # Alleen dit adres: de code in de Authorization-kop is daar de controle.
+    # Elk ander formulier blijft het kenmerk eisen, ook als iemand die kop
+    # er zelf bij zet.
+    if request.endpoint == "scans_ontvangen":
         return None
     verwacht = session.get("csrf_token")
     gekregen = request.form.get("csrf_token", "")
@@ -560,7 +626,7 @@ INGRESS_NETWERKEN = [
 ]
 
 # Pagina's die je zonder inloggen moet kunnen bereiken, anders kom je er nooit in.
-OPEN_PAGINAS = {"inloggen", "account_instellen", "static"}
+OPEN_PAGINAS = {"inloggen", "account_instellen", "static", "scans_ontvangen"}
 
 
 def via_ingress():
@@ -648,6 +714,25 @@ def als_download():
     toestel opent hem in zijn eigen viewer, met alle bladen, en je lijst blijft
     gewoon staan. Op poort 8099 is er niets aan de hand en blijft bekijken bekijken."""
     return via_ingress()
+
+
+def aantal_scans():
+    """Hoeveel scans er nog wachten. 0 als de tabel er even niet is."""
+    try:
+        conn = get_db()
+        try:
+            rij = conn.execute("SELECT COUNT(*) FROM scans").fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return 0
+    return int(rij[0]) if rij else 0
+
+
+@app.context_processor
+def _scans_in_het_menu():
+    """Het aantal op het tabblad, op elke pagina hetzelfde."""
+    return {"scan_aantal": aantal_scans()}
 
 
 @app.context_processor
@@ -845,8 +930,20 @@ def wachtwoord_wijzigen():
 
 @app.errorhandler(413)
 def te_groot(_fout):
-    melding("Dat is te veel in één keer. Samen mogen de bestanden hooguit 32 MB zijn; "
-          "kies er wat minder tegelijk.", "fout")
+    # De opdracht leest een platte tekst. Een doorverwijzing naar Instellingen
+    # zou daar als melding "verhuisd" tonen, en niet waarom de scan niet aankwam.
+    # Dit is het totaal van het verzoek, niet één bestand. De zin over 25 MB
+    # komt uit de keuring per bestand; die hier zou de opdracht de verkeerde
+    # grens laten zien.
+    if request.path.rstrip("/").endswith("/api/scans"):
+        return _scan_tekst(
+            "Dat is te veel in één keer. Samen mogen de scans hooguit "
+            f"{_tekst_voor_grens(SCAN_VERZOEK_GRENS)} zijn.",
+            413,
+        )
+    melding("Dat is te veel in één keer. Samen mogen de bestanden hooguit "
+            f"{_tekst_voor_grens(app.config['MAX_CONTENT_LENGTH'])} zijn; "
+            "kies er wat minder tegelijk.", "fout")
     return redirect(terug_naar(url_for("instellingen")))
 
 MAANDEN = [
@@ -1661,6 +1758,9 @@ def init_db():
         # 1 zodra de eenmalige zet van 'meesturen' gedraaid heeft. Zonder vlag
         # zette elke start die kolom weer op 1, ook als je hem daarna uitzette.
         ("meesturen_bijgewerkt", "INTEGER DEFAULT 0"),
+        # Alleen de hash van de code voor iPhone-scans. De code zelf staat
+        # nergens: die zie je één keer, bij het aanmaken.
+        ("scan_token_hash", "TEXT DEFAULT ''"),
     ]:
         if kolom not in bestaand:
             conn.execute(f"ALTER TABLE settings ADD COLUMN {kolom} {definitie}")
@@ -1824,6 +1924,20 @@ def init_db():
     _ontkoppel_inconsistente_bonnen(conn)
     _uur_koppeling_uniek(conn)
     _bon_koppeling_uniek(conn)
+
+    # Inbox voor scans vanaf de iPhone. Geen verwijzing naar een klus: die
+    # koppeling komt pas als je de scan indeelt, en dan verhuist het bestand
+    # naar de bijlagen.
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS scans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            bestand TEXT NOT NULL,
+            naam TEXT NOT NULL,
+            soort TEXT NOT NULL,
+            grootte INTEGER NOT NULL DEFAULT 0,
+            ontvangen TEXT NOT NULL
+        )"""
+    )
 
     conn.commit()
     conn.close()
@@ -3034,11 +3148,25 @@ def instellingen():
             melding("Instellingen opgeslagen.")
         return redirect(url_for("instellingen"))
 
+    # De code blijft in de sessie tot de pagina eruit is. Weghalen vóór het
+    # tekenen betekent dat een mislukte pagina hem kwijt is zonder dat je hem
+    # zag. Na een gelukte pagina is een verversing te laat: hij staat nergens
+    # meer, ook niet in de database, alleen de hash.
+    scan_code = session.get("scan_token_eenmalig") or ""
+    if scan_code:
+        @after_this_request
+        def _wis_getoonde_scancode(antwoord):
+            session.pop("scan_token_eenmalig", None)
+            return antwoord
     return render_template("instellingen.html", s=get_settings(),
                            gebruiker=session.get("gebruiker"),
                            via_zijbalk=via_ingress(),
                            heeft_account=heeft_account(),
-                           wachtwoord_minimum=WACHTWOORD_MINIMUM, actief="instellingen")
+                           wachtwoord_minimum=WACHTWOORD_MINIMUM,
+                           scan_code=scan_code or "",
+                           scan_heeft_code=bool((get_settings().get("scan_token_hash") or "").strip()),
+                           scan_url=scan_upload_adres(),
+                           actief="instellingen")
 
 
 def klantenlijst():
@@ -4262,6 +4390,545 @@ def bijlage(bijlage_id):
     if mime is None:
         return niet_gevonden()
     return toon_bestand(pad, mime, rij["naam"])
+
+
+def _scan_tekst(tekst, status):
+    """Plat antwoord, zodat de melding van de opdracht de zin zelf laat zien.
+
+    HTML of JSON komt daar als een lap code binnen. Een regeleinde aan het
+    eind houdt de laatste regel leesbaar in een melding."""
+    antwoord = make_response(tekst + "\n", status)
+    antwoord.mimetype = "text/plain"
+    antwoord.headers["X-Content-Type-Options"] = "nosniff"
+    antwoord.headers["Cache-Control"] = "no-store"
+    return antwoord
+
+
+def _echo_bestandsnaam(ruw):
+    """Naam zoals die in een antwoord mag, zonder regeleinde of stuurtekens."""
+    naam = veilige_downloadnaam(os.path.basename(ruw or ""))
+    if not naam or naam == "bijlage":
+        return "het bestand"
+    return naam[:80]
+
+
+def schone_scannaam(ruw, ext):
+    """Weergavenaam met de extensie die bij de inhoud hoort, niet bij de titel.
+
+    De titel komt van de iPhone en kan een andere extensie claimen dan het
+    bestand is. De opgeslagen naam volgt de inhoud, anders opent een PDF
+    straks als foto."""
+    basis = _echo_bestandsnaam(ruw)
+    if basis == "het bestand":
+        stam = ""
+    else:
+        # ".pdf" heeft voor splitext geen stam: de punt hoort bij een
+        # verborgen naam, en de uitkomst is ".pdf". Punten weghalen laat
+        # "pdf" over, en daar de echte extensie achter plakken werd
+        # alsnog "pdf.pdf". Een naam die alleen de extensie is, is geen naam.
+        stam = os.path.splitext(basis)[0].strip().strip(".")
+        if stam.casefold() == ext.lstrip(".").casefold():
+            stam = ""
+    if not stam:
+        stam = "scan"
+    return f"{stam[:80]}{ext}"
+
+
+def soort_van_scan(kop):
+    """(soort, extensie) uit de eerste bytes, of (None, None).
+
+    De extensie van de bestandsnaam telt niet: die zet de afzender zelf.
+    GIF en WEBP vallen hierdoor af, ook al mogen ze als bijlage wel."""
+    if kop.startswith(b"%PDF-"):
+        return "pdf", ".pdf"
+    if kop.startswith(b"\xff\xd8\xff"):
+        return "jpeg", ".jpg"
+    if kop.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png", ".png"
+    if len(kop) >= 12 and kop[4:8] == b"ftyp" and kop[8:12] in _HEIC_MERKEN:
+        if kop[8:12] in _HEIF_MERKEN:
+            return "heif", ".heif"
+        return "heic", ".heic"
+    return None, None
+
+
+def _scan_code_geldig(gegeven):
+    """Of de meegestuurde code de code uit Instellingen is.
+
+    De vergelijking duurt even lang als de code klopt, ontbreekt of is
+    ingetrokken. Anders verraadt de wachttijd welke van de drie het is.
+    """
+    opgeslagen = (get_settings().get("scan_token_hash") or "").strip()
+    verwacht = opgeslagen if len(opgeslagen) == 64 else LEEG_SCAN_HASH
+    gekregen = hashlib.sha256((gegeven or "").encode("utf-8")).hexdigest()
+    gelijk = secrets.compare_digest(gekregen, verwacht)
+    return len(opgeslagen) == 64 and gelijk
+
+
+def _bearer():
+    kop = request.headers.get("Authorization", "")
+    delen = kop.split(None, 1)
+    if len(delen) != 2 or delen[0].lower() != "bearer":
+        return ""
+    return delen[1].strip()
+
+
+def _ontvang_scanbestand(bestand):
+    """Schrijf één upload naar een tijdelijk bestand en keur hem.
+
+    Te groot stopt met lezen: anders schrijft een enorme upload de schijf
+    alsnog vol, voorbij de grens die we de gebruiker beloven. De lengte die
+    de afzender zelf meestuurt telt niet, die is vrij te verzinnen.
+    """
+    label = _echo_bestandsnaam(getattr(bestand, "filename", "") or "")
+    # Niet in /tmp: die kan een andere schijf zijn, en verplaatsen naar de
+    # bijlagen wordt dan een kopie.
+    fd, pad = tempfile.mkstemp(prefix="in-", dir=SCAN_DIR)
+    bewaren = False
+    try:
+        totaal = 0
+        te_groot = False
+        with os.fdopen(fd, "wb") as uit:
+            while True:
+                blok = bestand.stream.read(_SCAN_STUK)
+                if not blok:
+                    break
+                if totaal + len(blok) > SCAN_PER_BESTAND:
+                    te_groot = True
+                    break
+                totaal += len(blok)
+                uit.write(blok)
+        if te_groot:
+            if label == "het bestand":
+                return None, "Dat bestand is te groot. Eén scan mag hooguit 25 MB zijn.", 413
+            return None, f"{label} is te groot. Eén scan mag hooguit 25 MB zijn.", 413
+        if totaal == 0:
+            if label == "het bestand":
+                return None, "Er zat geen bestand bij de scan.", 400
+            return None, f"{label}: er zat geen bestand bij de scan.", 400
+        with open(pad, "rb") as bron:
+            kop = bron.read(32)
+        soort, ext = soort_van_scan(kop)
+        if not soort:
+            if label == "het bestand":
+                return None, (
+                    "Dit bestand is geen PDF of foto. Stuur een PDF, JPG, PNG of HEIC."
+                ), 415
+            return None, (
+                f"{label} is geen PDF of foto. Stuur een PDF, JPG, PNG of HEIC."
+            ), 415
+        bewaren = True
+        return {
+            "pad": pad,
+            "naam": schone_scannaam(getattr(bestand, "filename", "") or "", ext),
+            "soort": soort,
+            "ext": ext,
+            "grootte": totaal,
+        }, None, None
+    finally:
+        if not bewaren and os.path.isfile(pad):
+            os.remove(pad)
+
+
+def _ruim_scanpaden(paden):
+    for pad in paden:
+        if pad and os.path.isfile(pad):
+            try:
+                os.remove(pad)
+            except OSError:
+                pass
+
+
+def _scans_zin(namen):
+    if len(namen) == 1:
+        return f"Scan ontvangen: {namen[0]}"
+    if len(namen) == 2:
+        return f"Scans ontvangen: {namen[0]} en {namen[1]}"
+    return "Scans ontvangen: " + ", ".join(namen[:-1]) + " en " + namen[-1]
+
+
+@app.route("/api/scans", methods=["POST"])
+def scans_ontvangen():
+    """Scans vanaf de opdracht op de iPhone. Geen sessie, wel de code."""
+    if not _scan_code_geldig(_bearer()):
+        return _scan_tekst(
+            "Deze scan is niet geaccepteerd. Maak in Instellingen een nieuwe code aan.",
+            401,
+        )
+    binnen = [b for b in request.files.getlist("bestand") if b is not None]
+    if not binnen:
+        return _scan_tekst("Er zat geen bestand bij de scan.", 400)
+    if len(binnen) > SCAN_MAX_AANTAL:
+        return _scan_tekst(
+            f"Te veel bestanden. Eén verzoek mag hooguit {SCAN_MAX_AANTAL} scans bevatten.",
+            400,
+        )
+
+    # Eerst alles keuren. Eén bestand dat niet mag, en er wordt niets bewaard:
+    # anders staat een halve lading in de inbox en denkt de melding dat het
+    # mislukte.
+    goedgekeurd = []
+    try:
+        for bestand in binnen:
+            goed, fout, status = _ontvang_scanbestand(bestand)
+            if fout:
+                return _scan_tekst(fout, status)
+            goedgekeurd.append(goed)
+
+        conn = get_db()
+        definitief = []
+        try:
+            ontvangen = nu().strftime("%Y-%m-%dT%H:%M:%S")
+            for goed in goedgekeurd:
+                opslag = secrets.token_hex(8) + goed["ext"]
+                doel = os.path.join(SCAN_DIR, opslag)
+                os.replace(goed["pad"], doel)
+                goed["pad"] = None
+                definitief.append(opslag)
+                conn.execute(
+                    """INSERT INTO scans (bestand, naam, soort, grootte, ontvangen)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (opslag, goed["naam"], goed["soort"], goed["grootte"], ontvangen),
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            _ruim_scanpaden(os.path.join(SCAN_DIR, naam) for naam in definitief)
+            raise
+        finally:
+            conn.close()
+    finally:
+        _ruim_scanpaden(goed.get("pad") for goed in goedgekeurd)
+
+    return _scan_tekst(_scans_zin([goed["naam"] for goed in goedgekeurd]), 200)
+
+
+def scan_upload_adres():
+    """Het adres dat de opdracht moet aanroepen, als we het kunnen zien.
+
+    Via de zijbalk kennen we alleen het pad van Ingress, niet het adres van
+    Home Assistant op het netwerk. Daar is een voorbeeld dus eerlijker dan
+    een adres dat vanaf de bank niet werkt."""
+    if via_ingress():
+        return ""
+    return request.host_url.rstrip("/") + "/api/scans"
+
+
+def scan_tijdstip(waarde):
+    """'2026-10-18T20:49:00' wordt '18 okt 2026, 20:49'."""
+    try:
+        dag = datetime.fromisoformat(str(waarde).replace(" ", "T")[:19])
+    except ValueError:
+        return str(waarde or "")
+    return f"{dag.day} {MAANDEN[dag.month - 1]} {dag.year}, {dag.strftime('%H:%M')}"
+
+
+def _scan_rij(conn, scan_id):
+    rij = conn.execute("SELECT * FROM scans WHERE id=?", (scan_id,)).fetchone()
+    return dict(rij) if rij else None
+
+
+def _miniatuur_pad(rij):
+    """Klein plaatje bij een scan, of None.
+
+    JPEG en PNG zijn zelf het voorbeeld. Van een PDF bewaren we de eerste
+    pagina, eenmalig: pdftoppm tekent die zonder dat de app een zware
+    tekenbibliotheek meeneemt. HEIC tekent een browser op de computer niet;
+    daar volstaat het merk, net als bij de foto's op een klus."""
+    pad = veilig_pad(SCAN_DIR, rij["bestand"])
+    if pad is None or not os.path.isfile(pad):
+        return None
+    if rij["soort"] in {"jpeg", "png"}:
+        return pad
+    if rij["soort"] != "pdf":
+        return None
+    doelnaam = rij["bestand"] + ".min.png"
+    doel = veilig_pad(SCAN_DIR, doelnaam)
+    if doel and os.path.isfile(doel):
+        return doel
+    # Ontbreekt het programma, dan niet onthouden: na een update van de add-on
+    # kan het er opeens wel zijn. Een PDF die het programma zelf niet aankan
+    # blijft dat, en die hoort niet bij elk bezoek opnieuw geprobeerd te worden.
+    mislukt = veilig_pad(SCAN_DIR, rij["bestand"] + ".min.mislukt")
+    if mislukt and os.path.isfile(mislukt):
+        return None
+    if not doel or shutil.which("pdftoppm") is None:
+        return None
+    voorvoegsel = pad + ".min"
+    try:
+        subprocess.run(
+            ["pdftoppm", "-png", "-f", "1", "-l", "1", "-scale-to", "480",
+             pad, voorvoegsel],
+            check=True, timeout=20, capture_output=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        _onthoud_mislukte_miniatuur(mislukt)
+        return None
+    gemaakt = voorvoegsel + "-1.png"
+    if not os.path.isfile(gemaakt):
+        _onthoud_mislukte_miniatuur(mislukt)
+        return None
+    os.replace(gemaakt, doel)
+    return doel
+
+
+def _onthoud_mislukte_miniatuur(pad):
+    if not pad:
+        return
+    try:
+        open(pad, "ab").close()
+    except OSError:
+        pass
+
+
+def _wis_scanminiatuur(rij):
+    """Voorbeeld en een mislukte poging horen bij de scan, niet los in de map."""
+    for extra in (".min.png", ".min.mislukt"):
+        pad = veilig_pad(SCAN_DIR, rij["bestand"] + extra)
+        if pad and os.path.isfile(pad):
+            os.remove(pad)
+
+
+def _verwijder_scanbestanden(rij):
+    pad = veilig_pad(SCAN_DIR, rij["bestand"])
+    if pad and os.path.isfile(pad):
+        os.remove(pad)
+    _wis_scanminiatuur(rij)
+
+
+def klussen_gegroepeerd(conn):
+    """Klussen per klant, voor de keuzelijst bij het indelen van een scan.
+
+    Een klus zonder klant staat onderaan, onder 'Zonder klant'. Anders
+    verdwijnt hij tussen de klanten of valt hij helemaal uit de lijst."""
+    rijen = conn.execute(
+        """SELECT k.id, k.naam AS naam, c.naam AS klant
+           FROM klussen k
+           LEFT JOIN klanten c ON c.id = k.klant_id
+           ORDER BY k.naam COLLATE NOCASE"""
+    ).fetchall()
+    per = {}
+    for rij in rijen:
+        per.setdefault((rij["klant"] or "").strip(), []).append(rij)
+    uit = [(naam, per[naam]) for naam in sorted((n for n in per if n), key=str.casefold)]
+    if "" in per:
+        uit.append(("Zonder klant", per[""]))
+    return uit
+
+
+@app.route("/scans")
+def scans():
+    conn = get_db()
+    rijen = []
+    for rij in conn.execute(
+        "SELECT * FROM scans ORDER BY ontvangen DESC, id DESC"
+    ):
+        scan = dict(rij)
+        scan["grootte_tekst"] = formaat_bytes(scan["grootte"] or 0)
+        scan["wanneer"] = scan_tijdstip(scan["ontvangen"])
+        scan["miniatuur"] = _miniatuur_pad(scan) is not None
+        scan["foto"] = scan["soort"] in {"jpeg", "png", "heic", "heif"}
+        rijen.append(scan)
+    conn.close()
+    return render_template("scans.html", scans=rijen, actief="scans")
+
+
+@app.route("/scans/<int:scan_id>/bestand")
+def scan_bestand(scan_id):
+    conn = get_db()
+    rij = _scan_rij(conn, scan_id)
+    conn.close()
+    if rij is None:
+        return niet_gevonden()
+    pad = veilig_pad(SCAN_DIR, rij["bestand"])
+    if pad is None or not os.path.isfile(pad):
+        return niet_gevonden()
+    ext = os.path.splitext(pad)[1].lower()
+    mime = BIJLAGE_MIMES.get(ext)
+    if mime is None:
+        return niet_gevonden()
+    return toon_bestand(pad, mime, rij["naam"])
+
+
+@app.route("/scans/<int:scan_id>/miniatuur")
+def scan_miniatuur(scan_id):
+    conn = get_db()
+    rij = _scan_rij(conn, scan_id)
+    conn.close()
+    if rij is None:
+        return niet_gevonden()
+    pad = _miniatuur_pad(rij)
+    if pad is None:
+        return niet_gevonden()
+    mime = "image/png" if rij["soort"] == "pdf" else BIJLAGE_MIMES.get(
+        os.path.splitext(pad)[1].lower(), "application/octet-stream")
+    return toon_bestand(pad, mime, rij["naam"])
+
+
+def _scan_of_404(scan_id):
+    conn = get_db()
+    rij = _scan_rij(conn, scan_id)
+    if rij is None:
+        conn.close()
+        abort(404)
+    return conn, rij
+
+
+@app.route("/scans/<int:scan_id>/bon", methods=["GET", "POST"])
+def scan_als_bon(scan_id):
+    """De scan wordt een bon bij een klus. Het bestand gaat mee; een
+    bestandsveld kun je niet van tevoren invullen."""
+    conn, rij = _scan_of_404(scan_id)
+    if request.method == "POST":
+        return _koppel_als_bon(conn, rij)
+    groepen = klussen_gegroepeerd(conn)
+    conn.close()
+    return render_template(
+        "scan_koppel.html", scan=_scan_voor_formulier(rij), groepen=groepen,
+        doel="bon", titel="Scan als bon", knop="Bon maken",
+        omschrijving=os.path.splitext(rij["naam"])[0], actief="scans",
+    )
+
+
+@app.route("/scans/<int:scan_id>/notitie", methods=["GET", "POST"])
+def scan_als_notitie(scan_id):
+    conn, rij = _scan_of_404(scan_id)
+    if request.method == "POST":
+        return _koppel_als_notitie(conn, rij)
+    groepen = klussen_gegroepeerd(conn)
+    conn.close()
+    return render_template(
+        "scan_koppel.html", scan=_scan_voor_formulier(rij), groepen=groepen,
+        doel="notitie", titel="Scan bij een notitie", knop="Notitie maken",
+        vandaag_iso=vandaag().isoformat(), actief="scans",
+    )
+
+
+def _scan_voor_formulier(rij):
+    scan = dict(rij)
+    scan["grootte_tekst"] = formaat_bytes(scan["grootte"] or 0)
+    return scan
+
+
+def _gekozen_klus(conn):
+    ruw = (request.form.get("klus_id") or "").strip()
+    if not ruw.isdigit():
+        return None
+    return conn.execute("SELECT * FROM klussen WHERE id=?", (int(ruw),)).fetchone()
+
+
+def _koppel_als_bon(conn, rij):
+    klus = _gekozen_klus(conn)
+    if klus is None:
+        conn.close()
+        melding("Kies een klus.", "fout")
+        return redirect(url_for("scan_als_bon", scan_id=rij["id"]))
+    omschrijving = (request.form.get("omschrijving") or "").strip()
+    if not omschrijving:
+        omschrijving = os.path.splitext(rij["naam"])[0] or "Bon"
+    bedrag = _lees_bedrag(request.form.get("bedrag"))
+    inkoop_id = conn.execute(
+        """INSERT INTO inkopen (klus_id, omschrijving, bedrag, toegevoegd)
+           VALUES (?, ?, ?, ?)""",
+        (klus["id"], omschrijving, bedrag, vandaag().isoformat()),
+    ).lastrowid
+    if not _scan_naar_bijlage(conn, rij, klus["id"], inkoop_id=inkoop_id):
+        conn.rollback()
+        conn.close()
+        melding("Het bestand van deze scan is weg. Verwijder de scan en stuur hem opnieuw.",
+                "fout")
+        return redirect(url_for("scans"))
+    conn.commit()
+    conn.close()
+    melding(f"Scan bij de bon '{omschrijving}' gezet.")
+    return redirect(url_for("klus", klus_id=klus["id"]))
+
+
+def _koppel_als_notitie(conn, rij):
+    klus = _gekozen_klus(conn)
+    if klus is None:
+        conn.close()
+        melding("Kies een klus.", "fout")
+        return redirect(url_for("scan_als_notitie", scan_id=rij["id"]))
+    tekst = (request.form.get("tekst") or "").strip()
+    wanneer = geldige_datum(request.form.get("wanneer"), vandaag().isoformat())
+    notitie_id = conn.execute(
+        "INSERT INTO notities (klus_id, wanneer, tekst) VALUES (?, ?, ?)",
+        (klus["id"], wanneer, tekst),
+    ).lastrowid
+    if not _scan_naar_bijlage(conn, rij, klus["id"], notitie_id=notitie_id):
+        conn.rollback()
+        conn.close()
+        melding("Het bestand van deze scan is weg. Verwijder de scan en stuur hem opnieuw.",
+                "fout")
+        return redirect(url_for("scans"))
+    conn.commit()
+    conn.close()
+    melding("Scan bij de notitie gezet.")
+    return redirect(url_for("klus", klus_id=klus["id"]))
+
+
+def _scan_naar_bijlage(conn, rij, klus_id, notitie_id=None, inkoop_id=None):
+    """Koppel de scan en verplaats het bestand pas als de rijen klaarstaan.
+
+    Verplaatsen vóór de insert liet een bestand in de bijlagenmap achter
+    zonder rij, zodra de database daarna nog weigerde."""
+    bron = veilig_pad(SCAN_DIR, rij["bestand"])
+    if bron is None or not os.path.isfile(bron):
+        return False
+    ext = os.path.splitext(rij["bestand"])[1].lower()
+    if ext not in BIJLAGE_TYPES:
+        return False
+    opslag = f"{secrets.token_hex(8)}{ext}"
+    conn.execute(
+        """INSERT INTO bijlagen (klus_id, bestand, naam, toegevoegd, meesturen,
+           notitie_id, inkoop_id) VALUES (?, ?, ?, ?, 0, ?, ?)""",
+        (klus_id, opslag, rij["naam"], vandaag().isoformat(), notitie_id, inkoop_id),
+    )
+    conn.execute("DELETE FROM scans WHERE id=?", (rij["id"],))
+    try:
+        shutil.move(bron, os.path.join(BIJLAGE_DIR, opslag))
+    except OSError:
+        return False
+    _wis_scanminiatuur(rij)
+    return True
+
+
+@app.route("/scans/<int:scan_id>/verwijder", methods=["POST"])
+def scan_verwijder(scan_id):
+    conn, rij = _scan_of_404(scan_id)
+    _verwijder_scanbestanden(rij)
+    conn.execute("DELETE FROM scans WHERE id=?", (scan_id,))
+    conn.commit()
+    conn.close()
+    melding("Scan verwijderd.")
+    return redirect(url_for("scans"))
+
+
+@app.route("/instellingen/scans/token", methods=["POST"])
+def scan_token():
+    """Nieuwe code, of de oude intrekken. De code zelf gaat niet de database in."""
+    actie = (request.form.get("actie") or "").strip()
+    conn = get_db()
+    if actie == "intrekken":
+        conn.execute("UPDATE settings SET scan_token_hash='' WHERE id=1")
+        conn.commit()
+        conn.close()
+        session.pop("scan_token_eenmalig", None)
+        melding("De code voor iPhone-scans is ingetrokken. De opdracht op je "
+                "iPhone doet het niet meer tot je een nieuwe code maakt.")
+        return redirect(url_for("instellingen") + "#iphone-scans")
+    if actie != "nieuw":
+        conn.close()
+        abort(400)
+    token = secrets.token_urlsafe(32)
+    digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    conn.execute("UPDATE settings SET scan_token_hash=? WHERE id=1", (digest,))
+    conn.commit()
+    conn.close()
+    session["scan_token_eenmalig"] = token
+    melding("Nieuwe code gemaakt. Kopieer hem nu; daarna is hij niet meer te zien.")
+    return redirect(url_for("instellingen") + "#iphone-scans")
 
 
 @app.route("/bijlage/<int:bijlage_id>/meesturen", methods=["POST"])

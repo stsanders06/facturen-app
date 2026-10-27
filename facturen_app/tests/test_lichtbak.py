@@ -6,8 +6,6 @@ de link, dus een tik daarop opent de foto niet.
 import base64
 import io
 
-import pytest
-
 PNG = bytes.fromhex(
     "89504e470d0a1a0a0000000d494844520000000100000001080600000"
     "01f15c4890000000a49444154789c6300010000050001"
@@ -41,9 +39,8 @@ def _vul(post, db, client):
 
 
 def _browser(html):
-    pytest.importorskip("playwright.sync_api")
-    from playwright.sync_api import sync_playwright
-    p = sync_playwright().start()
+    from browser import webkit_of_overslaan
+    p = webkit_of_overslaan()().start()
     browser = p.webkit.launch()
     pagina = browser.new_page(viewport={"width": 390, "height": 844}, device_scale_factor=1)
     pagina.set_content(html)

@@ -1,0 +1,63 @@
+{% extends "_layout.html" %}
+{% block title %}{{ titel }}{% endblock %}
+{% block content %}
+
+<div class="page-head">
+  <h1>{{ titel }}</h1>
+</div>
+
+<p class="hint" style="margin-top:-8px">{{ scan.naam }} · {{ scan.grootte_tekst }}</p>
+
+{% if not groepen %}
+<section class="card" style="margin-top:16px">
+  <p>Maak eerst een klus. Een scan hoort bij een klus.</p>
+  <p style="margin:12px 0 0"><a class="btn" href="{{ url_for('klus_nieuw') }}">Nieuwe klus</a></p>
+</section>
+{% else %}
+<form method="post" class="card" style="margin-top:16px">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="fields">
+    <div class="field">
+      <label for="klus">Klus</label>
+      <select id="klus" name="klus_id" required>
+        <option value="">Kies een klus</option>
+        {% for groepsnaam, klussen in groepen %}
+        <optgroup label="{{ groepsnaam }}">
+          {% for k in klussen %}
+          <option value="{{ k.id }}">{{ k.naam }}</option>
+          {% endfor %}
+        </optgroup>
+        {% endfor %}
+      </select>
+    </div>
+    {% if doel == 'bon' %}
+    <div class="field">
+      <label for="omschrijving">Omschrijving</label>
+      <input type="text" id="omschrijving" name="omschrijving" value="{{ omschrijving }}"
+             placeholder="Bijv. bouwmarkt">
+    </div>
+    <div class="field">
+      <label for="bedrag">Totaalbedrag</label>
+      <input type="number" step="any" id="bedrag" name="bedrag" inputmode="decimal"
+             placeholder="0,00">
+    </div>
+    {% else %}
+    <div class="field">
+      <label for="wanneer">Datum</label>
+      <input type="date" id="wanneer" name="wanneer" value="{{ vandaag_iso }}">
+    </div>
+    <div class="field">
+      <label for="tekst">Notitie</label>
+      <textarea id="tekst" name="tekst" rows="3"
+                placeholder="Mag leeg: de scan is dan zelf de notitie"></textarea>
+    </div>
+    {% endif %}
+  </div>
+  <div class="indienen" style="margin-top:16px">
+    <a class="btn btn-text" href="{{ url_for('scans') }}">Annuleren</a>
+    <button type="submit" class="btn">{{ knop }}</button>
+  </div>
+</form>
+{% endif %}
+
+{% endblock %}

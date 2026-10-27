@@ -22,6 +22,7 @@ import main as facturen  # noqa: E402  (moet ná het zetten van DATA_DIR)
 
 # Tabellen in de volgorde waarin ze leeg mogen: eerst wat naar iets anders verwijst.
 TABELLEN = [
+    "scans",
     "regels", "offerte_regels", "uren", "betalingen", "bijlagen", "notities",
     "inkoop_materialen", "inkopen", "rekening_waarschuwing",
     "facturen",
@@ -81,6 +82,11 @@ def app():
         pdf.unlink()
     for bestand in pathlib.Path(facturen.BIJLAGE_DIR).iterdir():
         bestand.unlink()
+    # Scans liggen in een eigen map. Zonder deze opruiming blijft een bestand
+    # van de vorige test staan en telt de inbox opeens twee scans.
+    for bestand in pathlib.Path(facturen.SCAN_DIR).iterdir():
+        if bestand.is_file():
+            bestand.unlink()
 
 
 @pytest.fixture

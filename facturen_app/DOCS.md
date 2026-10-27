@@ -248,6 +248,30 @@ bestand als bijlage mee. Wat je niet aanvinkt, blijft alleen voor jezelf.
 De bestanden staan in `/data` en gaan mee in een Home Assistant back-up. Verwijder je de
 klus, dan gaan ze mee.
 
+### Scans vanaf de iPhone
+
+Het bestandskeuzescherm van Safari heeft geen «Scan documenten». In de Opdrachten-app
+maak je daarom een opdracht «Naar Facturen» die in het deelpaneel staat («Toon in
+deelpaneel»). Die stuurt elke scan apart naar
+`http://<adres-van-home-assistant>:8099/api/scans`. Ingress of een adres op internet
+is daar niet voor nodig: thuis is het het adres op je eigen netwerk, en onderweg
+hetzelfde adres zodra de VPN aanstaat.
+
+Zet om de scan heen «Herhaal voor elk onderdeel», over de invoer van de opdracht, en
+stop bij «Stop herhalen». In die herhaling: «Haal inhoud van URL op», tik op «Toon
+meer» en zet de methode op POST. Voeg een koptekst `Authorization` toe met als
+waarde `Bearer <code>`. Bij «Vraag om hoofdtekst» kies je Formulier. Het veld
+heet `bestand` en het type is Bestand; een ander type komt aan als «geen bestand».
+De waarde is «Herhaal onderdeel», het bestand van die ronde. Eén bestand per
+verzoek, ook als je er maar één deelt.
+
+De code en de stappen staan bij Instellingen, onder iPhone-scans. De code zie je één
+keer, zolang die pagina open is, en je kunt hem daar kopiëren. Een binnengekomen scan
+staat onder Scans. Daar maak je er een bon of een notitie van, of je verwijdert hem.
+PDF, JPG, PNG en HEIC mogen, per bestand hooguit 25 MB, samen iets minder dan 100 MB,
+en hooguit 20 bestanden per keer. De aanvraag eromheen telt mee, dus houd een
+beetje ruimte over.
+
 ## De klantpagina
 
 Klik op een klant en je ziet alles van die klant bij elkaar: hoeveel er in totaal is

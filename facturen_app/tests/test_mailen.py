@@ -3,8 +3,6 @@ import base64
 import io
 import re
 
-import pytest
-
 from conftest import facturen
 
 PNG = bytes.fromhex(
@@ -255,8 +253,8 @@ def test_de_lichtbak_houdt_de_focus_en_geeft_hem_terug(post, db, client):
     """Een foto opent als dialoog. Tab blijft daar, Escape sluit, en de focus
     keert terug naar de link die hem opende. Een tik op de foto zelf zet de
     focus op de pagina; Escape moet hem dan nog steeds sluiten."""
-    pytest.importorskip("playwright.sync_api")
-    from playwright.sync_api import sync_playwright
+    from browser import webkit_of_overslaan
+    sync_playwright = webkit_of_overslaan()
 
     mailserver(db)
     post("/klussen/nieuw", {"naam": "Badkamer Voorbeeldstraat", "uurtarief": "45"})

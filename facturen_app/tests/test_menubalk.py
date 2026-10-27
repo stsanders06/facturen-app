@@ -3,8 +3,6 @@
 De lijst hing los boven de pagina. De knoppen eronder lagen er met een hogere
 laag overheen, zodat de onderste bon of dag niet te lezen en niet te tikken was.
 """
-import pytest
-
 from test_smalle_weergave import css_van, regel_met
 
 
@@ -75,8 +73,8 @@ def _meet(pagina, menu_id):
 
 def test_een_lange_lijst_blijft_boven_de_knoppen(client, post, db):
     """Twaalf bonnen en twaalf dagen, op 390 en op 320."""
-    pytest.importorskip("playwright.sync_api")
-    from playwright.sync_api import sync_playwright
+    from browser import webkit_of_overslaan
+    sync_playwright = webkit_of_overslaan()
 
     klant_id = _twaalf(post, db)
     html = client.get(f"/nieuw?klant={klant_id}").data.decode()

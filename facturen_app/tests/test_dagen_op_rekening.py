@@ -1336,8 +1336,8 @@ def test_geweigerde_opslag_houdt_het_formulier(post, db):
 
 def test_geweigerde_opslag_blijft_staan_met_script(post, db):
     """Met script blijven de teruggezette regels in de samenvatting staan."""
-    pytest.importorskip("playwright.sync_api")
-    from playwright.sync_api import sync_playwright
+    from browser import webkit_of_overslaan
+    sync_playwright = webkit_of_overslaan()
 
     klant_id, klus_id = _klus(post, db)
     post(f"/klus/{klus_id}/dag", {"datum": "2026-10-12", "van": "08:00", "tot": "12:00"})

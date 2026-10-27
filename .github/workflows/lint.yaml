@@ -47,6 +47,9 @@ jobs:
   tests:
     name: Tests
     runs-on: ubuntu-latest
+    # De suite is seconden. Een hangende browser-installatie mag de job niet
+    # een uur vasthouden; een kwartier is ruim voor Chromium uit de cache.
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -60,6 +63,21 @@ jobs:
         run: |
           pip install -r facturen_app/app/requirements.txt
           pip install -r facturen_app/tests/requirements.txt
+
+      - name: Browsercache
+        id: browsercache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('facturen_app/tests/requirements.txt') }}
+
+      # Alleen Chromium, en alleen als de cache leeg is. WebKit met
+      # --with-deps installeerde een minutenlange lading systeempakketten
+      # en de job bleef daarop hangen. Zonder WebKit slaan die tests over.
+      # De inbox-test tekent met Chromium of de Chrome van de runner.
+      - name: Chromium
+        if: steps.browsercache.outputs.cache-hit != 'true'
+        run: python -m playwright install chromium
 
       - name: Pytest
         run: pytest

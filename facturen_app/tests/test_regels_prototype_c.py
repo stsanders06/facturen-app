@@ -1,5 +1,4 @@
 """Prototype C: regels staan compact ingeklapt op rekening- en offerteformulier."""
-import pytest
 
 
 def test_nieuw_formulier_heeft_regel_samenvatting(client):
@@ -158,8 +157,8 @@ def _velden_van_open_kaart(pagina):
 
 def test_de_regelkaarten_liggen_strak_op_een_smal_scherm(client, db):
     """Omschrijving en uren op één basislijn, bedrag links, kruisje rechts."""
-    pytest.importorskip("playwright.sync_api")
-    from playwright.sync_api import sync_playwright
+    from browser import webkit_of_overslaan
+    sync_playwright = webkit_of_overslaan()
 
     factuur_id = _rekening_met_drie_soorten(db)
     html = client.get(f"/factuur/{factuur_id}/bewerk").data.decode()
