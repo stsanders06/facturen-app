@@ -259,16 +259,18 @@ hetzelfde adres zodra de VPN aanstaat.
 
 Zet om de scan heen «Herhaal voor elk onderdeel», over de invoer van de opdracht, en
 stop bij «Stop herhalen». In die herhaling: «Haal inhoud van URL op», tik op «Toon
-meer» en zet de methode op POST. Bij «Vraag om hoofdtekst» kies je Formulier. Het
-veld heet `bestand` en het type is Bestand; een ander type komt aan als «geen
-bestand». De waarde is «Herhaal onderdeel», het bestand van die ronde. Eén bestand
-per verzoek, ook als je er maar één deelt.
+meer» en zet de methode op POST. Voeg een koptekst `Authorization` toe met als
+waarde `Bearer <code>`. Bij «Vraag om hoofdtekst» kies je Formulier. Het veld
+heet `bestand` en het type is Bestand; een ander type komt aan als «geen bestand».
+De waarde is «Herhaal onderdeel», het bestand van die ronde. Eén bestand per
+verzoek, ook als je er maar één deelt.
 
 De code en de stappen staan bij Instellingen, onder iPhone-scans. De code zie je één
 keer, zolang die pagina open is, en je kunt hem daar kopiëren. Een binnengekomen scan
 staat onder Scans. Daar maak je er een bon of een notitie van, of je verwijdert hem.
-PDF, JPG, PNG en HEIC mogen, per bestand hooguit 25 MB, samen hooguit 100 MB, en
-hooguit 20 bestanden per keer.
+PDF, JPG, PNG en HEIC mogen, per bestand hooguit 25 MB, samen iets minder dan 100 MB,
+en hooguit 20 bestanden per keer. De aanvraag eromheen telt mee, dus houd een
+beetje ruimte over.
 
 ## De klantpagina
 

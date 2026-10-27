@@ -12,8 +12,6 @@ import struct
 import subprocess
 import zlib
 
-import pytest
-
 from conftest import facturen
 from test_smalle_weergave import css_van, regel_met
 
@@ -380,6 +378,28 @@ def test_de_uitleg_noemt_de_opdracht_en_het_veld(client):
     assert "herhaal het veld" not in pagina
 
 
+def test_de_documentatie_noemt_de_koptekst_en_de_grens():
+    from pathlib import Path
+    wortel = Path(__file__).resolve().parents[1]
+    docs = (wortel / "DOCS.md").read_text()
+    log = (wortel / "CHANGELOG.md").read_text().split("## 1.41.2", 1)[0]
+    for tekst in (docs, log):
+        assert "Authorization" in tekst
+        assert "Bearer <code>" in tekst
+    assert "iets minder dan 100 MB" in docs
+
+
+def test_de_ci_installeert_geen_webkit():
+    """WebKit met systeempakketten hield de testjob meer dan tien minuten vast."""
+    from pathlib import Path
+    tekst = (Path(__file__).resolve().parents[2] / ".github" / "workflows" / "lint.yaml").read_text()
+    assert "install --with-deps webkit" not in tekst
+    assert "install webkit" not in tekst
+    assert "timeout-minutes:" in tekst
+    assert "playwright install chromium" in tekst
+    assert "actions/cache@v4" in tekst
+
+
 def test_de_getoonde_code_verdwijnt_uit_de_sessie(client, post):
     """Weghalen vóór het tekenen zou de code kwijt zijn als de pagina mislukt.
     Na een gelukte pagina mag een verversing hem niet nog eens tonen, en hij
@@ -391,11 +411,21 @@ def test_de_getoonde_code_verdwijnt_uit_de_sessie(client, post):
     assert 'data-kopieer="scan-code"' in pagina
     assert "Kopieer" in pagina
     assert "Gekopieerd" in pagina
+    assert 'aria-live="polite"' in pagina
     assert "clipboard.writeText" in pagina
     assert 'execCommand("copy")' in pagina
+    assert "setSelectionRange(0, 9999)" in pagina
+    assert 'for="scan-code"' in pagina
+    assert '<textarea id="scan-code"' in pagina
     assert "min-height: 44px" in regel_met(css_van(pagina), ".kopieer-rij textarea.scan-code")
     with client.session_transaction() as sessie:
         assert "scan_token_eenmalig" not in sessie
+    # Na een verversing is het veld weg. Het label mag dan niet naar de
+    # alinea wijzen die uitlegt dat de code niet meer te zien is.
+    daarna = client.get("/instellingen").data.decode()
+    assert "Er staat een code" in daarna
+    assert 'for="scan-code"' not in daarna
+    assert 'id="scan-code"' not in daarna
 
 
 def test_een_punt_pdf_krijgt_geen_dubbele_extensie(client, post, db):
@@ -496,9 +526,8 @@ def test_een_pdfminiatuur_blijft_heel_in_het_vak(client):
 
 
 def _browser():
-    pytest.importorskip("playwright.sync_api")
-    from playwright.sync_api import sync_playwright
-    return sync_playwright
+    from browser import playwright_verplicht
+    return playwright_verplicht()
 
 
 def test_een_lange_scannaam_duwt_de_inbox_niet_van_het_scherm(client, db):
@@ -521,8 +550,9 @@ def test_een_lange_scannaam_duwt_de_inbox_niet_van_het_scherm(client, db):
     assert "overflow-wrap: anywhere" in regel_met(css, ".scan-naam")
     assert "min-width: 0" in regel_met(css, ".scan-kaart")
 
+    from browser import meetbrowser
     with sync_playwright() as p:
-        browser = p.webkit.launch()
+        browser = meetbrowser(p)
         pagina = browser.new_page(device_scale_factor=1)
         try:
             for breedte in (390, 320):
@@ -554,8 +584,9 @@ def test_de_code_is_op_een_telefoon_helemaal_te_bereiken(client, post):
     token = html[open_einde:html.index("</textarea>", open_einde)].strip()
     assert len(token) > 20
 
+    from browser import meetbrowser
     with sync_playwright() as p:
-        browser = p.webkit.launch()
+        browser = meetbrowser(p)
         pagina = browser.new_page(device_scale_factor=1)
         try:
             for breedte in (390, 320):

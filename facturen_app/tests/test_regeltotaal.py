@@ -6,8 +6,6 @@ de kaart hoort hetzelfde getal te laten zien, ook terwijl je nog typt.
 """
 from decimal import Decimal
 
-import pytest
-
 from conftest import facturen
 from test_smalle_weergave import css_van, regel_met
 
@@ -111,8 +109,8 @@ def _totaal_op_kaart(pagina):
 
 def test_het_regeltotaal_rekent_als_de_server_en_werkt_mee(client):
     """1,5 × 45,55 is 68,33, niet 68,32. Het bedrag wijzigt vóór het opslaan."""
-    pytest.importorskip("playwright.sync_api")
-    from playwright.sync_api import sync_playwright
+    from browser import webkit_of_overslaan
+    sync_playwright = webkit_of_overslaan()
 
     verwacht = facturen.rond_centen(Decimal("1.5") * Decimal("45.55"))
     assert facturen.nl_bedrag(verwacht) == "68,33"
@@ -183,8 +181,8 @@ def test_een_dagregel_rekent_met_de_minuten_en_de_tijden_blijven_heel(post, clie
 
     Op 320px mag de tijd niet doormidden, en een regel niet met · beginnen.
     """
-    pytest.importorskip("playwright.sync_api")
-    from playwright.sync_api import sync_playwright
+    from browser import webkit_of_overslaan
+    sync_playwright = webkit_of_overslaan()
 
     factuur_id = _dagfactuur(post, db)
     # 7,33 × 20 zou 146,60 zijn. De minuten geven 146,67, net als de PDF.

@@ -10,9 +10,10 @@ genoeg; anders blijft de vorige versie draaien.
   elk bestand apart, via «Haal inhoud van URL op». Hij verschijnt onder Scans.
   Daar koppel je hem aan een bon of een notitie, of je gooit hem weg.
 - **De code en het adres staan bij Instellingen, onder iPhone-scans.** De code
-  zie je één keer, zolang die pagina open is, en je kunt hem daar kopiëren. Ben
-  je niet thuis, zet dan eerst de VPN aan. Daarna is het hetzelfde adres als op
-  de wifi thuis.
+  zie je één keer, zolang die pagina open is, en je kunt hem daar kopiëren. In
+  de opdracht zet je hem in de koptekst Authorization, met als waarde
+  `Bearer <code>`. Ben je niet thuis, zet dan eerst de VPN aan. Daarna is het
+  hetzelfde adres als op de wifi thuis.
 
 ## 1.41.2
 

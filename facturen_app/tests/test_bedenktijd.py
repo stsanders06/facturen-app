@@ -188,8 +188,8 @@ def test_tegenhouden_zet_de_stand_niet_op_gelukt(client, post, mailbare_rekening
 def test_het_scherm_gaat_alleen_dicht_als_de_mail_gelukt_is(post, mailbare_rekening,
                                                            met_bedenktijd):
     """De balk leeg: gelukt gaat weg, een fout of tegenhouden niet."""
-    pytest.importorskip("playwright.sync_api")
-    from playwright.sync_api import sync_playwright
+    from browser import webkit_of_overslaan
+    sync_playwright = webkit_of_overslaan()
 
     html = post(
         f"/factuur/{mailbare_rekening}/verstuur",
@@ -270,8 +270,8 @@ def test_een_trage_mail_krijgt_een_zin_in_plaats_van_te_blijven_wachten(
         post, mailbare_rekening, met_bedenktijd):
     """Na een paar seconden stopte het vragen. Een trage server liet het scherm
     dan op 'wordt verstuurd' staan. Langer vragen, en daarna een zin met een link."""
-    pytest.importorskip("playwright.sync_api")
-    from playwright.sync_api import sync_playwright
+    from browser import webkit_of_overslaan
+    sync_playwright = webkit_of_overslaan()
 
     html = post(
         f"/factuur/{mailbare_rekening}/verstuur",

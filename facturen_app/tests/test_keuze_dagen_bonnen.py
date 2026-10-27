@@ -478,8 +478,8 @@ def test_dagen_staan_op_datum_en_dan_op_begintijd(post, db, client):
 
 def test_kiezen_in_de_lijst_haalt_een_dag_en_een_bon_uit_het_menu(post, db, client):
     """Met script: één dag, daarna de rest, en een bon verdwijnt zodra hij erop staat."""
-    pytest.importorskip("playwright.sync_api")
-    from playwright.sync_api import sync_playwright
+    from browser import webkit_of_overslaan
+    sync_playwright = webkit_of_overslaan()
 
     klant_id, klus_id = _klant_en_klus(post, db)
     post(f"/klus/{klus_id}/dag", {"datum": "2026-10-12", "van": "08:00", "tot": "12:00"})
@@ -537,8 +537,8 @@ def _menu_valt_samen_met_de_knop(pagina, opschrift):
 
 def test_menu_is_even_breed_als_de_knop_en_dekt_aanmaken_niet_af(post, db, client):
     """Op 390 en 320 px volgt het menu de knop. Een tik op Aanmaken blijft aanmaken."""
-    pytest.importorskip("playwright.sync_api")
-    from playwright.sync_api import sync_playwright
+    from browser import webkit_of_overslaan
+    sync_playwright = webkit_of_overslaan()
 
     klant_id, klus_id = _klant_en_klus(post, db)
     for dag in range(1, 13):

@@ -5,8 +5,6 @@ opgeslagen" las alsof er iets fout was gegaan. De kleur draagt nu de betekenis.
 """
 import re
 
-import pytest
-
 from test_smalle_weergave import css_van, regel_met
 
 
@@ -252,8 +250,8 @@ def _kruisje_zit_rechtsboven(pagina, soort):
 def test_het_sluitkruisje_staat_rechtsboven_op_een_telefoon(post, db):
     """Op 320 en 390 px zakte het kruisje onder de tekst, links. Het hoort
     rechtsboven, naast het icoon, bij een gelukte én een mislukte melding."""
-    pytest.importorskip("playwright.sync_api")
-    from playwright.sync_api import sync_playwright
+    from browser import webkit_of_overslaan
+    sync_playwright = webkit_of_overslaan()
 
     gelukt = post("/nieuw", {
         "klant_naam": "Voorbeeld Klant",
