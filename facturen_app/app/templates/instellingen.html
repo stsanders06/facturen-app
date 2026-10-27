@@ -20,6 +20,24 @@
   .scan-stappen li { margin: 6px 0; }
   .scan-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
   .scan-acties { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  /* De algemene textarea is 100% breed. Zonder deze uitzondering valt de
+     knop ernaast van de rij, of rekt een lange code de pagina op. */
+  .kopieer-rij { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; }
+  .kopieer-rij textarea.scan-code {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+    min-height: 44px;
+    max-height: 8em;
+    margin: 0;
+    resize: none;
+    overflow: auto;
+    overflow-wrap: anywhere;
+    word-break: break-all;
+    white-space: pre-wrap;
+  }
+  .kopieer-rij .btn { flex: 0 0 auto; min-height: 44px; }
+  .gekopieerd { align-self: center; font-size: 13px; color: var(--text-secondary); }
 </style>
 {% endblock %}
 {% block content %}
@@ -210,7 +228,7 @@
 <section class="card" id="iphone-scans" style="margin-top:12px">
   <div class="card-head">
     <h2>iPhone-scans</h2>
-    <p>Stuur een scan vanuit het deelblad van de iPhone rechtstreeks hierheen.
+    <p>Stuur een scan vanuit het deelpaneel van de iPhone rechtstreeks hierheen.
       Hij verschijnt daarna onder Scans. Daar koppel je hem aan een bon of een notitie.</p>
   </div>
 
@@ -218,8 +236,12 @@
     <div class="field">
       <label for="scan-adres">Adres voor de opdracht</label>
       {% if scan_url %}
-      <input type="text" id="scan-adres" class="scan-code" readonly value="{{ scan_url }}"
-             onclick="this.select()" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <div class="kopieer-rij">
+        <textarea id="scan-adres" class="scan-code" readonly rows="2"
+                  autocapitalize="off" autocorrect="off" spellcheck="false">{{ scan_url }}</textarea>
+        <button type="button" class="btn btn-outline" data-kopieer="scan-adres">Kopieer</button>
+        <span class="gekopieerd" role="status" hidden>Gekopieerd</span>
+      </div>
       {% else %}
       <p class="hint" id="scan-adres">Vanaf de zijbalk is het adres op je netwerk niet te zien.
         De opdracht gebruikt het adres van Home Assistant thuis, met de poort van deze app:
@@ -233,10 +255,14 @@
     <div class="field">
       <label for="scan-code">Code</label>
       {% if scan_code %}
-      <input type="text" id="scan-code" class="scan-code" readonly value="{{ scan_code }}"
-             onclick="this.select()" autocapitalize="off" autocorrect="off" spellcheck="false">
-      <p class="hint">Deze code zie je één keer. Kopieer hem nu in de opdracht.
-        Bij een verversing is hij weg.</p>
+      <div class="kopieer-rij">
+        <textarea id="scan-code" class="scan-code" readonly rows="2"
+                  autocapitalize="off" autocorrect="off" spellcheck="false">{{ scan_code }}</textarea>
+        <button type="button" class="btn btn-outline" data-kopieer="scan-code">Kopieer</button>
+        <span class="gekopieerd" role="status" hidden>Gekopieerd</span>
+      </div>
+      <p class="hint">Deze code zie je één keer, zolang deze pagina open is. Kopieer hem
+        nu in de opdracht. Bij een verversing is hij weg.</p>
       {% elif scan_heeft_code %}
       <p class="hint" id="scan-code">Er staat een code. Die is niet meer te zien.
         Maak een nieuwe als je hem kwijt bent; de oude werkt dan niet meer.</p>
@@ -265,18 +291,55 @@
   <h3 style="margin:18px 0 4px; font-size:15px; font-weight:500">Opdracht «Naar Facturen»</h3>
   <p class="hint">Een kant-en-klaar bestand om in te lezen werkt niet: de iPhone
     neemt alleen een opdracht aan die Apple heeft ondertekend. Zet hem zelf in
-    elkaar in de Opdrachten-app.</p>
+    elkaar in de Opdrachten-app. Elk bestand gaat in zijn eigen verzoek, ook
+    als je er maar één deelt.</p>
   <ol class="scan-stappen">
-    <li>Nieuwe opdracht. Zet «Toon in deelblad» aan, en vink pdf’s en afbeeldingen aan.</li>
-    <li>«Inhoud van URL ophalen». URL: het adres hierboven. Methode: POST.</li>
+    <li>Nieuwe opdracht. Zet «Toon in deelpaneel» aan, en vink pdf’s en afbeeldingen aan.</li>
+    <li>«Herhaal voor elk onderdeel», over de invoer van de opdracht. De stappen
+      hieronder horen tussen die taak en «Stop herhalen».</li>
+    <li>«Haal inhoud van URL op». URL: het adres hierboven. Tik op «Toon meer»
+      en zet de methode op POST. De methode staat niet meteen in beeld.</li>
     <li>Koptekst <span class="scan-code">Authorization</span>, met als waarde
       <span class="scan-code">Bearer</span>, een spatie, en de code.</li>
-    <li>Vraaginhoud: Formulier. Veld <span class="scan-code">bestand</span>,
-      waarde: Invoer van opdracht. Meerdere bestanden: herhaal het veld
-      <span class="scan-code">bestand</span> voor elk bestand.</li>
-    <li>«Toon melding», met het resultaat van de vorige stap. Daarin staat of
-      de scan is aangekomen.</li>
+    <li>«Vraag om hoofdtekst»: Formulier. Veld <span class="scan-code">bestand</span>,
+      type Bestand. Een ander type komt hier aan als «geen bestand». De waarde is
+      «Herhaal onderdeel»: het bestand van deze ronde, niet alle bestanden tegelijk.</li>
+    <li>«Toon melding», met het resultaat van «Haal inhoud van URL op». Daarin
+      staat of deze scan is aangekomen.</li>
   </ol>
+  <script>
+    // De Clipboard-API weigert op http, en het adres op het thuisnetwerk is http.
+    // De oudere manier moet in dezelfde tik: een belofte die daarna afwijst is
+    // te laat, de browser staat kopiëren dan niet meer toe.
+    (function () {
+      function toon(bevestiging) {
+        if (!bevestiging) return;
+        bevestiging.hidden = false;
+        window.clearTimeout(bevestiging._timer);
+        bevestiging._timer = window.setTimeout(function () {
+          bevestiging.hidden = true;
+        }, 2500);
+      }
+      document.querySelectorAll("[data-kopieer]").forEach(function (knop) {
+        knop.addEventListener("click", function () {
+          var veld = document.getElementById(knop.getAttribute("data-kopieer"));
+          if (!veld) return;
+          var tekst = veld.value;
+          var bevestiging = knop.parentElement.querySelector(".gekopieerd");
+          veld.focus();
+          veld.select();
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(tekst).then(function () {
+              toon(bevestiging);
+            }, function () {});
+          }
+          try {
+            if (document.execCommand("copy")) toon(bevestiging);
+          } catch (e) {}
+        });
+      });
+    })();
+  </script>
 </section>
 
 <section class="card" style="margin-top:12px">

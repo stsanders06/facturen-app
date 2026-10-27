@@ -9,9 +9,13 @@ import io
 import os
 import re
 import struct
+import subprocess
 import zlib
 
+import pytest
+
 from conftest import facturen
+from test_smalle_weergave import css_van, regel_met
 
 # Zoals Home Assistant het stuurt: de header én een afzender uit het interne netwerk.
 ZIJBALK = {
@@ -43,9 +47,9 @@ def code_maken(client, post):
     """Maak een code en geef hem terug. De pagina daarna toont hem niet meer."""
     assert post("/instellingen/scans/token", {"actie": "nieuw"}).status_code == 302
     pagina = client.get("/instellingen").data.decode()
-    begin = pagina.index('id="scan-code"')
-    waarde = pagina.index('value="', begin) + len('value="')
-    token = pagina[waarde:pagina.index('"', waarde)]
+    begin = pagina.index('<textarea id="scan-code"')
+    open_einde = pagina.index(">", begin) + 1
+    token = pagina[open_einde:pagina.index("</textarea>", open_einde)].strip()
     assert token
     assert token not in client.get("/instellingen").data.decode()
     return token
@@ -339,26 +343,253 @@ def test_het_adres_op_de_poort_is_het_adres_van_dit_verzoek(client):
     """De cookie hoort bij localhost. Een ander hostadres stuurt hem niet mee
     en je valt terug op het inlogscherm, dus de poort zit in dezelfde host."""
     pagina = client.get("/instellingen", headers={"Host": "localhost:8099"}).data.decode()
-    assert 'value="http://localhost:8099/api/scans"' in pagina
+    assert ">http://localhost:8099/api/scans</textarea>" in pagina
+    assert 'data-kopieer="scan-adres"' in pagina
     assert "zet dan eerst de VPN aan" in pagina
 
 
 def test_via_de_zijbalk_leggen_we_het_adres_uit(client):
     """Ingress kent het adres op het netwerk niet. Een verzonnen host zou de
-    opdracht naar de verkeerde plek sturen."""
+    opdracht naar de verkeerde plek sturen. Zonder exact adres is er ook
+    niets om te kopiëren."""
     pagina = client.get("/instellingen", environ_overrides=ZIJBALK).data.decode()
     assert "adres-van-home-assistant" in pagina
     assert ":8099/api/scans" in pagina
     assert "zet dan eerst de VPN aan" in pagina
     assert 'id="scan-adres"' in pagina
+    assert 'data-kopieer="scan-adres"' not in pagina
     assert 'value="http://' not in pagina
 
 
 def test_de_uitleg_noemt_de_opdracht_en_het_veld(client):
     pagina = client.get("/instellingen").data.decode()
     assert "Naar Facturen" in pagina
-    assert "Inhoud van URL ophalen" in pagina
+    assert "Haal inhoud van URL op" in pagina
+    assert "Toon meer" in pagina
+    assert "Vraag om hoofdtekst" in pagina
+    assert "Formulier" in pagina
+    assert "type Bestand" in pagina
+    assert "geen bestand" in pagina
+    assert "Herhaal voor elk onderdeel" in pagina
+    assert "Herhaal onderdeel" in pagina
+    assert "Stop herhalen" in pagina
     assert "Authorization" in pagina
-    assert "bestand" in pagina
     assert "Toon melding" in pagina
-    assert "Toon in deelblad" in pagina
+    assert "Toon in deelpaneel" in pagina
+    assert "deelblad" not in pagina
+    assert "herhaal het veld" not in pagina
+
+
+def test_de_getoonde_code_verdwijnt_uit_de_sessie(client, post):
+    """Weghalen vóór het tekenen zou de code kwijt zijn als de pagina mislukt.
+    Na een gelukte pagina mag een verversing hem niet nog eens tonen, en hij
+    hoort ook niet in de sessie achter te blijven."""
+    assert post("/instellingen/scans/token", {"actie": "nieuw"}).status_code == 302
+    with client.session_transaction() as sessie:
+        assert sessie.get("scan_token_eenmalig")
+    pagina = client.get("/instellingen").data.decode()
+    assert 'data-kopieer="scan-code"' in pagina
+    assert "Kopieer" in pagina
+    assert "Gekopieerd" in pagina
+    assert "clipboard.writeText" in pagina
+    assert 'execCommand("copy")' in pagina
+    assert "min-height: 44px" in regel_met(css_van(pagina), ".kopieer-rij textarea.scan-code")
+    with client.session_transaction() as sessie:
+        assert "scan_token_eenmalig" not in sessie
+
+
+def test_een_punt_pdf_krijgt_geen_dubbele_extensie(client, post, db):
+    """'.pdf' heeft voor splitext geen stam. Daar '.pdf' achter plakken
+    werd '.pdf.pdf' in de inbox."""
+    assert facturen.schone_scannaam(".pdf", ".pdf") == "scan.pdf"
+    token = code_maken(client, post)
+    antwoord = stuur(client, token, bestand(b"%PDF-1.4\n", ".pdf"))
+    assert antwoord.status_code == 200
+    assert antwoord.data.decode().strip() == "Scan ontvangen: scan.pdf"
+    assert db.execute("SELECT naam FROM scans").fetchone()[0] == "scan.pdf"
+
+
+def test_het_eenentwintigste_bestand_wordt_geweigerd(client, post, db):
+    token = code_maken(client, post)
+    bestanden = [bestand(png_bytes(), f"s{i}.png") for i in range(21)]
+    antwoord = stuur(client, token, bestanden)
+    assert antwoord.status_code == 400
+    assert "20" in antwoord.data.decode()
+    assert db.execute("SELECT COUNT(*) FROM scans").fetchone()[0] == 0
+    assert os.listdir(facturen.SCAN_DIR) == []
+
+
+def test_twintig_bestanden_mogen_wel(client, post, db):
+    token = code_maken(client, post)
+    bestanden = [bestand(png_bytes(), f"s{i}.png") for i in range(20)]
+    antwoord = stuur(client, token, bestanden)
+    assert antwoord.status_code == 200
+    assert db.execute("SELECT COUNT(*) FROM scans").fetchone()[0] == 20
+
+
+def test_een_te_groot_verzoek_noemt_het_totaal_niet_een_bestand(client, post, monkeypatch):
+    """De grens van het hele verzoek is een andere zin dan die van één bestand.
+    Anders zoekt iemand een scan van 25 MB terwijl het totaal de deur dicht deed."""
+    monkeypatch.setattr(facturen, "SCAN_VERZOEK_GRENS", 1024)
+    token = code_maken(client, post)
+    antwoord = stuur(client, token, bestand(b"\x89PNG\r\n\x1a\n" + b"\x00" * 4000, "samen.png"))
+    assert antwoord.status_code == 413
+    tekst = antwoord.data.decode()
+    assert "1 kB" in tekst
+    assert "Eén scan" not in tekst
+    assert "Samen mogen de scans" in tekst
+
+
+def test_een_gewoon_formulier_blijft_op_de_kleine_grens(client, monkeypatch):
+    """De ruimere grens hangt alleen aan /api/scans. Een ander formulier dat
+    intussen 100 MB mag sturen, vult de schijf alsnog."""
+    assert facturen.app.config["MAX_CONTENT_LENGTH"] == 32 * 1024 * 1024
+    monkeypatch.setitem(facturen.app.config, "MAX_CONTENT_LENGTH", 1024)
+    antwoord = client.post(
+        "/klanten/nieuw",
+        data={"naam": "x" * 2000, "csrf_token": "test-token"},
+        follow_redirects=True,
+    )
+    assert antwoord.status_code == 200
+    pagina = antwoord.data.decode()
+    assert "Samen mogen de bestanden hooguit 1 kB zijn" in pagina
+    assert "Samen mogen de scans" not in pagina
+
+
+def test_een_mislukte_pdfminiatuur_wordt_niet_opnieuw_geprobeerd(client, post, db, monkeypatch):
+    token = code_maken(client, post)
+    assert stuur(client, token, bestand(b"%PDF-1.4\n", "kapot.pdf")).status_code == 200
+    aanroepen = {"n": 0}
+
+    def nep(*_args, **_kwargs):
+        aanroepen["n"] += 1
+        raise subprocess.CalledProcessError(1, "pdftoppm")
+
+    monkeypatch.setattr(facturen.shutil, "which", lambda _naam: "/usr/bin/pdftoppm")
+    monkeypatch.setattr(facturen.subprocess, "run", nep)
+    assert client.get("/scans").status_code == 200
+    assert client.get("/scans").status_code == 200
+    assert aanroepen["n"] == 1
+    assert any(naam.endswith(".min.mislukt") for naam in os.listdir(facturen.SCAN_DIR))
+    scan_id = db.execute("SELECT id FROM scans").fetchone()[0]
+    assert post(f"/scans/{scan_id}/verwijder").status_code == 302
+    assert not any(naam.endswith(".min.mislukt") for naam in os.listdir(facturen.SCAN_DIR))
+
+
+def test_zonder_pdftoppm_onthouden_we_de_mislukking_niet(client, post, monkeypatch):
+    """Ontbreekt het programma, dan kan een update van de add-on het alsnog
+    brengen. Een vlag 'mislukt' zou die eerste pagina voorgoed verbergen."""
+    token = code_maken(client, post)
+    assert stuur(client, token, bestand(b"%PDF-1.4\n", "later.pdf")).status_code == 200
+    monkeypatch.setattr(facturen.shutil, "which", lambda _naam: None)
+    assert client.get("/scans").status_code == 200
+    assert client.get("/scans").status_code == 200
+    assert not any(naam.endswith(".min.mislukt") for naam in os.listdir(facturen.SCAN_DIR))
+
+
+def test_een_pdfminiatuur_blijft_heel_in_het_vak(client):
+    css = css_van(client.get("/scans").data.decode())
+    assert "object-fit: contain" in regel_met(css, ".scan-beeld img.is-pdf")
+    # Foto's blijven het vak vullen. De contain-regel geldt alleen voor de PDF.
+    assert "object-fit: cover" in css
+    assert "is-pdf" in css
+
+
+def _browser():
+    pytest.importorskip("playwright.sync_api")
+    from playwright.sync_api import sync_playwright
+    return sync_playwright
+
+
+def test_een_lange_scannaam_duwt_de_inbox_niet_van_het_scherm(client, db):
+    """Op 320 en 390 werd de kaart 504 px breed: de naam had geen spatie en
+    1fr mocht niet krimpen. De knoppen vielen rechts buiten beeld."""
+    sync_playwright = _browser()
+    naam = "a" * 120
+    db.execute(
+        """INSERT INTO scans (bestand, naam, soort, grootte, ontvangen)
+           VALUES ('lang.png', ?, 'png', 12, '2026-10-27T12:00:00')""",
+        (naam,),
+    )
+    db.commit()
+    html = client.get("/scans").data.decode()
+    assert naam in html
+    css = css_van(html)
+    smal = css[css.index("@media (max-width: 420px)"):]
+    assert "minmax(0, 1fr)" in smal
+    assert "grid-template-columns: 1fr;" not in smal
+    assert "overflow-wrap: anywhere" in regel_met(css, ".scan-naam")
+    assert "min-width: 0" in regel_met(css, ".scan-kaart")
+
+    with sync_playwright() as p:
+        browser = p.webkit.launch()
+        pagina = browser.new_page(device_scale_factor=1)
+        try:
+            for breedte in (390, 320):
+                pagina.set_viewport_size({"width": breedte, "height": 700})
+                pagina.set_content(html)
+                gemeten = pagina.evaluate(
+                    """() => {
+                      const doc = document.documentElement;
+                      const knoppen = [...document.querySelectorAll('.scan-acties .btn')];
+                      const rechts = Math.max(...knoppen.map((k) => k.getBoundingClientRect().right));
+                      return {
+                        scroll: doc.scrollWidth - doc.clientWidth,
+                        knopBinnen: rechts <= window.innerWidth + 1,
+                      };
+                    }"""
+                )
+                assert gemeten["scroll"] <= 1, breedte
+                assert gemeten["knopBinnen"] is True
+        finally:
+            browser.close()
+
+
+def test_de_code_is_op_een_telefoon_helemaal_te_bereiken(client, post):
+    sync_playwright = _browser()
+    assert post("/instellingen/scans/token", {"actie": "nieuw"}).status_code == 302
+    html = client.get("/instellingen").data.decode()
+    begin = html.index('<textarea id="scan-code"')
+    open_einde = html.index(">", begin) + 1
+    token = html[open_einde:html.index("</textarea>", open_einde)].strip()
+    assert len(token) > 20
+
+    with sync_playwright() as p:
+        browser = p.webkit.launch()
+        pagina = browser.new_page(device_scale_factor=1)
+        try:
+            for breedte in (390, 320):
+                pagina.set_viewport_size({"width": breedte, "height": 900})
+                pagina.set_content(html)
+                gemeten = pagina.evaluate(
+                    """(verwacht) => {
+                      const veld = document.getElementById('scan-code');
+                      const doc = document.documentElement;
+                      const doos = veld.getBoundingClientRect();
+                      return {
+                        hoogte: doos.height,
+                        rechts: doos.right,
+                        pagina: doc.scrollWidth - doc.clientWidth,
+                        tekst: veld.value,
+                        bereikbaar: veld.scrollWidth <= veld.clientWidth + 2
+                          || veld.scrollHeight > veld.clientHeight,
+                      };
+                    }""",
+                    token,
+                )
+                assert gemeten["tekst"] == token
+                assert gemeten["hoogte"] >= 44
+                assert gemeten["pagina"] <= 1, breedte
+                assert gemeten["rechts"] <= breedte + 1
+                assert gemeten["bereikbaar"] is True
+            knop = pagina.locator('[data-kopieer="scan-code"]')
+            knop.click()
+            pagina.wait_for_function(
+                """() => {
+                  const veld = document.getElementById('scan-code');
+                  const status = veld.parentElement.querySelector('.gekopieerd');
+                  return status && !status.hidden;
+                }"""
+            )
+        finally:
+            browser.close()

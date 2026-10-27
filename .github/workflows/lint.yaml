@@ -61,5 +61,10 @@ jobs:
           pip install -r facturen_app/app/requirements.txt
           pip install -r facturen_app/tests/requirements.txt
 
+      # Zonder deze browser slaat de inbox-test over, of hij start niet. De
+      # andere schermtests gebruiken dezelfde WebKit.
+      - name: Browser voor de inbox-test
+        run: python -m playwright install --with-deps webkit
+
       - name: Pytest
         run: pytest

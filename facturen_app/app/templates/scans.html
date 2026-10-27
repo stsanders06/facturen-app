@@ -12,7 +12,12 @@
     grid-template-columns: 112px minmax(0, 1fr);
     gap: 12px;
     align-items: start;
+    /* Flex-items houden standaard min-width:auto. Een bestandsnaam zonder
+       spatie werd daardoor de minimumbreedte van de kaart, de pagina groeide
+       tot voorbij het scherm en de knoppen vielen er af. */
+    min-width: 0;
   }
+  .scan-kaart > div { min-width: 0; }
   .scan-beeld { display: block; text-decoration: none; min-width: 0; }
   .scan-beeld img,
   .scan-icoon {
@@ -23,6 +28,9 @@
     border: 1px solid var(--border);
     background: var(--bg);
   }
+  /* Een foto vult het vak. Een PDF-pagina afsnijden verbergt het bedrag;
+     die past er in zijn geheel in. */
+  .scan-beeld img.is-pdf { object-fit: contain; }
   .scan-icoon {
     display: flex;
     align-items: center;
@@ -35,16 +43,18 @@
   .scan-naam {
     display: block;
     font-weight: 500;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
   .scan-meta { margin: 2px 0 10px; }
   .scan-acties { display: flex; flex-wrap: wrap; gap: 8px; }
   .scan-acties form { display: contents; }
   @media (max-width: 420px) {
-    /* Onder elkaar: naast elkaar bleef er op 320px te weinig over voor de knoppen. */
-    .scan-kaart { grid-template-columns: 1fr; }
+    /* Onder elkaar: naast elkaar bleef er op 320px te weinig over voor de knoppen.
+       1fr is minmax(auto, 1fr); die auto is weer de langste onbreekbare naam.
+       minmax(0, 1fr) mag wel krimpen, zodat de naam omslaat in plaats van de
+       kaart op te rekken. */
+    .scan-kaart { grid-template-columns: minmax(0, 1fr); }
     .scan-beeld img, .scan-icoon { height: 160px; }
     .scan-acties { flex-direction: column; align-items: stretch; }
     .scan-acties .btn { width: 100%; }
@@ -71,7 +81,8 @@
        {% if s.foto %}data-soort="foto" data-naam="{{ s.naam }}"{% endif %}
        title="{{ s.naam }} openen">
       {% if s.miniatuur %}
-      <img src="{{ url_for('scan_miniatuur', scan_id=s.id) }}" alt="" loading="lazy">
+      <img src="{{ url_for('scan_miniatuur', scan_id=s.id) }}" alt="" loading="lazy"
+           {% if s.soort == 'pdf' %}class="is-pdf"{% endif %}>
       {% elif s.soort in ['heic', 'heif'] %}
       <span class="scan-icoon" aria-hidden="true">HEIC</span>
       {% else %}

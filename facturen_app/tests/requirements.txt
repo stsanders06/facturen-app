@@ -1,3 +1,6 @@
 # Wat er extra nodig is om de tests te draaien; de app zelf heeft alleen
 # app/requirements.txt nodig.
 pytest==8.3.4
+# De inbox-test meet of een lange bestandsnaam de pagina oprekt. Een losse
+# CSS-regel bewijst dat niet: de browser moet de pagina echt tekenen.
+playwright==1.64.1

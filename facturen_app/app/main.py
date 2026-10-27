@@ -27,8 +27,8 @@ from urllib.request import Request, urlopen
 from urllib.error import URLError
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from flask import (
-    Flask, abort, make_response, request, redirect, url_for, render_template,
-    send_file, flash, session,
+    Flask, abort, after_this_request, make_response, request, redirect, url_for,
+    render_template, send_file, flash, session,
 )
 from markupsafe import Markup, escape
 from reportlab.lib.pagesizes import A4
@@ -141,11 +141,11 @@ app.secret_key = _secret_key()
 app.wsgi_app = IngressMiddleware(app.wsgi_app)
 
 # Zonder grens kan één upload de opslag van Home Assistant volschrijven. Een logo is
-# hooguit een paar honderd kilobyte, een foto een paar megabyte. Een scan vanaf de
-# iPhone mag per bestand 25 MB zijn en de opdracht stuurt er soms een paar tegelijk;
-# dit is het totaal van één verzoek, zodat die nog aankomen. Per bestand geldt daarna
-# een eigen grens.
-app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024
+# hooguit een paar honderd kilobyte, maar een foto van een telefoon is zo vijf megabyte
+# en je kunt er meerdere tegelijk kiezen; vandaar deze grens voor het geheel.
+# Scans vanaf de iPhone mogen samen meer zijn; die ruimere grens geldt alleen
+# voor dat ene adres, niet voor de rest van de app.
+app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024
 # Laat de browser de sessiecookie niet meesturen met verzoeken die van een andere
 # site komen. Het CSRF-kenmerk vangt dat al af; dit is de tweede grendel.
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
@@ -175,9 +175,15 @@ BIJLAGE_MIMES = {
     ".pdf": "application/pdf",
 }
 
-# Eén scan vanaf de iPhone. Meer dan dit weigeren we per bestand, ook al past het
-# verzoek nog onder de grens hierboven: één PDF van 80 MB hoort niet in de inbox.
+# Eén scan vanaf de iPhone. Meer dan dit weigeren we per bestand: één PDF van
+# 80 MB hoort niet in de inbox, ook al past het verzoek nog onder het totaal.
 SCAN_PER_BESTAND = 25 * 1024 * 1024
+# Een paar scans tegelijk mogen samen meer zijn dan een gewone upload. Alleen
+# /api/scans gebruikt deze grens; de rest van de app blijft op 32 MB.
+SCAN_VERZOEK_GRENS = 100 * 1024 * 1024
+# De opdracht stuurt normaal één bestand per verzoek. Een hogere lading is
+# bijna nooit een echte scan en vult de inbox anders in één keer.
+SCAN_MAX_AANTAL = 20
 # Stukken, zodat een te groot bestand stopt met lezen in plaats van eerst helemaal
 # in het geheugen te belanden.
 _SCAN_STUK = 64 * 1024
@@ -553,6 +559,27 @@ def toon_wat_er_intussen_gebeurde():
     return None
 
 
+def _tekst_voor_grens(aantal):
+    """1024 wordt '1 kB', een veelvoud van een megabyte wordt '32 MB'."""
+    if aantal >= 1024 * 1024 and aantal % (1024 * 1024) == 0:
+        return f"{aantal // (1024 * 1024)} MB"
+    if aantal >= 1024 and aantal % 1024 == 0:
+        return f"{aantal // 1024} kB"
+    return f"{aantal} bytes"
+
+
+@app.before_request
+def _ruimere_scangrens():
+    """De iPhone-opdracht mag meer sturen dan een formulier in de app.
+
+    De grens van 32 MB geldt voor logo's en bonnen. Een paar scans van 25 MB
+    komen daar niet doorheen. De hogere grens hangt aan dit verzoek, niet aan
+    de app: anders mag een ander formulier intussen ook 100 MB sturen."""
+    if request.endpoint == "scans_ontvangen":
+        request.max_content_length = SCAN_VERZOEK_GRENS
+    return None
+
+
 @app.before_request
 def controleer_csrf():
     if request.method != "POST":
@@ -905,11 +932,18 @@ def wachtwoord_wijzigen():
 def te_groot(_fout):
     # De opdracht leest een platte tekst. Een doorverwijzing naar Instellingen
     # zou daar als melding "verhuisd" tonen, en niet waarom de scan niet aankwam.
-    if request.path.rstrip("/") == "/api/scans":
+    # Dit is het totaal van het verzoek, niet één bestand. De zin over 25 MB
+    # komt uit de keuring per bestand; die hier zou de opdracht de verkeerde
+    # grens laten zien.
+    if request.path.rstrip("/").endswith("/api/scans"):
         return _scan_tekst(
-            "Dat bestand is te groot. Eén scan mag hooguit 25 MB zijn.", 413)
-    melding("Dat is te veel in één keer. Samen mogen de bestanden hooguit 100 MB zijn; "
-          "kies er wat minder tegelijk.", "fout")
+            "Dat is te veel in één keer. Samen mogen de scans hooguit "
+            f"{_tekst_voor_grens(SCAN_VERZOEK_GRENS)} zijn.",
+            413,
+        )
+    melding("Dat is te veel in één keer. Samen mogen de bestanden hooguit "
+            f"{_tekst_voor_grens(app.config['MAX_CONTENT_LENGTH'])} zijn; "
+            "kies er wat minder tegelijk.", "fout")
     return redirect(terug_naar(url_for("instellingen")))
 
 MAANDEN = [
@@ -3114,9 +3148,16 @@ def instellingen():
             melding("Instellingen opgeslagen.")
         return redirect(url_for("instellingen"))
 
-    # Eén keer tonen. Een verversing leest de sessie leeg en ziet de code niet
-    # opnieuw; die staat ook niet in de database, alleen de hash.
-    scan_code = session.pop("scan_token_eenmalig", None)
+    # De code blijft in de sessie tot de pagina eruit is. Weghalen vóór het
+    # tekenen betekent dat een mislukte pagina hem kwijt is zonder dat je hem
+    # zag. Na een gelukte pagina is een verversing te laat: hij staat nergens
+    # meer, ook niet in de database, alleen de hash.
+    scan_code = session.get("scan_token_eenmalig") or ""
+    if scan_code:
+        @after_this_request
+        def _wis_getoonde_scancode(antwoord):
+            session.pop("scan_token_eenmalig", None)
+            return antwoord
     return render_template("instellingen.html", s=get_settings(),
                            gebruiker=session.get("gebruiker"),
                            via_zijbalk=via_ingress(),
@@ -4379,9 +4420,17 @@ def schone_scannaam(ruw, ext):
     straks als foto."""
     basis = _echo_bestandsnaam(ruw)
     if basis == "het bestand":
-        stam = "scan"
+        stam = ""
     else:
-        stam = os.path.splitext(basis)[0].strip().rstrip(".") or "scan"
+        # ".pdf" heeft voor splitext geen stam: de punt hoort bij een
+        # verborgen naam, en de uitkomst is ".pdf". Punten weghalen laat
+        # "pdf" over, en daar de echte extensie achter plakken werd
+        # alsnog "pdf.pdf". Een naam die alleen de extensie is, is geen naam.
+        stam = os.path.splitext(basis)[0].strip().strip(".")
+        if stam.casefold() == ext.lstrip(".").casefold():
+            stam = ""
+    if not stam:
+        stam = "scan"
     return f"{stam[:80]}{ext}"
 
 
@@ -4509,6 +4558,11 @@ def scans_ontvangen():
     binnen = [b for b in request.files.getlist("bestand") if b is not None]
     if not binnen:
         return _scan_tekst("Er zat geen bestand bij de scan.", 400)
+    if len(binnen) > SCAN_MAX_AANTAL:
+        return _scan_tekst(
+            f"Te veel bestanden. Eén verzoek mag hooguit {SCAN_MAX_AANTAL} scans bevatten.",
+            400,
+        )
 
     # Eerst alles keuren. Eén bestand dat niet mag, en er wordt niets bewaard:
     # anders staat een halve lading in de inbox en denkt de melding dat het
@@ -4592,6 +4646,12 @@ def _miniatuur_pad(rij):
     doel = veilig_pad(SCAN_DIR, doelnaam)
     if doel and os.path.isfile(doel):
         return doel
+    # Ontbreekt het programma, dan niet onthouden: na een update van de add-on
+    # kan het er opeens wel zijn. Een PDF die het programma zelf niet aankan
+    # blijft dat, en die hoort niet bij elk bezoek opnieuw geprobeerd te worden.
+    mislukt = veilig_pad(SCAN_DIR, rij["bestand"] + ".min.mislukt")
+    if mislukt and os.path.isfile(mislukt):
+        return None
     if not doel or shutil.which("pdftoppm") is None:
         return None
     voorvoegsel = pad + ".min"
@@ -4602,21 +4662,38 @@ def _miniatuur_pad(rij):
             check=True, timeout=20, capture_output=True,
         )
     except (OSError, subprocess.SubprocessError):
+        _onthoud_mislukte_miniatuur(mislukt)
         return None
     gemaakt = voorvoegsel + "-1.png"
     if not os.path.isfile(gemaakt):
+        _onthoud_mislukte_miniatuur(mislukt)
         return None
     os.replace(gemaakt, doel)
     return doel
+
+
+def _onthoud_mislukte_miniatuur(pad):
+    if not pad:
+        return
+    try:
+        open(pad, "ab").close()
+    except OSError:
+        pass
+
+
+def _wis_scanminiatuur(rij):
+    """Voorbeeld en een mislukte poging horen bij de scan, niet los in de map."""
+    for extra in (".min.png", ".min.mislukt"):
+        pad = veilig_pad(SCAN_DIR, rij["bestand"] + extra)
+        if pad and os.path.isfile(pad):
+            os.remove(pad)
 
 
 def _verwijder_scanbestanden(rij):
     pad = veilig_pad(SCAN_DIR, rij["bestand"])
     if pad and os.path.isfile(pad):
         os.remove(pad)
-    mini = veilig_pad(SCAN_DIR, rij["bestand"] + ".min.png")
-    if mini and os.path.isfile(mini):
-        os.remove(mini)
+    _wis_scanminiatuur(rij)
 
 
 def klussen_gegroepeerd(conn):
@@ -4813,9 +4890,7 @@ def _scan_naar_bijlage(conn, rij, klus_id, notitie_id=None, inkoop_id=None):
         shutil.move(bron, os.path.join(BIJLAGE_DIR, opslag))
     except OSError:
         return False
-    mini = veilig_pad(SCAN_DIR, rij["bestand"] + ".min.png")
-    if mini and os.path.isfile(mini):
-        os.remove(mini)
+    _wis_scanminiatuur(rij)
     return True
 
 

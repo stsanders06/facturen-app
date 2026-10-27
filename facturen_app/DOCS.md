@@ -236,7 +236,7 @@ uren blijven bewaard.
 
 Onderaan de kluspagina zet je foto's en bonnetjes neer: een bon van de groothandel, een
 foto van hoe het eruitzag voordat je begon, of van het eindresultaat. Meerdere tegelijk
-kiezen mag; JPG, PNG, HEIC en PDF worden geaccepteerd, samen hooguit 100 MB per keer.
+kiezen mag; JPG, PNG, HEIC en PDF worden geaccepteerd, samen hooguit 32 MB per keer.
 Een HEIC-foto van een iPhone wordt wel bewaard, maar de app kan er geen voorbeeld van
 tonen en hem niet op de rekening tekenen. Gebruik daarvoor JPG of PNG. Op de iPhone:
 Instellingen → Camera → Formaten → Meest compatibel.
@@ -251,14 +251,24 @@ klus, dan gaan ze mee.
 ### Scans vanaf de iPhone
 
 Het bestandskeuzescherm van Safari heeft geen «Scan documenten». In de Opdrachten-app
-maak je daarom een opdracht «Naar Facturen» die in het deelblad staat. Die stuurt de
-scan naar `http://<adres-van-home-assistant>:8099/api/scans`. Ingress of een adres op
-internet is daar niet voor nodig: thuis is het het adres op je eigen netwerk, en
-onderweg hetzelfde adres zodra de VPN aanstaat.
+maak je daarom een opdracht «Naar Facturen» die in het deelpaneel staat («Toon in
+deelpaneel»). Die stuurt elke scan apart naar
+`http://<adres-van-home-assistant>:8099/api/scans`. Ingress of een adres op internet
+is daar niet voor nodig: thuis is het het adres op je eigen netwerk, en onderweg
+hetzelfde adres zodra de VPN aanstaat.
+
+Zet om de scan heen «Herhaal voor elk onderdeel», over de invoer van de opdracht, en
+stop bij «Stop herhalen». In die herhaling: «Haal inhoud van URL op», tik op «Toon
+meer» en zet de methode op POST. Bij «Vraag om hoofdtekst» kies je Formulier. Het
+veld heet `bestand` en het type is Bestand; een ander type komt aan als «geen
+bestand». De waarde is «Herhaal onderdeel», het bestand van die ronde. Eén bestand
+per verzoek, ook als je er maar één deelt.
 
 De code en de stappen staan bij Instellingen, onder iPhone-scans. De code zie je één
-keer. Een binnengekomen scan staat onder Scans. Daar maak je er een bon of een notitie
-van, of je verwijdert hem. PDF, JPG, PNG en HEIC mogen, per bestand hooguit 25 MB.
+keer, zolang die pagina open is, en je kunt hem daar kopiëren. Een binnengekomen scan
+staat onder Scans. Daar maak je er een bon of een notitie van, of je verwijdert hem.
+PDF, JPG, PNG en HEIC mogen, per bestand hooguit 25 MB, samen hooguit 100 MB, en
+hooguit 20 bestanden per keer.
 
 ## De klantpagina
 
