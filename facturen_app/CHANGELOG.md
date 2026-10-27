@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.42.0
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **Een scan vanaf de iPhone komt meteen in de app.** In de Opdrachten-app maak
+  je een opdracht die in het deelblad staat. Die stuurt de scan hierheen. Hij
+  verschijnt onder Scans. Daar koppel je hem aan een bon of een notitie, of je
+  gooit hem weg.
+- **De code en het adres staan bij Instellingen, onder iPhone-scans.** De code
+  zie je één keer. Ben je niet thuis, zet dan eerst de VPN aan. Daarna is het
+  hetzelfde adres als op de wifi thuis.
+
 ## 1.41.2
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet

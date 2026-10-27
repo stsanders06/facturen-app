@@ -1,0 +1,99 @@
+{% extends "_layout.html" %}
+{% block title %}Nieuwe scans{% endblock %}
+{% block head %}
+<style>
+  .scan-lijst { display: flex; flex-direction: column; gap: 12px; }
+  .scan-kaart {
+    background: var(--card);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-card);
+    padding: 14px;
+    display: grid;
+    grid-template-columns: 112px minmax(0, 1fr);
+    gap: 12px;
+    align-items: start;
+  }
+  .scan-beeld { display: block; text-decoration: none; min-width: 0; }
+  .scan-beeld img,
+  .scan-icoon {
+    width: 100%;
+    height: 112px;
+    object-fit: cover;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg);
+  }
+  .scan-icoon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    font-size: 15px;
+    font-weight: 500;
+    letter-spacing: .06em;
+  }
+  .scan-naam {
+    display: block;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .scan-meta { margin: 2px 0 10px; }
+  .scan-acties { display: flex; flex-wrap: wrap; gap: 8px; }
+  .scan-acties form { display: contents; }
+  @media (max-width: 420px) {
+    /* Onder elkaar: naast elkaar bleef er op 320px te weinig over voor de knoppen. */
+    .scan-kaart { grid-template-columns: 1fr; }
+    .scan-beeld img, .scan-icoon { height: 160px; }
+    .scan-acties { flex-direction: column; align-items: stretch; }
+    .scan-acties .btn { width: 100%; }
+  }
+</style>
+{% endblock %}
+{% block content %}
+
+<div class="page-head">
+  <h1>Nieuwe scans</h1>
+</div>
+
+{% if not scans %}
+<section class="card">
+  <p class="hint">Nog geen nieuwe scans. De stappen voor de opdracht op je iPhone
+    staan bij Instellingen, onder iPhone-scans.</p>
+  <p style="margin:12px 0 0"><a class="btn btn-outline" href="{{ url_for('instellingen') }}#iphone-scans">Naar de uitleg</a></p>
+</section>
+{% else %}
+<div class="scan-lijst">
+  {% for s in scans %}
+  <article class="scan-kaart">
+    <a class="scan-beeld" href="{{ url_for('scan_bestand', scan_id=s.id) }}" {{ nieuw_tabblad }}
+       {% if s.foto %}data-soort="foto" data-naam="{{ s.naam }}"{% endif %}
+       title="{{ s.naam }} openen">
+      {% if s.miniatuur %}
+      <img src="{{ url_for('scan_miniatuur', scan_id=s.id) }}" alt="" loading="lazy">
+      {% elif s.soort in ['heic', 'heif'] %}
+      <span class="scan-icoon" aria-hidden="true">HEIC</span>
+      {% else %}
+      <span class="scan-icoon" aria-hidden="true">PDF</span>
+      {% endif %}
+    </a>
+    <div>
+      <span class="scan-naam" title="{{ s.naam }}">{{ s.naam }}</span>
+      <p class="hint scan-meta">{{ s.wanneer }} · {{ s.grootte_tekst }}</p>
+      <div class="scan-acties">
+        <a class="btn" href="{{ url_for('scan_als_bon', scan_id=s.id) }}">Als bon</a>
+        <a class="btn btn-outline" href="{{ url_for('scan_als_notitie', scan_id=s.id) }}">Bij notitie</a>
+        <form method="post" action="{{ url_for('scan_verwijder', scan_id=s.id) }}"
+              data-bevestig="Deze scan verwijderen? Het bestand is daarna weg.">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-text danger">Verwijderen</button>
+        </form>
+      </div>
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% endblock %}

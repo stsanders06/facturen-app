@@ -16,6 +16,10 @@
   /* Drie wachtwoordvelden naast elkaar op een breed scherm, onder elkaar op een telefoon. */
   .velden { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
   .velden label { display: block; }
+  .scan-stappen { margin: 8px 0 0; padding-left: 1.2em; }
+  .scan-stappen li { margin: 6px 0; }
+  .scan-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .scan-acties { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 </style>
 {% endblock %}
 {% block content %}
@@ -201,6 +205,78 @@
   </form>
   {% endif %}
   {% endif %}
+</section>
+
+<section class="card" id="iphone-scans" style="margin-top:12px">
+  <div class="card-head">
+    <h2>iPhone-scans</h2>
+    <p>Stuur een scan vanuit het deelblad van de iPhone rechtstreeks hierheen.
+      Hij verschijnt daarna onder Scans. Daar koppel je hem aan een bon of een notitie.</p>
+  </div>
+
+  <div class="fields">
+    <div class="field">
+      <label for="scan-adres">Adres voor de opdracht</label>
+      {% if scan_url %}
+      <input type="text" id="scan-adres" class="scan-code" readonly value="{{ scan_url }}"
+             onclick="this.select()" autocapitalize="off" autocorrect="off" spellcheck="false">
+      {% else %}
+      <p class="hint" id="scan-adres">Vanaf de zijbalk is het adres op je netwerk niet te zien.
+        De opdracht gebruikt het adres van Home Assistant thuis, met de poort van deze app:
+        <span class="scan-code">http://&lt;adres-van-home-assistant&gt;:8099/api/scans</span>.
+        Bijvoorbeeld http://192.168.1.10:8099/api/scans, tenzij je die poort hebt veranderd.</p>
+      {% endif %}
+      <p class="hint">Ben je niet thuis, zet dan eerst de VPN aan. Daarna is dit hetzelfde
+        adres als op de wifi thuis.</p>
+    </div>
+
+    <div class="field">
+      <label for="scan-code">Code</label>
+      {% if scan_code %}
+      <input type="text" id="scan-code" class="scan-code" readonly value="{{ scan_code }}"
+             onclick="this.select()" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <p class="hint">Deze code zie je één keer. Kopieer hem nu in de opdracht.
+        Bij een verversing is hij weg.</p>
+      {% elif scan_heeft_code %}
+      <p class="hint" id="scan-code">Er staat een code. Die is niet meer te zien.
+        Maak een nieuwe als je hem kwijt bent; de oude werkt dan niet meer.</p>
+      {% else %}
+      <p class="hint" id="scan-code">Er is nog geen code. Zonder code weigert de app de scan.</p>
+      {% endif %}
+      <div class="scan-acties">
+        <form method="post" action="{{ url_for('scan_token') }}"
+              {% if scan_heeft_code %}data-bevestig="De oude code werkt daarna niet meer. De opdracht op je iPhone heeft de nieuwe code nodig."{% endif %}>
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="actie" value="nieuw">
+          <button type="submit" class="btn">{% if scan_heeft_code %}Nieuwe code{% else %}Code maken{% endif %}</button>
+        </form>
+        {% if scan_heeft_code %}
+        <form method="post" action="{{ url_for('scan_token') }}"
+              data-bevestig="De opdracht op je iPhone werkt daarna niet meer tot je een nieuwe code maakt. Doorgaan?">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="actie" value="intrekken">
+          <button type="submit" class="btn btn-outline">Code intrekken</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <h3 style="margin:18px 0 4px; font-size:15px; font-weight:500">Opdracht «Naar Facturen»</h3>
+  <p class="hint">Een kant-en-klaar bestand om in te lezen werkt niet: de iPhone
+    neemt alleen een opdracht aan die Apple heeft ondertekend. Zet hem zelf in
+    elkaar in de Opdrachten-app.</p>
+  <ol class="scan-stappen">
+    <li>Nieuwe opdracht. Zet «Toon in deelblad» aan, en vink pdf’s en afbeeldingen aan.</li>
+    <li>«Inhoud van URL ophalen». URL: het adres hierboven. Methode: POST.</li>
+    <li>Koptekst <span class="scan-code">Authorization</span>, met als waarde
+      <span class="scan-code">Bearer</span>, een spatie, en de code.</li>
+    <li>Vraaginhoud: Formulier. Veld <span class="scan-code">bestand</span>,
+      waarde: Invoer van opdracht. Meerdere bestanden: herhaal het veld
+      <span class="scan-code">bestand</span> voor elk bestand.</li>
+    <li>«Toon melding», met het resultaat van de vorige stap. Daarin staat of
+      de scan is aangekomen.</li>
+  </ol>
 </section>
 
 <section class="card" style="margin-top:12px">

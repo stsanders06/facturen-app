@@ -236,7 +236,7 @@ uren blijven bewaard.
 
 Onderaan de kluspagina zet je foto's en bonnetjes neer: een bon van de groothandel, een
 foto van hoe het eruitzag voordat je begon, of van het eindresultaat. Meerdere tegelijk
-kiezen mag; JPG, PNG, HEIC en PDF worden geaccepteerd, samen hooguit 32 MB per keer.
+kiezen mag; JPG, PNG, HEIC en PDF worden geaccepteerd, samen hooguit 100 MB per keer.
 Een HEIC-foto van een iPhone wordt wel bewaard, maar de app kan er geen voorbeeld van
 tonen en hem niet op de rekening tekenen. Gebruik daarvoor JPG of PNG. Op de iPhone:
 Instellingen → Camera → Formaten → Meest compatibel.
@@ -247,6 +247,18 @@ bestand als bijlage mee. Wat je niet aanvinkt, blijft alleen voor jezelf.
 
 De bestanden staan in `/data` en gaan mee in een Home Assistant back-up. Verwijder je de
 klus, dan gaan ze mee.
+
+### Scans vanaf de iPhone
+
+Het bestandskeuzescherm van Safari heeft geen «Scan documenten». In de Opdrachten-app
+maak je daarom een opdracht «Naar Facturen» die in het deelblad staat. Die stuurt de
+scan naar `http://<adres-van-home-assistant>:8099/api/scans`. Ingress of een adres op
+internet is daar niet voor nodig: thuis is het het adres op je eigen netwerk, en
+onderweg hetzelfde adres zodra de VPN aanstaat.
+
+De code en de stappen staan bij Instellingen, onder iPhone-scans. De code zie je één
+keer. Een binnengekomen scan staat onder Scans. Daar maak je er een bon of een notitie
+van, of je verwijdert hem. PDF, JPG, PNG en HEIC mogen, per bestand hooguit 25 MB.
 
 ## De klantpagina
 

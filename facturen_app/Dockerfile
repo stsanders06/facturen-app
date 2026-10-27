@@ -15,11 +15,15 @@ COPY app/requirements.txt /opt/app/requirements.txt
 # het installeren van de wheels weer verwijderd zodat het image klein blijft.
 # ca-certificates is nodig om adressen op te kunnen zoeken bij PDOK: zonder de
 # certificaten mislukt die verbinding, en dan blijven de suggesties stil weg.
+# poppler-utils levert pdftoppm, voor het voorbeeld van de eerste pagina van
+# een scan die als PDF binnenkomt. Zonder dat pakket blijft zo'n scan een
+# kaal merk "PDF".
 RUN \
     apk add --no-cache \
         ca-certificates \
         freetype \
         jpeg \
+        poppler-utils \
         tzdata \
         zlib \
     && apk add --no-cache --virtual .build-deps \
