@@ -197,8 +197,46 @@ def test_een_foto_notitie_krijgt_ook_een_lijst(post, db, klus_id, client):
     assert "0 van 1 klaar" in pagina
 
 
+def _meet_taakrij(pagina, breedte):
+    pagina.set_viewport_size({"width": breedte, "height": 800})
+    return pagina.evaluate(
+        """(breedte) => {
+          const doc = document.documentElement;
+          const rij = document.querySelector('.taak');
+          const vink = rij.querySelector('.vink');
+          const veld = rij.querySelector('.taak-tekst textarea');
+          const knoppen = rij.querySelector('.taak-knoppen');
+          const knop = knoppen.querySelector('.btn');
+          const nieuw = document.querySelector('.taak-nieuw input[name="tekst"]');
+          const bewaar = rij.querySelector('.taak-bewaar');
+          const ops = [...document.querySelectorAll('button')].find(
+            (b) => b.textContent.trim() === 'Opschrijven'
+          );
+          const box = (el) => el.getBoundingClientRect();
+          const midden = (el) => (box(el).top + box(el).bottom) / 2;
+          return {
+            scroll: doc.scrollWidth - doc.clientWidth,
+            vink: box(vink).height,
+            knop: box(knop).width,
+            knopHoog: box(knop).height,
+            rechts: box(knoppen).right,
+            veldRechts: box(veld).right,
+            knopLinks: box(knoppen).left,
+            nieuwRechts: box(nieuw).right,
+            opsRechts: box(ops).right,
+            zelfdeRij: Math.abs(midden(vink) - midden(veld)),
+            knopRij: Math.abs(midden(knop) - midden(veld)),
+            bewaar: getComputedStyle(bewaar).display,
+            verborgen: getComputedStyle(document.querySelector('.taken-verberg')).display,
+            breedte,
+          };
+        }""",
+        breedte,
+    )
+
+
 def test_een_lange_taak_duwt_de_klus_niet_van_het_scherm(client, post, db, klus_id):
-    """Op 320 px mag een taak zonder spatie de knoppen niet buiten beeld duwen."""
+    """Op een telefoon blijft een taak één rij en binnen de kaart."""
     from browser import meetbrowser, playwright_verplicht
 
     sync_playwright = playwright_verplicht()
@@ -207,35 +245,29 @@ def test_een_lange_taak_duwt_de_klus_niet_van_het_scherm(client, post, db, klus_
     html = client.get(f"/klus/{klus_id}").data.decode()
     # De tekst staat één keer in het vak, niet nog eens in elk aria-label.
     assert html.count("a" * 120) == 1
+    # De voortgang staat bij de notitie en bij de klus, niet nog een keer
+    # boven de lijst.
+    assert html.count("0 van 1 klaar") == 2
     assert "min-height: 44px" in html
+    assert 'class="btn btn-text taak-bewaar"' in html
 
     with sync_playwright() as p:
         browser = meetbrowser(p)
         pagina = browser.new_page(device_scale_factor=1)
         try:
-            pagina.set_viewport_size({"width": 320, "height": 800})
             pagina.set_content(html)
-            gemeten = pagina.evaluate(
-                """() => {
-                  const doc = document.documentElement;
-                  const vink = document.querySelector('.vink');
-                  const knop = document.querySelector('.taak-knoppen .btn');
-                  const veld = document.querySelector('.taak-tekst textarea');
-                  const verberg = document.querySelector('.taken-verberg');
-                  return {
-                    scroll: doc.scrollWidth - doc.clientWidth,
-                    vink: vink.getBoundingClientRect().height,
-                    rechts: knop.getBoundingClientRect().right,
-                    veld: veld.getBoundingClientRect().width,
-                    verborgen: getComputedStyle(verberg).display,
-                  };
-                }"""
-            )
-            assert gemeten["scroll"] <= 1
-            assert gemeten["vink"] >= 44
-            assert gemeten["rechts"] <= 321
-            assert gemeten["veld"] > 180
-            assert gemeten["verborgen"] == "none"
+            for breedte in (320, 390):
+                gemeten = _meet_taakrij(pagina, breedte)
+                assert gemeten["scroll"] <= 1, gemeten
+                assert gemeten["vink"] >= 44, gemeten
+                assert gemeten["knop"] >= 44 and gemeten["knopHoog"] >= 44, gemeten
+                assert gemeten["rechts"] <= breedte + 1, gemeten
+                assert gemeten["zelfdeRij"] < 8, gemeten
+                assert gemeten["knopRij"] < 8, gemeten
+                assert gemeten["knopLinks"] - gemeten["veldRechts"] < 16, gemeten
+                assert abs(gemeten["nieuwRechts"] - gemeten["opsRechts"]) <= 2, gemeten
+                assert gemeten["bewaar"] == "none", gemeten
+                assert gemeten["verborgen"] == "none", gemeten
         finally:
             browser.close()
 

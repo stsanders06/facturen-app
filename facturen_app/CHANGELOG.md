@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.43.3
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **Een taak is één rij.** Het vinkje staat naast de tekst, en omhoog, omlaag
+  en weg zijn kleine knoppen aan het eind van die rij. De knop Bewaar zie je
+  alleen als JavaScript uit staat. Hoeveel er af is, staat één keer bij de
+  notitie.
+
 ## 1.43.2
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet

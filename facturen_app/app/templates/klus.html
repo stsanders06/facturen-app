@@ -449,17 +449,21 @@
     font-size: 13px;
   }
   .invoerrij-bij .notitie-voortgang { margin: 0 0 0 8px; }
+  /* De weg-kruis van de notitie hangt alleen naast de titel. Zonder deze
+     extra breedte houdt elk taakveld daaronder een lege strook rechts,
+     smaller dan de rest van de kaart. 42px knop plus 12px tussenruimte. */
+  .takenlijst { width: calc(100% + 54px); }
   .taken { list-style: none; margin: 0; padding: 0; min-width: 0; }
   .taak {
     display: grid;
-    grid-template-columns: 44px minmax(0, 1fr);
+    grid-template-columns: 44px minmax(0, 1fr) auto;
     gap: 8px;
     align-items: center;
     margin: 0 0 8px;
     min-width: 0;
   }
   .taak-vink, .taak-tekst, .taak-nieuw { margin: 0; min-width: 0; }
-  .vink, .taak-knoppen .btn, .taak-nieuw input, .taak-tekst input {
+  .vink, .taak-knoppen .btn, .taak-nieuw input {
     min-height: 44px;
     min-width: 44px;
   }
@@ -474,9 +478,10 @@
     font-size: 18px;
   }
   .taak.is-klaar .vink { background: var(--primary-soft); color: var(--primary); }
-  .taak-tekst { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
   .taak-tekst textarea, .taak-nieuw input { width: 100%; min-width: 0; }
-  .taak-tekst .btn { align-self: flex-start; min-height: 44px; }
+  /* Bewaar hoort er alleen zonder script. Met script bewaart een tik of
+     Enter al, en een klik op Bewaar verstuurde hetzelfde nog een keer. */
+  html.js .taak-bewaar { display: none !important; }
   .taak-tekst textarea {
     display: block;
     min-height: 44px;
@@ -489,19 +494,26 @@
     text-decoration: line-through;
     color: var(--text-secondary);
   }
-  /* Op 320 px bleef het veld ~140 px: de vink en de weg-kruis eten de rij op.
-     De tekst gaat dan op een eigen volle regel en slaat om. */
-  @media (max-width: 420px) {
-    .taak-tekst { grid-column: 1 / -1; }
-  }
   .taak-knoppen {
-    grid-column: 1 / -1;
     display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 0;
+  }
+  /* Drie woorden naast het veld aten de tekst op. Tekens blijven raakbaar
+     doordat het vak 44px blijft, ook al is het teken zelf kleiner. */
+  .taak-knoppen .btn {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    font-size: 20px;
+    line-height: 1;
   }
   .takenlijst.is-ingeklapt .taak.is-klaar { display: none; }
   .taak-nieuw { margin-top: 4px; }
+  @media (pointer: coarse), (max-width: 720px) {
+    .takenlijst { width: calc(100% + 56px); }
+  }
 
   @media (max-width: 620px) {
     /* Twee foto's naast elkaar in plaats van één: met 160px als ondergrens paste de
@@ -1553,7 +1565,7 @@
       tekst.appendChild(invoer);
       var bewaar = document.createElement('button');
       bewaar.type = 'submit';
-      bewaar.className = 'btn btn-text';
+      bewaar.className = 'btn btn-text taak-bewaar';
       bewaar.textContent = 'Bewaar';
       tekst.appendChild(bewaar);
       var knoppen = document.createElement('div');
@@ -1564,8 +1576,9 @@
         var knopje = document.createElement('button');
         knopje.type = 'submit';
         knopje.className = 'btn btn-text';
-        knopje.textContent = paar[1];
+        knopje.textContent = paar[0] === 'omhoog' ? '\u2191' : '\u2193';
         knopje.setAttribute('aria-label', paar[1]);
+        knopje.setAttribute('title', paar[1]);
         form.appendChild(knopje);
         knoppen.appendChild(form);
       });
@@ -1574,8 +1587,9 @@
       var wegKnop = document.createElement('button');
       wegKnop.type = 'submit';
       wegKnop.className = 'btn btn-text danger';
-      wegKnop.textContent = 'Weg';
+      wegKnop.textContent = '\u00d7';
       wegKnop.setAttribute('aria-label', 'Taak verwijderen');
+      wegKnop.setAttribute('title', 'Taak verwijderen');
       weg.appendChild(wegKnop);
       knoppen.appendChild(weg);
       li.appendChild(vink);
