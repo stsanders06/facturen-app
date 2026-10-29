@@ -425,6 +425,220 @@ def test_leegmaken_vraagt_of_de_taak_weg_mag(client, post, db, klus_id):
     assert db.execute("SELECT COUNT(*) FROM taken").fetchone()[0] == 1
 
 
+def test_een_regeleinde_in_een_taak_wordt_een_spatie(post, db, klus_id):
+    notitie_id = _notitie(post, db, klus_id)
+    _taak(post, notitie_id, "Kit\r\nrand")
+    assert db.execute("SELECT tekst FROM taken").fetchone()[0] == "Kit rand"
+    taak_id = db.execute("SELECT id FROM taken").fetchone()[0]
+    post(f"/notitie/{notitie_id}/taak/{taak_id}/tekst", {"tekst": "douche\nbak"})
+    assert db.execute("SELECT tekst FROM taken").fetchone()[0] == "douche bak"
+
+
+def test_zonder_script_heeft_de_taak_een_bewaarknop(client, post, db, klus_id):
+    notitie_id = _notitie(post, db, klus_id)
+    _taak(post, notitie_id, "Kitrand snijden")
+    html = client.get(f"/klus/{klus_id}").data.decode()
+    stuk = html.split('class="taak-tekst"', 1)[1].split("</form>", 1)[0]
+    assert 'type="submit"' in stuk
+    assert "Bewaar" in stuk
+
+
+def test_enter_bewaart_de_taak_zonder_nieuwe_regel(client, post, db, klus_id):
+    notitie_id = _notitie(post, db, klus_id)
+    _taak(post, notitie_id, "Kit")
+    sync_playwright, meetbrowser, html = _dialoog_pagina(client, klus_id)
+    gevangen = {}
+
+    def afhandelen(route):
+        from urllib.parse import urlsplit
+        if "/tekst" not in urlsplit(route.request.url).path:
+            route.fallback()
+            return
+        gevangen["velden"] = _formuliervelden(route.request.post_data)
+        route.fulfill(
+            status=200,
+            body=(
+                '{"id": 1, "tekst": "Kitrand", "gedaan": 0, "totaal": 1, '
+                '"voortgang": "", "klus_gedaan": 0, "klus_totaal": 1, '
+                '"klus_voortgang": ""}'
+            ),
+            content_type="application/json",
+        )
+
+    with sync_playwright() as p:
+        browser = meetbrowser(p)
+        pagina = browser.new_page()
+        pagina.route("http://facturen.test/**", afhandelen)
+        try:
+            pagina.set_content(html)
+            veld = pagina.locator(".taak-tekst textarea")
+            veld.fill("Kitrand")
+            veld.press("Enter")
+            pagina.wait_for_function(
+                "() => document.querySelector('.taak-tekst textarea').defaultValue === 'Kitrand'"
+            )
+            assert "\n" not in veld.input_value()
+        finally:
+            browser.close()
+    assert gevangen["velden"]["tekst"] == "Kitrand"
+    assert db.execute("SELECT tekst FROM taken").fetchone()[0] == "Kit"
+
+
+def test_een_net_toegevoegde_lange_taak_groeit_meteen(client, post, db, klus_id):
+    """scrollHeight is 0 zolang de regel nog niet op de pagina staat."""
+    _notitie(post, db, klus_id)
+    sync_playwright, meetbrowser, html = _dialoog_pagina(client, klus_id)
+    lange = "a" * 120
+
+    def afhandelen(route):
+        from urllib.parse import urlsplit
+        if not urlsplit(route.request.url).path.rstrip("/").endswith("/taak"):
+            route.fallback()
+            return
+        import json
+        route.fulfill(
+            status=200,
+            body=json.dumps({
+                "id": 50, "tekst": lange, "klaar": 0,
+                "gedaan": 0, "totaal": 1, "voortgang": "0 van 1 klaar",
+                "klus_gedaan": 0, "klus_totaal": 1, "klus_voortgang": "0 van 1 klaar",
+            }),
+            content_type="application/json",
+        )
+
+    with sync_playwright() as p:
+        browser = meetbrowser(p)
+        pagina = browser.new_page()
+        pagina.set_viewport_size({"width": 320, "height": 800})
+        pagina.route("http://facturen.test/**", afhandelen)
+        try:
+            pagina.set_content(html)
+            nieuw = pagina.locator(".taak-nieuw input[name=tekst]")
+            nieuw.fill(lange)
+            nieuw.press("Enter")
+            pagina.locator(".taak-tekst textarea").wait_for()
+            gemeten = pagina.evaluate(
+                """() => {
+                  const veld = document.querySelector('.taak-tekst textarea');
+                  return {
+                    client: veld.clientHeight,
+                    scroll: veld.scrollHeight,
+                  };
+                }"""
+            )
+            assert gemeten["client"] > 60
+            assert gemeten["scroll"] <= gemeten["client"] + 4
+        finally:
+            browser.close()
+
+
+def test_een_te_lange_aanpassing_springt_terug(client, post, db, klus_id):
+    notitie_id = _notitie(post, db, klus_id)
+    _taak(post, notitie_id, "Kit")
+    taak_id = db.execute("SELECT id FROM taken").fetchone()[0]
+    geweigerd = client.post(
+        f"/notitie/{notitie_id}/taak/{taak_id}/tekst",
+        data={"csrf_token": "test-token", "tekst": "b" * 501},
+        headers={"Accept": "application/json"},
+    )
+    assert geweigerd.status_code == 400
+    assert "500 tekens" in geweigerd.get_json()["fout"]
+    assert db.execute("SELECT tekst FROM taken").fetchone()[0] == "Kit"
+
+    sync_playwright, meetbrowser, html = _dialoog_pagina(client, klus_id)
+    meldingen = []
+
+    def afhandelen(route):
+        from urllib.parse import urlsplit
+        if "/tekst" not in urlsplit(route.request.url).path:
+            route.fallback()
+            return
+        route.fulfill(
+            status=400,
+            body='{"fout": "Een taak mag hooguit 500 tekens zijn."}',
+            content_type="application/json",
+        )
+
+    with sync_playwright() as p:
+        browser = meetbrowser(p)
+        pagina = browser.new_page()
+        pagina.route("http://facturen.test/**", afhandelen)
+        pagina.on("dialog", lambda dialoog: meldingen.append(dialoog.message) or dialoog.accept())
+        try:
+            pagina.set_content(html)
+            veld = pagina.locator(".taak-tekst textarea")
+            # blur() doet niets als het vak geen focus heeft, en dan gaat
+            # de te lange tekst ook niet terug.
+            veld.focus()
+            veld.evaluate(
+                """el => {
+                  el.removeAttribute('maxlength');
+                  el.value = 'x'.repeat(501);
+                }"""
+            )
+            veld.blur()
+            pagina.wait_for_function(
+                "() => document.querySelector('.taak-tekst textarea').value === 'Kit'"
+            )
+        finally:
+            browser.close()
+    assert any("500 tekens" in melding for melding in meldingen)
+
+
+def test_herbouw_geeft_geen_taaknummer_uit_de_prullenbak(db, post, klus_id):
+    """De teller van een nagebouwde tabel begon weer bij de gekopieerde rijen."""
+    notitie_id = _notitie(post, db, klus_id)
+    _taak(post, notitie_id, "Kitrand snijden")
+    taak_id = db.execute("SELECT id FROM taken").fetchone()[0]
+    post(f"/notitie/{notitie_id}/verwijder", follow_redirects=True)
+    db.execute("DROP TABLE taken")
+    db.execute(
+        """CREATE TABLE taken (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            notitie_id INTEGER NOT NULL,
+            tekst TEXT NOT NULL,
+            klaar INTEGER NOT NULL DEFAULT 0,
+            volgorde INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (notitie_id) REFERENCES notities (id)
+        )"""
+    )
+    db.execute("DELETE FROM sqlite_sequence WHERE name='taken'")
+    db.commit()
+    facturen.init_db()
+    seq = db.execute(
+        "SELECT seq FROM sqlite_sequence WHERE name='taken'"
+    ).fetchone()
+    assert seq is not None and seq[0] >= taak_id
+    nieuwe = _notitie(post, db, klus_id, "Nog een notitie")
+    _taak(post, nieuwe, "Nieuwe taak")
+    nieuw_id = db.execute("SELECT id FROM taken").fetchone()[0]
+    assert nieuw_id != taak_id
+    prul = db.execute("SELECT id FROM prullenbak ORDER BY id DESC").fetchone()[0]
+    post(f"/prullenbak/{prul}/terug", follow_redirects=True)
+    teksten = [rij[0] for rij in db.execute("SELECT tekst FROM taken")]
+    assert "Kitrand snijden" in teksten
+    assert "Nieuwe taak" in teksten
+
+
+def test_een_bezet_taaknummer_komt_toch_terug(post, db, klus_id):
+    notitie_id = _notitie(post, db, klus_id)
+    _taak(post, notitie_id, "Kitrand snijden")
+    taak_id = db.execute("SELECT id FROM taken").fetchone()[0]
+    post(f"/notitie/{notitie_id}/verwijder", follow_redirects=True)
+    andere = _notitie(post, db, klus_id, "Andere notitie")
+    db.execute(
+        """INSERT INTO taken (id, notitie_id, tekst, klaar, volgorde)
+           VALUES (?, ?, 'Andere taak', 0, 0)""",
+        (taak_id, andere),
+    )
+    db.commit()
+    prul = db.execute("SELECT id FROM prullenbak ORDER BY id DESC").fetchone()[0]
+    post(f"/prullenbak/{prul}/terug", follow_redirects=True)
+    teksten = [rij[0] for rij in db.execute("SELECT tekst FROM taken")]
+    assert "Kitrand snijden" in teksten
+    assert "Andere taak" in teksten
+
+
 def test_het_log_van_een_taak_staat_niet_in_de_melding(caplog, post, klus_id, db):
     """Een mislukte tik mag geen ruwe fout zijn. Dit houdt de logger stil."""
     notitie_id = _notitie(post, db, klus_id)

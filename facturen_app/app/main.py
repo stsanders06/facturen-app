@@ -45,7 +45,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.43.0"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.43.1"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -2546,6 +2546,32 @@ def ruim_prullenbak_op(conn):
     conn.execute("DELETE FROM prullenbak WHERE wanneer < ?", (grens,))
 
 
+def _taak_toch_terug(conn, regel):
+    """Zet een taak terug als zijn oude nummer intussen ergens anders staat.
+
+    INSERT OR IGNORE doet dan niets. Is het dezelfde taak, dan staat hij er
+    al. Is het een ander nummer dat opnieuw is uitgegeven, dan komt de tekst
+    terug onder een vrij nummer — anders is de lijst na ongedaan maken leeg.
+    """
+    bestaat = conn.execute(
+        "SELECT notitie_id, tekst FROM taken WHERE id=?", (regel["id"],)
+    ).fetchone()
+    if bestaat is None:
+        raise sqlite3.IntegrityError("taak niet teruggezet")
+    if (bestaat["notitie_id"] == regel.get("notitie_id")
+            and bestaat["tekst"] == regel.get("tekst")):
+        return
+    zonder_id = {k: v for k, v in regel.items() if k != "id"}
+    if not zonder_id:
+        return
+    kolommen = ", ".join(zonder_id.keys())
+    vraagtekens = ", ".join("?" for _ in zonder_id)
+    conn.execute(
+        f"INSERT INTO taken ({kolommen}) VALUES ({vraagtekens})",
+        list(zonder_id.values()),
+    )
+
+
 def terugknop(prullenbak_id):
     """De knop die bij de melding na een verwijdering hoort."""
     return {"label": "Ongedaan maken",
@@ -2595,6 +2621,11 @@ def prullenbak_terug(prullenbak_id):
                     ).fetchone()
                     if bestaat is None:
                         raise sqlite3.IntegrityError("regel niet teruggezet")
+                # Een herbouwde tabel kan een taaknummer opnieuw uitgeven.
+                # OR IGNORE slaat de oude taak dan stil over; die hoort terug,
+                # desnoods onder een nieuw nummer.
+                if tabel == "taken" and cur.rowcount == 0 and "id" in regel:
+                    _taak_toch_terug(conn, regel)
         gemist = _herstel_koppelingen(conn, inhoud.get("koppelingen") or {})
         _herstel_uur_regels(conn, inhoud.get("koppelingen") or {})
         _herstel_inkoop_regels(conn, inhoud.get("koppelingen") or {})
@@ -4101,6 +4132,57 @@ def _voortgang_klus(conn, klus_id):
     return int(rij["gedaan"] or 0), int(rij["totaal"] or 0)
 
 
+def _sqlite_teller(conn, naam):
+    try:
+        rij = conn.execute(
+            "SELECT seq FROM sqlite_sequence WHERE name=?", (naam,)
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return 0
+    return int(rij[0]) if rij else 0
+
+
+def _hoogste_id_in_prullenbak(conn, tabel):
+    """Het hoogste id van deze tabel dat nog in de prullenbak staat."""
+    hoogste = 0
+    try:
+        rijen = conn.execute("SELECT inhoud FROM prullenbak").fetchall()
+    except sqlite3.OperationalError:
+        return 0
+    for (inhoud,) in rijen:
+        try:
+            data = json.loads(inhoud)
+        except (TypeError, json.JSONDecodeError):
+            continue
+        for regel in (data.get("rijen") or {}).get(tabel) or []:
+            try:
+                hoogste = max(hoogste, int(regel.get("id") or 0))
+            except (TypeError, ValueError, AttributeError):
+                continue
+    return hoogste
+
+
+def _zet_teller_minstens(conn, naam, minstens):
+    """De volgende rij krijgt geen id dat al eens bestaan heeft.
+
+    Een nieuwe tabel na een herbouw telt anders vanaf de hoogste rij die
+    meegekopieerd is. Een taak die intussen in de prullenbak zit kan dat
+    nummer weer krijgen, en terugzetten slaat hem dan stil over.
+    """
+    if minstens <= 0:
+        return
+    try:
+        if _sqlite_teller(conn, naam) >= minstens:
+            return
+        conn.execute("DELETE FROM sqlite_sequence WHERE name=?", (naam,))
+        conn.execute(
+            "INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)",
+            (naam, minstens),
+        )
+    except sqlite3.OperationalError:
+        pass
+
+
 def _taken_cascade(conn):
     """Zorg dat een notitie zijn taken meeneemt, ook zonder onze DELETE."""
     bestaat = conn.execute(
@@ -4108,31 +4190,43 @@ def _taken_cascade(conn):
     ).fetchone()
     if not bestaat:
         return
+    # Vóór de herbouw. Daarna staat de teller op de gekopieerde rijen,
+    # niet meer op een id dat alleen nog in de prullenbak zit.
+    ondergrens = max(
+        _sqlite_teller(conn, "taken"),
+        int(conn.execute("SELECT COALESCE(MAX(id), 0) FROM taken").fetchone()[0] or 0),
+        _hoogste_id_in_prullenbak(conn, "taken"),
+    )
     wijzen = conn.execute("PRAGMA foreign_key_list(taken)").fetchall()
-    if wijzen and all((rij["on_delete"] or "").upper() == "CASCADE" for rij in wijzen):
-        return
-    conn.execute("ALTER TABLE taken RENAME TO taken_oud")
-    conn.execute(
-        """CREATE TABLE taken (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            notitie_id INTEGER NOT NULL,
-            tekst TEXT NOT NULL,
-            klaar INTEGER NOT NULL DEFAULT 0,
-            volgorde INTEGER NOT NULL DEFAULT 0,
-            FOREIGN KEY (notitie_id) REFERENCES notities (id) ON DELETE CASCADE
-        )"""
-    )
-    conn.execute(
-        """INSERT INTO taken (id, notitie_id, tekst, klaar, volgorde)
-           SELECT id, notitie_id, tekst, klaar, volgorde FROM taken_oud"""
-    )
-    conn.execute("DROP TABLE taken_oud")
+    if not (wijzen and all((rij["on_delete"] or "").upper() == "CASCADE" for rij in wijzen)):
+        conn.execute("ALTER TABLE taken RENAME TO taken_oud")
+        conn.execute(
+            """CREATE TABLE taken (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                notitie_id INTEGER NOT NULL,
+                tekst TEXT NOT NULL,
+                klaar INTEGER NOT NULL DEFAULT 0,
+                volgorde INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (notitie_id) REFERENCES notities (id) ON DELETE CASCADE
+            )"""
+        )
+        conn.execute(
+            """INSERT INTO taken (id, notitie_id, tekst, klaar, volgorde)
+               SELECT id, notitie_id, tekst, klaar, volgorde FROM taken_oud"""
+        )
+        conn.execute("DROP TABLE taken_oud")
+    _zet_teller_minstens(conn, "taken", ondergrens)
 
 
 # Een taak is een regel, geen opstel. Meer dan dit is een vergissing of een
 # plakactie die de pagina oprekt.
 TAAK_MAX_TEKENS = 500
 TAAK_MAX_AANTAL = 200
+
+
+def _taak_tekst_schoon(ruw):
+    """Een taak is één regel. Een geplakt regeleinde wordt een spatie."""
+    return " ".join((ruw or "").replace("\r", "\n").replace("\n", " ").split())
 
 
 def _json_taak(gegevens, status=200):
@@ -4357,7 +4451,7 @@ def taak_erbij(notitie_id):
     """Een regel onderaan de lijst. Enter voegt hem toe en laat het veld leeg."""
     conn = get_db()
     notitie = _notitie_of_404(conn, notitie_id)
-    tekst = (request.form.get("tekst") or "").strip()
+    tekst = _taak_tekst_schoon(request.form.get("tekst"))
     if not tekst:
         conn.close()
         geweigerd = _taak_weigering("Schrijf eerst wat er gedaan moet worden.")
@@ -4421,7 +4515,7 @@ def taak_vink(notitie_id, taak_id):
 def taak_tekst(notitie_id, taak_id):
     conn = get_db()
     notitie, taak = _taak_of_404(conn, notitie_id, taak_id)
-    tekst = (request.form.get("tekst") or "").strip()
+    tekst = _taak_tekst_schoon(request.form.get("tekst"))
     if not tekst:
         conn.close()
         geweigerd = _taak_weigering(
