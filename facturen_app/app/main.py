@@ -45,7 +45,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.42.1"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.43.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -1955,6 +1955,24 @@ def init_db():
         )"""
     )
 
+    # Taken horen bij een notitie, niet in de tekst. Een bestaande notitie
+    # krijgt zo een lijst zonder dat de tekst of de foto's worden aangeraakt.
+    # IF NOT EXISTS: een database van voor 1.43.0 heeft de tabel nog niet.
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS taken (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            notitie_id INTEGER NOT NULL,
+            tekst TEXT NOT NULL,
+            klaar INTEGER NOT NULL DEFAULT 0,
+            volgorde INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (notitie_id) REFERENCES notities (id) ON DELETE CASCADE
+        )"""
+    )
+    # Een database van de eerste 1.43.0 heeft de verwijzing zonder CASCADE.
+    # Terug naar 1.42.1 wist dan de notitie niet: die versie kent de taken
+    # niet, en de vreemde sleutel hield de verwijdering tegen.
+    _taken_cascade(conn)
+
     conn.commit()
     conn.close()
 
@@ -2486,7 +2504,7 @@ PRULLENBAK_DAGEN = 30
 # genoeg voor een vrije SQL-opdracht. Deze lijst maakt dat onmogelijk.
 TERUG_TE_ZETTEN = {
     "facturen", "regels", "betalingen", "offertes", "offerte_regels",
-    "klanten", "klussen", "uren", "bijlagen", "notities",
+    "klanten", "klussen", "uren", "bijlagen", "notities", "taken",
     "inkopen", "inkoop_materialen",
 }
 
@@ -3713,6 +3731,8 @@ def klus(klus_id):
         abort(404)
     aankopen = inkopen_van(conn, klus_id)
     aantekeningen = notities_van(conn, klus_id)
+    taken_gedaan = sum(n["taken_gedaan"] for n in aantekeningen)
+    taken_totaal = sum(n["taken_totaal"] for n in aantekeningen)
     offerte = None
     if gegevens["offerte_id"]:
         offerte = conn.execute("SELECT * FROM offertes WHERE id=?",
@@ -3726,6 +3746,9 @@ def klus(klus_id):
         "klus.html", klus=gegevens, dagen=dagen, totaal=totaal, open_uren=open_uren,
         nu_tijd=nu().strftime("%H:%M"),
         inkopen=aankopen, notities=aantekeningen, offerte=offerte, fases=KLUS_FASES,
+        taken_voortgang=voortgang_zin(taken_gedaan, taken_totaal),
+        taken_gedaan=taken_gedaan, taken_totaal=taken_totaal,
+        taak_max_tekens=TAAK_MAX_TEKENS,
         offerte_status=OFFERTE_STATUS,
         bedrag=round(totaal * (gegevens["uurtarief"] or 0), 2),
         bonnen_bedrag=bonnen_totaal(aankopen),
@@ -3912,12 +3935,21 @@ def klus_verwijder(klus_id):
             (klus_id,),
         )
     ]
+    notitie_rijen = conn.execute(
+        "SELECT * FROM notities WHERE klus_id=?", (klus_id,)
+    ).fetchall()
+    taak_rijen = conn.execute(
+        """SELECT t.* FROM taken t
+           JOIN notities n ON n.id = t.notitie_id
+           WHERE n.klus_id=?""",
+        (klus_id,),
+    ).fetchall()
     prullenbak_id = naar_prullenbak(
         conn, f"Klus {gegevens['naam']}",
         {"klussen": [gegevens],
          "uren": uren,
-         "notities": conn.execute("SELECT * FROM notities WHERE klus_id=?",
-                                  (klus_id,)).fetchall(),
+         "notities": notitie_rijen,
+         "taken": taak_rijen,
          "inkopen": inkopen,
          "inkoop_materialen": materialen,
          "bijlagen": bijlagen},
@@ -3926,6 +3958,11 @@ def klus_verwijder(klus_id):
     )
     for inkoop in inkopen:
         conn.execute("DELETE FROM inkoop_materialen WHERE inkoop_id=?", (inkoop["id"],))
+    conn.execute(
+        """DELETE FROM taken WHERE notitie_id IN
+           (SELECT id FROM notities WHERE klus_id=?)""",
+        (klus_id,),
+    )
     conn.execute("DELETE FROM notities WHERE klus_id=?", (klus_id,))
     conn.execute("DELETE FROM bijlagen WHERE klus_id=?", (klus_id,))
     conn.execute("DELETE FROM inkopen WHERE klus_id=?", (klus_id,))
@@ -4005,6 +4042,32 @@ def bonnen_totaal(inkopen):
     return round(sum(float(rij["bedrag"] or 0) for rij in inkopen), 2)
 
 
+def voortgang_zin(gedaan, totaal):
+    """'3 van 7 klaar', of niets als er geen taken zijn."""
+    if not totaal:
+        return ""
+    return f"{int(gedaan)} van {int(totaal)} klaar"
+
+
+def taken_van(conn, notitie_id):
+    return [
+        dict(rij) for rij in conn.execute(
+            "SELECT * FROM taken WHERE notitie_id=? ORDER BY volgorde, id",
+            (notitie_id,),
+        )
+    ]
+
+
+def _hang_taken_aan(notitie, conn):
+    taken = taken_van(conn, notitie["id"])
+    gedaan = sum(1 for taak in taken if taak["klaar"])
+    notitie["taken"] = taken
+    notitie["taken_gedaan"] = gedaan
+    notitie["taken_totaal"] = len(taken)
+    notitie["voortgang"] = voortgang_zin(gedaan, len(taken))
+    return notitie
+
+
 def notities_van(conn, klus_id):
     """De notities bij een klus, de nieuwste bovenaan, elk met zijn eigen foto's."""
     lijst = []
@@ -4013,8 +4076,122 @@ def notities_van(conn, klus_id):
     ):
         notitie = dict(rij)
         notitie["fotos"] = bijlagen_van(conn, klus_id, notitie_id=rij["id"])
+        _hang_taken_aan(notitie, conn)
         lijst.append(notitie)
     return lijst
+
+
+def _voortgang_notitie(conn, notitie_id):
+    rij = conn.execute(
+        """SELECT COUNT(*) AS totaal, COALESCE(SUM(klaar), 0) AS gedaan
+           FROM taken WHERE notitie_id=?""",
+        (notitie_id,),
+    ).fetchone()
+    return int(rij["gedaan"] or 0), int(rij["totaal"] or 0)
+
+
+def _voortgang_klus(conn, klus_id):
+    rij = conn.execute(
+        """SELECT COUNT(*) AS totaal, COALESCE(SUM(t.klaar), 0) AS gedaan
+           FROM taken t
+           JOIN notities n ON n.id = t.notitie_id
+           WHERE n.klus_id=?""",
+        (klus_id,),
+    ).fetchone()
+    return int(rij["gedaan"] or 0), int(rij["totaal"] or 0)
+
+
+def _taken_cascade(conn):
+    """Zorg dat een notitie zijn taken meeneemt, ook zonder onze DELETE."""
+    bestaat = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='taken'"
+    ).fetchone()
+    if not bestaat:
+        return
+    wijzen = conn.execute("PRAGMA foreign_key_list(taken)").fetchall()
+    if wijzen and all((rij["on_delete"] or "").upper() == "CASCADE" for rij in wijzen):
+        return
+    conn.execute("ALTER TABLE taken RENAME TO taken_oud")
+    conn.execute(
+        """CREATE TABLE taken (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            notitie_id INTEGER NOT NULL,
+            tekst TEXT NOT NULL,
+            klaar INTEGER NOT NULL DEFAULT 0,
+            volgorde INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (notitie_id) REFERENCES notities (id) ON DELETE CASCADE
+        )"""
+    )
+    conn.execute(
+        """INSERT INTO taken (id, notitie_id, tekst, klaar, volgorde)
+           SELECT id, notitie_id, tekst, klaar, volgorde FROM taken_oud"""
+    )
+    conn.execute("DROP TABLE taken_oud")
+
+
+# Een taak is een regel, geen opstel. Meer dan dit is een vergissing of een
+# plakactie die de pagina oprekt.
+TAAK_MAX_TEKENS = 500
+TAAK_MAX_AANTAL = 200
+
+
+def _json_taak(gegevens, status=200):
+    antwoord = make_response(json.dumps(gegevens), status)
+    antwoord.mimetype = "application/json"
+    antwoord.headers["Cache-Control"] = "no-store"
+    antwoord.headers["X-Content-Type-Options"] = "nosniff"
+    return antwoord
+
+
+def _taak_weigering(tekst):
+    if "application/json" in (request.headers.get("Accept") or ""):
+        return _json_taak({"fout": tekst}, 400)
+    return None
+
+
+def _taken_antwoord(conn, notitie, extra=None):
+    """JSON voor een tik, of een gewone terugkeer als de pagina geen script heeft."""
+    if "application/json" not in (request.headers.get("Accept") or ""):
+        return None
+    gedaan, totaal = _voortgang_notitie(conn, notitie["id"])
+    klus_gedaan, klus_totaal = _voortgang_klus(conn, notitie["klus_id"])
+    gegevens = {
+        "gedaan": gedaan,
+        "totaal": totaal,
+        "voortgang": voortgang_zin(gedaan, totaal),
+        "klus_gedaan": klus_gedaan,
+        "klus_totaal": klus_totaal,
+        "klus_voortgang": voortgang_zin(klus_gedaan, klus_totaal),
+    }
+    if extra:
+        gegevens.update(extra)
+    return _json_taak(gegevens)
+
+
+def _terug_naar_taken(notitie):
+    return redirect(
+        url_for("klus", klus_id=notitie["klus_id"], taak=notitie["id"])
+        + f"#taken-{notitie['id']}"
+    )
+
+
+def _notitie_of_404(conn, notitie_id):
+    rij = conn.execute("SELECT * FROM notities WHERE id=?", (notitie_id,)).fetchone()
+    if rij is None:
+        conn.close()
+        abort(404)
+    return dict(rij)
+
+
+def _taak_of_404(conn, notitie_id, taak_id):
+    notitie = _notitie_of_404(conn, notitie_id)
+    taak = conn.execute(
+        "SELECT * FROM taken WHERE id=? AND notitie_id=?", (taak_id, notitie_id)
+    ).fetchone()
+    if taak is None:
+        conn.close()
+        abort(404)
+    return notitie, dict(taak)
 
 
 def bewaar_bestanden(conn, klus_id, bestanden, notitie_id=None, inkoop_id=None):
@@ -4126,7 +4303,9 @@ def notitie_bewerk(notitie_id):
     tekst = (request.form.get("tekst") or "").strip()
     heeft_fotos = conn.execute(
         "SELECT COUNT(*) FROM bijlagen WHERE notitie_id=?", (notitie_id,)).fetchone()[0]
-    if not tekst and not heeft_fotos:
+    heeft_taken = conn.execute(
+        "SELECT COUNT(*) FROM taken WHERE notitie_id=?", (notitie_id,)).fetchone()[0]
+    if not tekst and not heeft_fotos and not heeft_taken:
         # Anders houd je een notitie over waar niets meer in staat.
         conn.close()
         melding("Laat de tekst niet leeg; verwijder de notitie als hij weg mag.", "fout")
@@ -4148,16 +4327,163 @@ def notitie_verwijder(notitie_id):
         conn.close()
         abort(404)
     fotos = conn.execute("SELECT * FROM bijlagen WHERE notitie_id=?", (notitie_id,)).fetchall()
+    taken = conn.execute("SELECT * FROM taken WHERE notitie_id=?", (notitie_id,)).fetchall()
+    # Eerst de notitie, dan de taken: terugzetten volgt die volgorde, en een
+    # taak verwijst naar de notitie.
     prullenbak_id = naar_prullenbak(
-        conn, "Notitie bij de klus", {"notities": [rij], "bijlagen": fotos},
+        conn, "Notitie bij de klus",
+        {"notities": [rij], "taken": taken, "bijlagen": fotos},
         bestanden=[f["bestand"] for f in fotos],
     )
+    conn.execute("DELETE FROM taken WHERE notitie_id=?", (notitie_id,))
     conn.execute("DELETE FROM bijlagen WHERE notitie_id=?", (notitie_id,))
     conn.execute("DELETE FROM notities WHERE id=?", (notitie_id,))
     conn.commit()
     conn.close()
     melding("Notitie verwijderd.", knop=terugknop(prullenbak_id))
     return redirect(url_for("klus", klus_id=rij["klus_id"]))
+
+
+def _zet_volgorde(conn, notitie_id, ids):
+    for plek, taak_id in enumerate(ids):
+        conn.execute(
+            "UPDATE taken SET volgorde=? WHERE id=? AND notitie_id=?",
+            (plek, taak_id, notitie_id),
+        )
+
+
+@app.route("/notitie/<int:notitie_id>/taak", methods=["POST"])
+def taak_erbij(notitie_id):
+    """Een regel onderaan de lijst. Enter voegt hem toe en laat het veld leeg."""
+    conn = get_db()
+    notitie = _notitie_of_404(conn, notitie_id)
+    tekst = (request.form.get("tekst") or "").strip()
+    if not tekst:
+        conn.close()
+        geweigerd = _taak_weigering("Schrijf eerst wat er gedaan moet worden.")
+        if geweigerd is not None:
+            return geweigerd
+        melding("Schrijf eerst wat er gedaan moet worden.", "fout")
+        return _terug_naar_taken(notitie)
+    if len(tekst) > TAAK_MAX_TEKENS:
+        conn.close()
+        zin = f"Een taak mag hooguit {TAAK_MAX_TEKENS} tekens zijn."
+        geweigerd = _taak_weigering(zin)
+        if geweigerd is not None:
+            return geweigerd
+        melding(zin, "fout")
+        return _terug_naar_taken(notitie)
+    aantal = conn.execute(
+        "SELECT COUNT(*) FROM taken WHERE notitie_id=?", (notitie_id,)
+    ).fetchone()[0]
+    if aantal >= TAAK_MAX_AANTAL:
+        conn.close()
+        zin = f"Een notitie mag hooguit {TAAK_MAX_AANTAL} taken hebben."
+        geweigerd = _taak_weigering(zin)
+        if geweigerd is not None:
+            return geweigerd
+        melding(zin, "fout")
+        return _terug_naar_taken(notitie)
+    hoogste = conn.execute(
+        "SELECT COALESCE(MAX(volgorde), -1) FROM taken WHERE notitie_id=?",
+        (notitie_id,),
+    ).fetchone()[0]
+    taak_id = conn.execute(
+        "INSERT INTO taken (notitie_id, tekst, klaar, volgorde) VALUES (?, ?, 0, ?)",
+        (notitie_id, tekst, int(hoogste) + 1),
+    ).lastrowid
+    conn.commit()
+    json_antwoord = _taken_antwoord(conn, notitie, {
+        "id": taak_id, "tekst": tekst, "klaar": 0,
+    })
+    conn.close()
+    if json_antwoord is not None:
+        return json_antwoord
+    return _terug_naar_taken(notitie)
+
+
+@app.route("/notitie/<int:notitie_id>/taak/<int:taak_id>/vink", methods=["POST"])
+def taak_vink(notitie_id, taak_id):
+    """Eén tik zet de taak op klaar of weer open. De regel blijft staan."""
+    conn = get_db()
+    notitie, taak = _taak_of_404(conn, notitie_id, taak_id)
+    klaar = 0 if taak["klaar"] else 1
+    conn.execute("UPDATE taken SET klaar=? WHERE id=?", (klaar, taak_id))
+    conn.commit()
+    json_antwoord = _taken_antwoord(conn, notitie, {"id": taak_id, "klaar": klaar})
+    conn.close()
+    if json_antwoord is not None:
+        return json_antwoord
+    return _terug_naar_taken(notitie)
+
+
+@app.route("/notitie/<int:notitie_id>/taak/<int:taak_id>/tekst", methods=["POST"])
+def taak_tekst(notitie_id, taak_id):
+    conn = get_db()
+    notitie, taak = _taak_of_404(conn, notitie_id, taak_id)
+    tekst = (request.form.get("tekst") or "").strip()
+    if not tekst:
+        conn.close()
+        geweigerd = _taak_weigering(
+            "Een taak heeft tekst nodig. Verwijder hem als hij weg mag."
+        )
+        if geweigerd is not None:
+            return geweigerd
+        melding("Een taak heeft tekst nodig. Verwijder hem als hij weg mag.", "fout")
+        return _terug_naar_taken(notitie)
+    if len(tekst) > TAAK_MAX_TEKENS:
+        conn.close()
+        zin = f"Een taak mag hooguit {TAAK_MAX_TEKENS} tekens zijn."
+        geweigerd = _taak_weigering(zin)
+        if geweigerd is not None:
+            return geweigerd
+        melding(zin, "fout")
+        return _terug_naar_taken(notitie)
+    conn.execute("UPDATE taken SET tekst=? WHERE id=?", (tekst, taak_id))
+    conn.commit()
+    json_antwoord = _taken_antwoord(conn, notitie, {"id": taak_id, "tekst": tekst})
+    conn.close()
+    if json_antwoord is not None:
+        return json_antwoord
+    return _terug_naar_taken(notitie)
+
+
+@app.route("/notitie/<int:notitie_id>/taak/<int:taak_id>/verwijder", methods=["POST"])
+def taak_verwijder(notitie_id, taak_id):
+    conn = get_db()
+    notitie, _taak = _taak_of_404(conn, notitie_id, taak_id)
+    conn.execute("DELETE FROM taken WHERE id=? AND notitie_id=?", (taak_id, notitie_id))
+    conn.commit()
+    json_antwoord = _taken_antwoord(conn, notitie, {"id": taak_id, "weg": True})
+    conn.close()
+    if json_antwoord is not None:
+        return json_antwoord
+    return _terug_naar_taken(notitie)
+
+
+@app.route("/notitie/<int:notitie_id>/taak/<int:taak_id>/verplaats", methods=["POST"])
+def taak_verplaats(notitie_id, taak_id):
+    """Omhoog of omlaag. Geen slepen: twee knoppen zijn op een telefoon raakbaar."""
+    conn = get_db()
+    notitie, _taak = _taak_of_404(conn, notitie_id, taak_id)
+    richting = (request.form.get("richting") or "").strip()
+    ids = [
+        rij["id"] for rij in conn.execute(
+            "SELECT id FROM taken WHERE notitie_id=? ORDER BY volgorde, id",
+            (notitie_id,),
+        )
+    ]
+    plek = ids.index(taak_id)
+    doel = plek - 1 if richting == "omhoog" else plek + 1 if richting == "omlaag" else plek
+    if 0 <= doel < len(ids) and doel != plek:
+        ids[plek], ids[doel] = ids[doel], ids[plek]
+        _zet_volgorde(conn, notitie_id, ids)
+        conn.commit()
+    json_antwoord = _taken_antwoord(conn, notitie, {"ids": ids})
+    conn.close()
+    if json_antwoord is not None:
+        return json_antwoord
+    return _terug_naar_taken(notitie)
 
 
 def _lees_bedrag(waarde):
