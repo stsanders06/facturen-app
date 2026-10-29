@@ -437,6 +437,54 @@
   /* De opschrijfknop hoort rechts, aan het eind van wat je invult. */
   .notitie-form .fotoregel .btn[type=submit] { margin-left: auto; }
 
+  /* Takenlijst onder de tekst. De kaart is een flex-item; zonder min-width
+     rekt een taak zonder spatie de hele kluspagina voorbij het scherm. */
+  .takenlijst { margin-top: 12px; min-width: 0; }
+  .taken-voortgang, .notitie-voortgang, .taken-klus {
+    margin: 0 0 8px;
+    color: var(--text-secondary);
+    font-size: 13px;
+  }
+  .invoerrij-bij .notitie-voortgang { margin: 0 0 0 8px; }
+  .taken { list-style: none; margin: 0; padding: 0; min-width: 0; }
+  .taak {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr);
+    gap: 8px;
+    align-items: center;
+    margin: 0 0 8px;
+    min-width: 0;
+  }
+  .taak-vink, .taak-tekst, .taak-nieuw { margin: 0; min-width: 0; }
+  .vink, .taak-knoppen .btn, .taak-nieuw input, .taak-tekst input {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  .vink {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--input-bg);
+    color: var(--text);
+    font-size: 18px;
+  }
+  .taak.is-klaar .vink { background: var(--primary-soft); color: var(--primary); }
+  .taak-tekst input, .taak-nieuw input { width: 100%; min-width: 0; }
+  .taak.is-klaar .taak-tekst input {
+    text-decoration: line-through;
+    color: var(--text-secondary);
+  }
+  .taak-knoppen {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .takenlijst.is-ingeklapt .taak.is-klaar { display: none; }
+  .taak-nieuw { margin-top: 4px; }
+
   @media (max-width: 620px) {
     /* Twee foto's naast elkaar in plaats van één: met 160px als ondergrens paste de
        tweede kolom er net niet in en werd elke foto zo hoog als een half scherm. */
@@ -857,7 +905,8 @@
   {% endcall %}
   {% endif %}
 
-  {% call invoerkaart('Notities') %}
+  {% call invoerkaart('Notities', id='notities') %}
+    <p class="hint taken-klus" id="taken-klus"{% if not taken_totaal %} hidden{% endif %}>{{ taken_voortgang }}</p>
     {#- Twee regels: eerst wat je opschrijft, dan wat je erbij wilt zetten. Alles op
         één regel werd een rij van vier dingen waarvan er twee half afgekapt waren.
         De bestandskiezer zelf is verborgen: die toont "geen bestanden geselecteerd"
@@ -904,13 +953,17 @@
           <div class="invoerrij-hoofd">
             <span class="invoerrij-titel">{{ n.tekst|met_links }}</span>
           </div>
-          <div class="invoerrij-bij">{{ n.wanneer|datum_nl }}</div>
+          <div class="invoerrij-bij">{{ n.wanneer|datum_nl }}
+            <span class="notitie-voortgang" data-voortgang="{{ n.id }}"{% if not n.taken_totaal %} hidden{% endif %}>{{ n.voortgang }}</span>
+          </div>
           {% else %}
           <div class="invoerrij-hoofd">
             <span class="invoerrij-titel">{{ n.wanneer|datum_nl }}</span>
+            <span class="notitie-voortgang" data-voortgang="{{ n.id }}"{% if not n.taken_totaal %} hidden{% endif %}>{{ n.voortgang }}</span>
           </div>
           {% endif %}
         </div>
+        {% include "_takenlijst.html" %}
         <form method="post" class="tekst-form" id="notitie-{{ n.id }}-form" hidden
               action="{{ url_for('notitie_bewerk', notitie_id=n.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -1414,6 +1467,167 @@
       rij.querySelector('.mat-weg').addEventListener('click', function () { rij.remove(); });
       lijst.appendChild(rij);
       rij.querySelector('[name="materiaal_omschrijving"]').focus();
+    });
+  })();
+
+  // Taken: een tik bewaart meteen. Zonder dit script verstuurt het formulier
+  // de pagina opnieuw; Enter in het onderste veld voegt dan ook een taak toe.
+  (function () {
+    function verstuur(form) {
+      return fetch(form.action, {
+        method: 'POST',
+        body: new FormData(form),
+        headers: { 'Accept': 'application/json' }
+      }).then(function (antwoord) {
+        return antwoord.json().then(function (gegevens) {
+          if (!antwoord.ok) throw gegevens;
+          return gegevens;
+        });
+      });
+    }
+    function veld(naam, waarde) {
+      var input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = naam;
+      input.value = waarde;
+      return input;
+    }
+    function formulier(actie, klas, csrf) {
+      var form = document.createElement('form');
+      form.method = 'post';
+      form.action = actie;
+      form.className = klas;
+      form.appendChild(veld('csrf_token', csrf));
+      return form;
+    }
+    function rijMaken(lijst, item) {
+      var nieuw = lijst.querySelector('.taak-nieuw');
+      var csrf = nieuw.querySelector('[name="csrf_token"]').value;
+      var basis = nieuw.action.replace(/\/$/, '') + '/' + item.id;
+      var li = document.createElement('li');
+      li.className = 'taak';
+      li.setAttribute('data-id', String(item.id));
+      var vink = formulier(basis + '/vink', 'taak-vink', csrf);
+      var knop = document.createElement('button');
+      knop.type = 'submit';
+      knop.className = 'vink';
+      knop.setAttribute('aria-pressed', 'false');
+      knop.setAttribute('aria-label', 'Afvinken: ' + item.tekst);
+      vink.appendChild(knop);
+      var tekst = formulier(basis + '/tekst', 'taak-tekst', csrf);
+      var invoer = document.createElement('input');
+      invoer.type = 'text';
+      invoer.name = 'tekst';
+      invoer.value = item.tekst;
+      invoer.defaultValue = item.tekst;
+      invoer.setAttribute('aria-label', 'Taak aanpassen');
+      tekst.appendChild(invoer);
+      var knoppen = document.createElement('div');
+      knoppen.className = 'taak-knoppen';
+      [['omhoog', 'Omhoog'], ['omlaag', 'Omlaag']].forEach(function (paar) {
+        var form = formulier(basis + '/verplaats', '', csrf);
+        form.appendChild(veld('richting', paar[0]));
+        var knopje = document.createElement('button');
+        knopje.type = 'submit';
+        knopje.className = 'btn btn-text';
+        knopje.textContent = paar[1];
+        knopje.setAttribute('aria-label', paar[1] + ': ' + item.tekst);
+        form.appendChild(knopje);
+        knoppen.appendChild(form);
+      });
+      var weg = formulier(basis + '/verwijder', 'taak-weg', csrf);
+      weg.setAttribute('data-bevestig', 'Deze taak verwijderen?');
+      var wegKnop = document.createElement('button');
+      wegKnop.type = 'submit';
+      wegKnop.className = 'btn btn-text danger';
+      wegKnop.textContent = 'Weg';
+      wegKnop.setAttribute('aria-label', 'Taak verwijderen');
+      weg.appendChild(wegKnop);
+      knoppen.appendChild(weg);
+      li.appendChild(vink);
+      li.appendChild(tekst);
+      li.appendChild(knoppen);
+      return li;
+    }
+    function zetVoortgang(lijst, gegevens) {
+      var id = lijst.getAttribute('data-notitie');
+      document.querySelectorAll('[data-voortgang="' + id + '"]').forEach(function (el) {
+        el.textContent = gegevens.voortgang || '';
+        el.hidden = !gegevens.totaal;
+      });
+      var klus = document.getElementById('taken-klus');
+      if (klus) {
+        klus.textContent = gegevens.klus_voortgang || '';
+        klus.hidden = !gegevens.klus_totaal;
+      }
+    }
+    function knoppenBij(lijst) {
+      var rijen = lijst.querySelectorAll('.taak');
+      rijen.forEach(function (rij, i) {
+        var omhoog = rij.querySelector('input[value="omhoog"]');
+        var omlaag = rij.querySelector('input[value="omlaag"]');
+        if (omhoog) omhoog.parentElement.querySelector('button').disabled = i === 0;
+        if (omlaag) omlaag.parentElement.querySelector('button').disabled = i === rijen.length - 1;
+      });
+      var verberg = lijst.querySelector('.taken-verberg');
+      if (!verberg) return;
+      verberg.hidden = !lijst.querySelector('.taak.is-klaar');
+    }
+    document.querySelectorAll('.takenlijst').forEach(function (lijst) {
+      knoppenBij(lijst);
+      var verberg = lijst.querySelector('.taken-verberg');
+      if (verberg) {
+        verberg.addEventListener('click', function () {
+          var aan = lijst.classList.toggle('is-ingeklapt');
+          verberg.textContent = aan ? 'Toon afgevinkte' : 'Verberg afgevinkte';
+        });
+      }
+      lijst.addEventListener('submit', function (e) {
+        var form = e.target;
+        if (!form || !lijst.contains(form) || e.defaultPrevented) return;
+        e.preventDefault();
+        var invoer = form.classList.contains('taak-nieuw')
+          ? form.querySelector('[name="tekst"]') : null;
+        verstuur(form).then(function (gegevens) {
+          if (invoer) {
+            lijst.querySelector('.taken').appendChild(rijMaken(lijst, gegevens));
+            invoer.value = '';
+            invoer.focus();
+          } else if (form.classList.contains('taak-vink')) {
+            var rij = form.closest('.taak');
+            rij.classList.toggle('is-klaar', !!gegevens.klaar);
+            var knop = form.querySelector('button');
+            knop.setAttribute('aria-pressed', gegevens.klaar ? 'true' : 'false');
+            knop.textContent = gegevens.klaar ? '✓' : '';
+            var tekst = rij.querySelector('.taak-tekst input');
+            knop.setAttribute('aria-label',
+              (gegevens.klaar ? 'Weer open: ' : 'Afvinken: ') + (tekst ? tekst.value : ''));
+          } else if (form.classList.contains('taak-weg')) {
+            form.closest('.taak').remove();
+          } else if (form.classList.contains('taak-tekst') && gegevens.tekst) {
+            var veld = form.querySelector('[name="tekst"]');
+            veld.defaultValue = gegevens.tekst;
+          } else if (gegevens.ids) {
+            var ul = lijst.querySelector('.taken');
+            gegevens.ids.forEach(function (id) {
+              var rij = ul.querySelector('.taak[data-id="' + id + '"]');
+              if (rij) ul.appendChild(rij);
+            });
+          }
+          zetVoortgang(lijst, gegevens);
+          knoppenBij(lijst);
+        }).catch(function () {
+          HTMLFormElement.prototype.submit.call(form);
+        });
+      });
+      lijst.addEventListener('focusout', function (e) {
+        var form = e.target.closest && e.target.closest('.taak-tekst');
+        if (!form || !lijst.contains(form) || e.target.name !== 'tekst') return;
+        if (e.target.value === e.target.defaultValue) return;
+        verstuur(form).then(function (gegevens) {
+          if (gegevens.tekst) e.target.defaultValue = gegevens.tekst;
+        }).catch(function () {});
+      });
     });
   })();
 </script>

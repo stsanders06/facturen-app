@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.43.0
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **Een notitie kan een takenlijst hebben.** Bij een klus schrijf je op wat er
+  nog moet gebeuren en vink je het af. Klaar is doorgestreept en blijft staan.
+  Bovenaan zie je hoeveel er al af is, bijvoorbeeld «3 van 7 klaar». Hetzelfde
+  staat bij de notitie zelf en bij de klus.
+
 ## 1.42.1
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
