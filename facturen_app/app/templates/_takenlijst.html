@@ -1,6 +1,7 @@
 {# Taken onder een notitie. Zonder script verstuurt elke knop gewoon het formulier. #}
 <div class="takenlijst" id="taken-{{ n.id }}" data-notitie="{{ n.id }}">
-  <p class="taken-voortgang" data-voortgang="{{ n.id }}"{% if not n.taken_totaal %} hidden{% endif %}>{{ n.voortgang }}</p>
+  {#- De voortgang staat bij de notitie zelf. Hier nog een keer hetzelfde
+      zinnetje maakte op een telefoon twee regels «0 van 1 klaar». -#}
   <button type="button" class="btn btn-text taken-verberg" hidden>Verberg afgevinkte</button>
   <ul class="taken">
     {% for t in n.taken %}
@@ -10,7 +11,7 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button type="submit" class="vink"
                 aria-pressed="{{ 'true' if t.klaar else 'false' }}"
-                aria-label="{{ 'Weer openzetten' if t.klaar else 'Afvinken' }}">{{ '✓' if t.klaar else '' }}</button>
+                aria-label="{{ ('Weer openzetten: ' if t.klaar else 'Afvinken: ') + t.tekst }}">{{ '✓' if t.klaar else '' }}</button>
       </form>
       <form method="post" class="taak-tekst"
             action="{{ url_for('taak_tekst', notitie_id=n.id, taak_id=t.id) }}">
@@ -19,26 +20,29 @@
                   aria-label="Taak aanpassen">{{ t.tekst }}</textarea>
         {#- Enter in een tekstvak verstuurt niet. Zonder script is deze knop
             de enige manier om de aanpassing te bewaren. -#}
-        <button type="submit" class="btn btn-text">Bewaar</button>
+        <button type="submit" class="btn btn-text taak-bewaar">Bewaar</button>
       </form>
       <div class="taak-knoppen">
         <form method="post" action="{{ url_for('taak_verplaats', notitie_id=n.id, taak_id=t.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="richting" value="omhoog">
           <button type="submit" class="btn btn-text"{% if loop.first %} disabled{% endif %}
-                  aria-label="Omhoog">Omhoog</button>
+                  aria-label="Omhoog: {{ t.tekst }}" title="Omhoog">&uarr;</button>
         </form>
         <form method="post" action="{{ url_for('taak_verplaats', notitie_id=n.id, taak_id=t.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="richting" value="omlaag">
           <button type="submit" class="btn btn-text"{% if loop.last %} disabled{% endif %}
-                  aria-label="Omlaag">Omlaag</button>
+                  aria-label="Omlaag: {{ t.tekst }}" title="Omlaag">&darr;</button>
         </form>
         <form method="post" class="taak-weg"
               action="{{ url_for('taak_verwijder', notitie_id=n.id, taak_id=t.id) }}"
               data-bevestig="Deze taak verwijderen?">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button type="submit" class="btn btn-text danger" aria-label="Taak verwijderen">Weg</button>
+          <button type="submit" class="btn btn-text taak-prullen"
+                  aria-label="Taak verwijderen: {{ t.tekst }}" title="Taak verwijderen">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M7 7l1 12h8l1-12"/></svg>
+          </button>
         </form>
       </div>
     </li>

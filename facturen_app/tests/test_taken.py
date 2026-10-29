@@ -197,45 +197,155 @@ def test_een_foto_notitie_krijgt_ook_een_lijst(post, db, klus_id, client):
     assert "0 van 1 klaar" in pagina
 
 
+def _meet_taakrij(pagina, breedte):
+    pagina.set_viewport_size({"width": breedte, "height": 800})
+    return pagina.evaluate(
+        """(breedte) => {
+          const doc = document.documentElement;
+          const rij = document.querySelector('.taak');
+          const vink = rij.querySelector('.vink');
+          const veld = rij.querySelector('.taak-tekst textarea');
+          const knoppen = rij.querySelector('.taak-knoppen');
+          const knop = knoppen.querySelector('.btn');
+          const nieuw = document.querySelector('.taak-nieuw input[name="tekst"]');
+          const bewaar = rij.querySelector('.taak-bewaar');
+          const ops = [...document.querySelectorAll('button')].find(
+            (b) => b.textContent.trim() === 'Opschrijven'
+          );
+          const box = (el) => el.getBoundingClientRect();
+          const midden = (el) => (box(el).top + box(el).bottom) / 2;
+          return {
+            scroll: doc.scrollWidth - doc.clientWidth,
+            vink: box(vink).height,
+            knop: box(knop).width,
+            knopHoog: box(knop).height,
+            rechts: Math.max(box(knoppen).right, box(veld).right),
+            veld: box(veld).width,
+            veldRechts: box(veld).right,
+            knopRechts: box(knoppen).right,
+            knopBoven: box(knoppen).top,
+            veldOnder: box(veld).bottom,
+            nieuwRechts: box(nieuw).right,
+            opsRechts: box(ops).right,
+            zelfdeRij: Math.abs(midden(vink) - midden(veld)),
+            bewaar: getComputedStyle(bewaar).display,
+            verborgen: getComputedStyle(document.querySelector('.taken-verberg')).display,
+            breedte,
+          };
+        }""",
+        breedte,
+    )
+
+
 def test_een_lange_taak_duwt_de_klus_niet_van_het_scherm(client, post, db, klus_id):
-    """Op 320 px mag een taak zonder spatie de knoppen niet buiten beeld duwen."""
+    """Op een telefoon blijft een taak één rij en binnen de kaart."""
     from browser import meetbrowser, playwright_verplicht
 
     sync_playwright = playwright_verplicht()
     notitie_id = _notitie(post, db, klus_id)
     _taak(post, notitie_id, "a" * 120)
     html = client.get(f"/klus/{klus_id}").data.decode()
-    # De tekst staat één keer in het vak, niet nog eens in elk aria-label.
-    assert html.count("a" * 120) == 1
+    # De naam van de knop noemt de taak, anders klinken ze allemaal hetzelfde.
+    assert f"Afvinken: {'a' * 120}" in html
+    assert f"Omhoog: {'a' * 120}" in html
+    assert f"Taak verwijderen: {'a' * 120}" in html
+    # De voortgang staat bij de notitie en bij de klus, niet nog een keer
+    # boven de lijst.
+    assert html.count("0 van 1 klaar") == 2
     assert "min-height: 44px" in html
+    assert 'class="btn btn-text taak-bewaar"' in html
 
     with sync_playwright() as p:
         browser = meetbrowser(p)
         pagina = browser.new_page(device_scale_factor=1)
         try:
-            pagina.set_viewport_size({"width": 320, "height": 800})
+            pagina.set_content(html)
+            for breedte in (320, 390):
+                gemeten = _meet_taakrij(pagina, breedte)
+                assert gemeten["scroll"] <= 1, gemeten
+                assert gemeten["vink"] >= 44, gemeten
+                assert gemeten["veld"] > 180, gemeten
+                assert gemeten["knop"] >= 44 and gemeten["knopHoog"] >= 44, gemeten
+                assert gemeten["rechts"] <= breedte + 1, gemeten
+                assert gemeten["zelfdeRij"] < 8, gemeten
+                assert gemeten["knopBoven"] >= gemeten["veldOnder"] - 2, gemeten
+                assert abs(gemeten["knopRechts"] - gemeten["veldRechts"]) <= 2, gemeten
+                assert abs(gemeten["nieuwRechts"] - gemeten["opsRechts"]) <= 2, gemeten
+                assert gemeten["bewaar"] == "none", gemeten
+                assert gemeten["verborgen"] == "none", gemeten
+        finally:
+            browser.close()
+
+
+def _afstand(a, b):
+    """Kleinste opening tussen twee rechthoeken. 0 als ze elkaar raken."""
+    horizontaal = max(0, max(a["left"], b["left"]) - min(a["right"], b["right"]))
+    verticaal = max(0, max(a["top"], b["top"]) - min(a["bottom"], b["bottom"]))
+    if horizontaal and verticaal:
+        return (horizontaal ** 2 + verticaal ** 2) ** 0.5
+    return horizontaal or verticaal
+
+
+def test_het_wegkruis_van_de_taak_raakt_de_notitie_niet(client, post, db, klus_id):
+    """Bij een fotonotitie stond het prullenbakje in de kolom van het kruis."""
+    from browser import meetbrowser, playwright_verplicht
+
+    sync_playwright = playwright_verplicht()
+    schrijf_op(post, klus_id, tekst="", fotos=["situatie.png"])
+    notitie_id = db.execute("SELECT id FROM notities").fetchone()[0]
+    _taak(post, notitie_id, "Foto nalopen")
+    html = client.get(f"/klus/{klus_id}").data.decode()
+    with sync_playwright() as p:
+        browser = meetbrowser(p)
+        pagina = browser.new_page(device_scale_factor=1)
+        try:
+            pagina.set_content(html)
+            for breedte in (320, 390):
+                pagina.set_viewport_size({"width": breedte, "height": 800})
+                dozen = pagina.evaluate(
+                    """() => {
+                      const vak = (el) => {
+                        const b = el.getBoundingClientRect();
+                        return {left: b.left, right: b.right, top: b.top, bottom: b.bottom};
+                      };
+                      return {
+                        notitie: vak(document.querySelector('.invoerrij-weg .weg')),
+                        taak: vak(document.querySelector('.taak-prullen')),
+                      };
+                    }"""
+                )
+                assert _afstand(dozen["notitie"], dozen["taak"]) >= 8, (breedte, dozen)
+        finally:
+            browser.close()
+
+
+def test_zonder_script_blijft_de_tekst_leesbaar(client, post, db, klus_id):
+    from browser import meetbrowser, playwright_verplicht
+
+    sync_playwright = playwright_verplicht()
+    notitie_id = _notitie(post, db, klus_id)
+    _taak(post, notitie_id, "Kitrand langs de douchewand")
+    html = client.get(f"/klus/{klus_id}").data.decode()
+    with sync_playwright() as p:
+        browser = meetbrowser(p)
+        pagina = browser.new_page(device_scale_factor=1)
+        try:
+            pagina.set_viewport_size({"width": 390, "height": 800})
             pagina.set_content(html)
             gemeten = pagina.evaluate(
                 """() => {
-                  const doc = document.documentElement;
-                  const vink = document.querySelector('.vink');
-                  const knop = document.querySelector('.taak-knoppen .btn');
+                  document.documentElement.className = '';
                   const veld = document.querySelector('.taak-tekst textarea');
-                  const verberg = document.querySelector('.taken-verberg');
+                  veld.style.height = '';
+                  const stijl = getComputedStyle(veld);
                   return {
-                    scroll: doc.scrollWidth - doc.clientWidth,
-                    vink: vink.getBoundingClientRect().height,
-                    rechts: knop.getBoundingClientRect().right,
-                    veld: veld.getBoundingClientRect().width,
-                    verborgen: getComputedStyle(verberg).display,
+                    hoogte: veld.getBoundingClientRect().height,
+                    overloop: stijl.overflowY,
                   };
                 }"""
             )
-            assert gemeten["scroll"] <= 1
-            assert gemeten["vink"] >= 44
-            assert gemeten["rechts"] <= 321
-            assert gemeten["veld"] > 180
-            assert gemeten["verborgen"] == "none"
+            assert gemeten["hoogte"] > 80, gemeten
+            assert gemeten["overloop"] == "auto", gemeten
         finally:
             browser.close()
 
