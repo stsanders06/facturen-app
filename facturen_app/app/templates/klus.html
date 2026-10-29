@@ -440,6 +440,9 @@
   /* Takenlijst onder de tekst. De kaart is een flex-item; zonder min-width
      rekt een taak zonder spatie de hele kluspagina voorbij het scherm. */
   .takenlijst { margin-top: 12px; min-width: 0; }
+  /* .btn is inline-flex en wint van het hidden-attribuut, dus «Verberg
+     afgevinkte» stond er ook als er niets afgevinkt was. */
+  .takenlijst [hidden] { display: none !important; }
   .taken-voortgang, .notitie-voortgang, .taken-klus {
     margin: 0 0 8px;
     color: var(--text-secondary);
@@ -471,10 +474,23 @@
     font-size: 18px;
   }
   .taak.is-klaar .vink { background: var(--primary-soft); color: var(--primary); }
-  .taak-tekst input, .taak-nieuw input { width: 100%; min-width: 0; }
-  .taak.is-klaar .taak-tekst input {
+  .taak-tekst textarea, .taak-nieuw input { width: 100%; min-width: 0; }
+  .taak-tekst textarea {
+    display: block;
+    min-height: 44px;
+    resize: none;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+  .taak.is-klaar .taak-tekst textarea {
     text-decoration: line-through;
     color: var(--text-secondary);
+  }
+  /* Op 320 px bleef het veld ~140 px: de vink en de weg-kruis eten de rij op.
+     De tekst gaat dan op een eigen volle regel en slaat om. */
+  @media (max-width: 420px) {
+    .taak-tekst { grid-column: 1 / -1; }
   }
   .taak-knoppen {
     grid-column: 1 / -1;
@@ -1512,15 +1528,23 @@
       knop.type = 'submit';
       knop.className = 'vink';
       knop.setAttribute('aria-pressed', 'false');
-      knop.setAttribute('aria-label', 'Afvinken: ' + item.tekst);
+      knop.setAttribute('aria-label', 'Afvinken');
       vink.appendChild(knop);
       var tekst = formulier(basis + '/tekst', 'taak-tekst', csrf);
-      var invoer = document.createElement('input');
-      invoer.type = 'text';
+      var invoer = document.createElement('textarea');
       invoer.name = 'tekst';
+      invoer.rows = 1;
+      invoer.className = 'groeit';
+      invoer.maxLength = nieuw.querySelector('[name="tekst"]').maxLength || 500;
       invoer.value = item.tekst;
       invoer.defaultValue = item.tekst;
       invoer.setAttribute('aria-label', 'Taak aanpassen');
+      // De pagina koppelt alleen de vakken die er al stonden. Een net
+      // toegevoegde taak groeit anders niet mee met een lange regel.
+      invoer.addEventListener('input', function () {
+        invoer.style.height = 'auto';
+        invoer.style.height = (invoer.scrollHeight + 2) + 'px';
+      });
       tekst.appendChild(invoer);
       var knoppen = document.createElement('div');
       knoppen.className = 'taak-knoppen';
@@ -1531,7 +1555,7 @@
         knopje.type = 'submit';
         knopje.className = 'btn btn-text';
         knopje.textContent = paar[1];
-        knopje.setAttribute('aria-label', paar[1] + ': ' + item.tekst);
+        knopje.setAttribute('aria-label', paar[1]);
         form.appendChild(knopje);
         knoppen.appendChild(form);
       });
@@ -1585,7 +1609,15 @@
       lijst.addEventListener('submit', function (e) {
         var form = e.target;
         if (!form || !lijst.contains(form) || e.defaultPrevented) return;
+        // Vóór preventDefault: anders is de taak al weg als je Annuleren kiest.
+        // stopPropagation: de pagina vraagt anders nog een keer hetzelfde.
+        if (form.dataset.bevestig && !window.confirm(form.dataset.bevestig)) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
         e.preventDefault();
+        e.stopPropagation();
         var invoer = form.classList.contains('taak-nieuw')
           ? form.querySelector('[name="tekst"]') : null;
         verstuur(form).then(function (gegevens) {
@@ -1599,9 +1631,7 @@
             var knop = form.querySelector('button');
             knop.setAttribute('aria-pressed', gegevens.klaar ? 'true' : 'false');
             knop.textContent = gegevens.klaar ? '✓' : '';
-            var tekst = rij.querySelector('.taak-tekst input');
-            knop.setAttribute('aria-label',
-              (gegevens.klaar ? 'Weer open: ' : 'Afvinken: ') + (tekst ? tekst.value : ''));
+            knop.setAttribute('aria-label', gegevens.klaar ? 'Weer openzetten' : 'Afvinken');
           } else if (form.classList.contains('taak-weg')) {
             form.closest('.taak').remove();
           } else if (form.classList.contains('taak-tekst') && gegevens.tekst) {
@@ -1624,9 +1654,37 @@
         var form = e.target.closest && e.target.closest('.taak-tekst');
         if (!form || !lijst.contains(form) || e.target.name !== 'tekst') return;
         if (e.target.value === e.target.defaultValue) return;
+        // Leegmaken is verwijderen. Zonder vraag bleef de server stil weigeren
+        // en leek de tekst weg, terwijl hij er nog stond.
+        if (!e.target.value.trim()) {
+          var weg = form.closest('.taak').querySelector('.taak-weg');
+          var vraag = (weg && weg.getAttribute('data-bevestig')) || 'Deze taak verwijderen?';
+          if (!window.confirm(vraag)) {
+            e.target.value = e.target.defaultValue;
+            return;
+          }
+          if (!weg) return;
+          verstuur(weg).then(function (gegevens) {
+            var rij = weg.closest('.taak');
+            if (rij) rij.remove();
+            zetVoortgang(lijst, gegevens);
+            knoppenBij(lijst);
+          }).catch(function (fout) {
+            if (fout && fout.fout) window.alert(fout.fout);
+            e.target.value = e.target.defaultValue;
+          });
+          return;
+        }
         verstuur(form).then(function (gegevens) {
+          if (gegevens.fout) {
+            window.alert(gegevens.fout);
+            e.target.value = e.target.defaultValue;
+            return;
+          }
           if (gegevens.tekst) e.target.defaultValue = gegevens.tekst;
-        }).catch(function () {});
+        }).catch(function (fout) {
+          if (fout && fout.fout) window.alert(fout.fout);
+        });
       });
     });
   })();

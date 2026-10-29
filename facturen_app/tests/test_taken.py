@@ -205,7 +205,8 @@ def test_een_lange_taak_duwt_de_klus_niet_van_het_scherm(client, post, db, klus_
     notitie_id = _notitie(post, db, klus_id)
     _taak(post, notitie_id, "a" * 120)
     html = client.get(f"/klus/{klus_id}").data.decode()
-    assert "a" * 120 in html
+    # De tekst staat één keer in het vak, niet nog eens in elk aria-label.
+    assert html.count("a" * 120) == 1
     assert "min-height: 44px" in html
 
     with sync_playwright() as p:
@@ -219,18 +220,209 @@ def test_een_lange_taak_duwt_de_klus_niet_van_het_scherm(client, post, db, klus_
                   const doc = document.documentElement;
                   const vink = document.querySelector('.vink');
                   const knop = document.querySelector('.taak-knoppen .btn');
+                  const veld = document.querySelector('.taak-tekst textarea');
+                  const verberg = document.querySelector('.taken-verberg');
                   return {
                     scroll: doc.scrollWidth - doc.clientWidth,
                     vink: vink.getBoundingClientRect().height,
                     rechts: knop.getBoundingClientRect().right,
+                    veld: veld.getBoundingClientRect().width,
+                    verborgen: getComputedStyle(verberg).display,
                   };
                 }"""
             )
             assert gemeten["scroll"] <= 1
             assert gemeten["vink"] >= 44
             assert gemeten["rechts"] <= 321
+            assert gemeten["veld"] > 180
+            assert gemeten["verborgen"] == "none"
         finally:
             browser.close()
+
+
+def test_een_taak_mag_hooguit_vijfhonderd_tekens(post, db, klus_id):
+    notitie_id = _notitie(post, db, klus_id)
+    antwoord = _taak(post, notitie_id, "b" * 501)
+    assert "500 tekens" in antwoord.get_data(as_text=True)
+    assert db.execute("SELECT COUNT(*) FROM taken").fetchone()[0] == 0
+    _taak(post, notitie_id, "b" * 500)
+    assert db.execute("SELECT length(tekst) FROM taken").fetchone()[0] == 500
+
+
+def test_een_notitie_mag_hooguit_tweehonderd_taken(post, db, klus_id, monkeypatch):
+    monkeypatch.setattr(facturen, "TAAK_MAX_AANTAL", 2)
+    notitie_id = _notitie(post, db, klus_id)
+    _taak(post, notitie_id, "Een")
+    _taak(post, notitie_id, "Twee")
+    antwoord = _taak(post, notitie_id, "Drie")
+    assert "200 taken" not in antwoord.get_data(as_text=True)
+    assert "hooguit 2 taken" in antwoord.get_data(as_text=True)
+    assert db.execute("SELECT COUNT(*) FROM taken").fetchone()[0] == 2
+
+
+def test_json_antwoord_laat_zich_niet_raden(client, post, db, klus_id):
+    notitie_id = _notitie(post, db, klus_id)
+    _taak(post, notitie_id, "Kit")
+    taak_id = db.execute("SELECT id FROM taken").fetchone()[0]
+    antwoord = client.post(
+        f"/notitie/{notitie_id}/taak/{taak_id}/vink",
+        data={"csrf_token": "test-token"},
+        headers={"Accept": "application/json"},
+    )
+    assert antwoord.headers["X-Content-Type-Options"] == "nosniff"
+
+
+def test_cascade_wist_taken_als_de_notitie_weggaat(db, post, klus_id):
+    """1.42.1 wist alleen de notitie. Zonder CASCADE bleef de database op slot."""
+    notitie_id = _notitie(post, db, klus_id, "Bestaat al")
+    db.execute("DROP TABLE taken")
+    db.execute(
+        """CREATE TABLE taken (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            notitie_id INTEGER NOT NULL,
+            tekst TEXT NOT NULL,
+            klaar INTEGER NOT NULL DEFAULT 0,
+            volgorde INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (notitie_id) REFERENCES notities (id)
+        )"""
+    )
+    db.execute(
+        "INSERT INTO taken (notitie_id, tekst, klaar, volgorde) VALUES (?, 'Kit', 0, 0)",
+        (notitie_id,),
+    )
+    db.commit()
+    facturen.init_db()
+    db.execute("DELETE FROM notities WHERE id=?", (notitie_id,))
+    db.commit()
+    assert db.execute("SELECT COUNT(*) FROM taken").fetchone()[0] == 0
+
+
+def _dialoog_pagina(client, klus_id):
+    from browser import meetbrowser, playwright_verplicht
+    html = client.get(f"/klus/{klus_id}").data.decode()
+    html = html.replace("<head>", '<head><base href="http://facturen.test/">', 1)
+    return playwright_verplicht(), meetbrowser, html
+
+
+def test_annuleren_laat_de_taak_staan(client, post, db, klus_id):
+    notitie_id = _notitie(post, db, klus_id)
+    _taak(post, notitie_id, "Kitrand snijden")
+    sync_playwright, meetbrowser, html = _dialoog_pagina(client, klus_id)
+    vragen = []
+    with sync_playwright() as p:
+        browser = meetbrowser(p)
+        pagina = browser.new_page()
+        def bij_dialoog(dialoog):
+            vragen.append(dialoog.message)
+            dialoog.dismiss()
+        pagina.on("dialog", bij_dialoog)
+        try:
+            pagina.set_content(html)
+            pagina.locator(".taak-weg button").click()
+            assert pagina.locator(".taak").count() == 1
+            assert len(vragen) == 1
+        finally:
+            browser.close()
+    assert db.execute("SELECT COUNT(*) FROM taken").fetchone()[0] == 1
+
+
+def _formuliervelden(ruw):
+    """FormData is multipart, geen querystring. parse_qs knipt op het =-teken."""
+    import re
+    return dict(re.findall(r'name="([^"]+)"\r\n\r\n([^\r\n]*)', ruw or ""))
+
+
+def test_bevestigen_verwijdert_de_taak(client, post, db, klus_id):
+    notitie_id = _notitie(post, db, klus_id)
+    _taak(post, notitie_id, "Kitrand snijden")
+    sync_playwright, meetbrowser, html = _dialoog_pagina(client, klus_id)
+    # De browser mag de testclient niet zelf aanroepen: die deelt de
+    # verzoekcontext niet. We vangen het formulier en sturen het daarna
+    # alsnog, zodat de database hetzelfde verzoek krijgt.
+    gevangen = {}
+    vragen = []
+
+    def afhandelen(route):
+        from urllib.parse import urlsplit
+        gevangen["pad"] = urlsplit(route.request.url).path
+        gevangen["velden"] = _formuliervelden(route.request.post_data)
+        route.fulfill(
+            status=200,
+            body=(
+                '{"weg": true, "gedaan": 0, "totaal": 0, "voortgang": "", '
+                '"klus_gedaan": 0, "klus_totaal": 0, "klus_voortgang": ""}'
+            ),
+            content_type="application/json",
+        )
+
+    with sync_playwright() as p:
+        browser = meetbrowser(p)
+        pagina = browser.new_page()
+        pagina.route("http://facturen.test/**", afhandelen)
+
+        def bij_dialoog(dialoog):
+            vragen.append(dialoog.message)
+            dialoog.accept()
+
+        pagina.on("dialog", bij_dialoog)
+        try:
+            pagina.set_content(html)
+            pagina.locator(".taak-weg button").click()
+            # De klik keert terug zodra het verzoek vertrekt. De rij gaat
+            # pas weg als het JSON-antwoord binnen is.
+            pagina.locator(".taak").wait_for(state="detached", timeout=3000)
+            assert pagina.locator(".taak").count() == 0
+            assert vragen == ["Deze taak verwijderen?"]
+        finally:
+            browser.close()
+    assert gevangen["pad"].endswith("/verwijder")
+    assert gevangen["velden"]["csrf_token"] == "test-token"
+    antwoord = client.post(
+        gevangen["pad"],
+        data=gevangen["velden"],
+        headers={"Accept": "application/json"},
+    )
+    assert antwoord.status_code == 200
+    assert db.execute("SELECT COUNT(*) FROM taken").fetchone()[0] == 0
+
+
+def test_leegmaken_vraagt_of_de_taak_weg_mag(client, post, db, klus_id):
+    """Een leeg vak stil laten mislukken leek alsof de tekst weg was."""
+    notitie_id = _notitie(post, db, klus_id)
+    _taak(post, notitie_id, "Kitrand snijden")
+    taak_id = db.execute("SELECT id FROM taken").fetchone()[0]
+    antwoord = client.post(
+        f"/notitie/{notitie_id}/taak/{taak_id}/tekst",
+        data={"csrf_token": "test-token", "tekst": "   "},
+        headers={"Accept": "application/json"},
+    )
+    assert antwoord.status_code == 400
+    assert "tekst nodig" in antwoord.get_json()["fout"]
+    assert antwoord.headers["X-Content-Type-Options"] == "nosniff"
+    assert db.execute("SELECT tekst FROM taken").fetchone()[0] == "Kitrand snijden"
+
+    sync_playwright, meetbrowser, html = _dialoog_pagina(client, klus_id)
+    vragen = []
+    with sync_playwright() as p:
+        browser = meetbrowser(p)
+        pagina = browser.new_page()
+
+        def bij_dialoog(dialoog):
+            vragen.append(dialoog.message)
+            dialoog.dismiss()
+
+        pagina.on("dialog", bij_dialoog)
+        try:
+            pagina.set_content(html)
+            veld = pagina.locator(".taak-tekst textarea")
+            veld.fill("")
+            veld.blur()
+            assert veld.input_value() == "Kitrand snijden"
+            assert vragen == ["Deze taak verwijderen?"]
+            assert pagina.locator(".taak").count() == 1
+        finally:
+            browser.close()
+    assert db.execute("SELECT COUNT(*) FROM taken").fetchone()[0] == 1
 
 
 def test_het_log_van_een_taak_staat_niet_in_de_melding(caplog, post, klus_id, db):

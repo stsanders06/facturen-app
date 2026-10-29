@@ -8,7 +8,9 @@ genoeg; anders blijft de vorige versie draaien.
 - **Een notitie kan een takenlijst hebben.** Bij een klus schrijf je op wat er
   nog moet gebeuren en vink je het af. Klaar is doorgestreept en blijft staan.
   Bovenaan zie je hoeveel er al af is, bijvoorbeeld «3 van 7 klaar». Hetzelfde
-  staat bij de notitie zelf en bij de klus.
+  staat bij de notitie zelf en bij de klus. Annuleren bij verwijderen laat de
+  taak staan. Een taak mag 500 tekens, een lijst 200 taken. Haal je de notitie
+  weg, dan gaan de taken mee, ook als je terugvalt op de vorige versie.
 
 ## 1.42.1
 

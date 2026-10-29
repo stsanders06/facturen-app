@@ -10,25 +10,26 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button type="submit" class="vink"
                 aria-pressed="{{ 'true' if t.klaar else 'false' }}"
-                aria-label="{{ ('Weer open: ' if t.klaar else 'Afvinken: ') + t.tekst }}">{{ '✓' if t.klaar else '' }}</button>
+                aria-label="{{ 'Weer openzetten' if t.klaar else 'Afvinken' }}">{{ '✓' if t.klaar else '' }}</button>
       </form>
       <form method="post" class="taak-tekst"
             action="{{ url_for('taak_tekst', notitie_id=n.id, taak_id=t.id) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="text" name="tekst" value="{{ t.tekst }}" aria-label="Taak aanpassen">
+        <textarea name="tekst" rows="1" class="groeit" maxlength="{{ taak_max_tekens }}"
+                  aria-label="Taak aanpassen">{{ t.tekst }}</textarea>
       </form>
       <div class="taak-knoppen">
         <form method="post" action="{{ url_for('taak_verplaats', notitie_id=n.id, taak_id=t.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="richting" value="omhoog">
           <button type="submit" class="btn btn-text"{% if loop.first %} disabled{% endif %}
-                  aria-label="Omhoog: {{ t.tekst }}">Omhoog</button>
+                  aria-label="Omhoog">Omhoog</button>
         </form>
         <form method="post" action="{{ url_for('taak_verplaats', notitie_id=n.id, taak_id=t.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="richting" value="omlaag">
           <button type="submit" class="btn btn-text"{% if loop.last %} disabled{% endif %}
-                  aria-label="Omlaag: {{ t.tekst }}">Omlaag</button>
+                  aria-label="Omlaag">Omlaag</button>
         </form>
         <form method="post" class="taak-weg"
               action="{{ url_for('taak_verwijder', notitie_id=n.id, taak_id=t.id) }}"
@@ -42,7 +43,8 @@
   </ul>
   <form method="post" class="taak-nieuw" action="{{ url_for('taak_erbij', notitie_id=n.id) }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <input type="text" name="tekst" placeholder="Nog een taak, Enter voegt toe"
+    <input type="text" name="tekst" maxlength="{{ taak_max_tekens }}"
+           placeholder="Nog een taak, Enter voegt toe"
            aria-label="Nieuwe taak" enterkeyhint="done"
            {% if request.args.get('taak')|string == n.id|string %}autofocus{% endif %}>
   </form>

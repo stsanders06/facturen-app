@@ -1965,9 +1965,13 @@ def init_db():
             tekst TEXT NOT NULL,
             klaar INTEGER NOT NULL DEFAULT 0,
             volgorde INTEGER NOT NULL DEFAULT 0,
-            FOREIGN KEY (notitie_id) REFERENCES notities (id)
+            FOREIGN KEY (notitie_id) REFERENCES notities (id) ON DELETE CASCADE
         )"""
     )
+    # Een database van de eerste 1.43.0 heeft de verwijzing zonder CASCADE.
+    # Terug naar 1.42.1 wist dan de notitie niet: die versie kent de taken
+    # niet, en de vreemde sleutel hield de verwijdering tegen.
+    _taken_cascade(conn)
 
     conn.commit()
     conn.close()
@@ -3744,6 +3748,7 @@ def klus(klus_id):
         inkopen=aankopen, notities=aantekeningen, offerte=offerte, fases=KLUS_FASES,
         taken_voortgang=voortgang_zin(taken_gedaan, taken_totaal),
         taken_gedaan=taken_gedaan, taken_totaal=taken_totaal,
+        taak_max_tekens=TAAK_MAX_TEKENS,
         offerte_status=OFFERTE_STATUS,
         bedrag=round(totaal * (gegevens["uurtarief"] or 0), 2),
         bonnen_bedrag=bonnen_totaal(aankopen),
@@ -4096,6 +4101,54 @@ def _voortgang_klus(conn, klus_id):
     return int(rij["gedaan"] or 0), int(rij["totaal"] or 0)
 
 
+def _taken_cascade(conn):
+    """Zorg dat een notitie zijn taken meeneemt, ook zonder onze DELETE."""
+    bestaat = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='taken'"
+    ).fetchone()
+    if not bestaat:
+        return
+    wijzen = conn.execute("PRAGMA foreign_key_list(taken)").fetchall()
+    if wijzen and all((rij["on_delete"] or "").upper() == "CASCADE" for rij in wijzen):
+        return
+    conn.execute("ALTER TABLE taken RENAME TO taken_oud")
+    conn.execute(
+        """CREATE TABLE taken (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            notitie_id INTEGER NOT NULL,
+            tekst TEXT NOT NULL,
+            klaar INTEGER NOT NULL DEFAULT 0,
+            volgorde INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (notitie_id) REFERENCES notities (id) ON DELETE CASCADE
+        )"""
+    )
+    conn.execute(
+        """INSERT INTO taken (id, notitie_id, tekst, klaar, volgorde)
+           SELECT id, notitie_id, tekst, klaar, volgorde FROM taken_oud"""
+    )
+    conn.execute("DROP TABLE taken_oud")
+
+
+# Een taak is een regel, geen opstel. Meer dan dit is een vergissing of een
+# plakactie die de pagina oprekt.
+TAAK_MAX_TEKENS = 500
+TAAK_MAX_AANTAL = 200
+
+
+def _json_taak(gegevens, status=200):
+    antwoord = make_response(json.dumps(gegevens), status)
+    antwoord.mimetype = "application/json"
+    antwoord.headers["Cache-Control"] = "no-store"
+    antwoord.headers["X-Content-Type-Options"] = "nosniff"
+    return antwoord
+
+
+def _taak_weigering(tekst):
+    if "application/json" in (request.headers.get("Accept") or ""):
+        return _json_taak({"fout": tekst}, 400)
+    return None
+
+
 def _taken_antwoord(conn, notitie, extra=None):
     """JSON voor een tik, of een gewone terugkeer als de pagina geen script heeft."""
     if "application/json" not in (request.headers.get("Accept") or ""):
@@ -4112,10 +4165,7 @@ def _taken_antwoord(conn, notitie, extra=None):
     }
     if extra:
         gegevens.update(extra)
-    antwoord = make_response(json.dumps(gegevens), 200)
-    antwoord.mimetype = "application/json"
-    antwoord.headers["Cache-Control"] = "no-store"
-    return antwoord
+    return _json_taak(gegevens)
 
 
 def _terug_naar_taken(notitie):
@@ -4310,13 +4360,29 @@ def taak_erbij(notitie_id):
     tekst = (request.form.get("tekst") or "").strip()
     if not tekst:
         conn.close()
-        if "application/json" in (request.headers.get("Accept") or ""):
-            antwoord = make_response(
-                json.dumps({"fout": "Schrijf eerst wat er gedaan moet worden."}), 400
-            )
-            antwoord.mimetype = "application/json"
-            return antwoord
+        geweigerd = _taak_weigering("Schrijf eerst wat er gedaan moet worden.")
+        if geweigerd is not None:
+            return geweigerd
         melding("Schrijf eerst wat er gedaan moet worden.", "fout")
+        return _terug_naar_taken(notitie)
+    if len(tekst) > TAAK_MAX_TEKENS:
+        conn.close()
+        zin = f"Een taak mag hooguit {TAAK_MAX_TEKENS} tekens zijn."
+        geweigerd = _taak_weigering(zin)
+        if geweigerd is not None:
+            return geweigerd
+        melding(zin, "fout")
+        return _terug_naar_taken(notitie)
+    aantal = conn.execute(
+        "SELECT COUNT(*) FROM taken WHERE notitie_id=?", (notitie_id,)
+    ).fetchone()[0]
+    if aantal >= TAAK_MAX_AANTAL:
+        conn.close()
+        zin = f"Een notitie mag hooguit {TAAK_MAX_AANTAL} taken hebben."
+        geweigerd = _taak_weigering(zin)
+        if geweigerd is not None:
+            return geweigerd
+        melding(zin, "fout")
         return _terug_naar_taken(notitie)
     hoogste = conn.execute(
         "SELECT COALESCE(MAX(volgorde), -1) FROM taken WHERE notitie_id=?",
@@ -4358,13 +4424,20 @@ def taak_tekst(notitie_id, taak_id):
     tekst = (request.form.get("tekst") or "").strip()
     if not tekst:
         conn.close()
-        if "application/json" in (request.headers.get("Accept") or ""):
-            antwoord = make_response(
-                json.dumps({"fout": "Een taak heeft tekst nodig."}), 400
-            )
-            antwoord.mimetype = "application/json"
-            return antwoord
+        geweigerd = _taak_weigering(
+            "Een taak heeft tekst nodig. Verwijder hem als hij weg mag."
+        )
+        if geweigerd is not None:
+            return geweigerd
         melding("Een taak heeft tekst nodig. Verwijder hem als hij weg mag.", "fout")
+        return _terug_naar_taken(notitie)
+    if len(tekst) > TAAK_MAX_TEKENS:
+        conn.close()
+        zin = f"Een taak mag hooguit {TAAK_MAX_TEKENS} tekens zijn."
+        geweigerd = _taak_weigering(zin)
+        if geweigerd is not None:
+            return geweigerd
+        melding(zin, "fout")
         return _terug_naar_taken(notitie)
     conn.execute("UPDATE taken SET tekst=? WHERE id=?", (tekst, taak_id))
     conn.commit()
