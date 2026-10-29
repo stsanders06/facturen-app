@@ -257,13 +257,26 @@ deelpaneel»). Die stuurt elke scan apart naar
 is daar niet voor nodig: thuis is het het adres op je eigen netwerk, en onderweg
 hetzelfde adres zodra de VPN aanstaat.
 
+Zet bij Ontvang pdf’s, bestanden, afbeeldingen en URL’s aan. Notities stuurt het
+bestand zelf; een factuur uit een andere app komt vaak als link of als los blad,
+en die valt anders buiten de opdracht.
+
 Zet om de scan heen «Herhaal voor elk onderdeel», over de invoer van de opdracht, en
-stop bij «Stop herhalen». In die herhaling: «Haal inhoud van URL op», tik op «Toon
-meer» en zet de methode op POST. Voeg een koptekst `Authorization` toe met als
-waarde `Bearer <code>`. Bij «Vraag om hoofdtekst» kies je Formulier. Het veld
-heet `bestand` en het type is Bestand; een ander type komt aan als «geen bestand».
-De waarde is «Herhaal onderdeel», het bestand van die ronde. Eén bestand per
-verzoek, ook als je er maar één deelt.
+stop bij «Stop herhalen». Eerst «Maak PDF» (in de lijst ook «Maak pdf aan»), van
+«Herhaal onderdeel»: daar maakt de iPhone zelf een echt pdf-bestand van, ook als
+het deelpaneel alleen een link of een plaatje meegaf. Daarna «Haal inhoud van URL
+op», tik op «Toon meer» en zet de methode op POST. Voeg een koptekst `Authorization`
+toe met als waarde `Bearer <code>`. Bij «Vraag om hoofdtekst» kies je Bestand, en
+als waarde de uitkomst van «Maak PDF». Dan is de scan zelf de inhoud, zonder
+veldnaam.
+
+Lukt Bestand niet, kies dan Formulier (op de iPhone soms «Vorm»). Het veld heet
+`bestand` en het type is Bestand. Alleen een tekstveld, zonder het bestand erin,
+komt aan als «geen bestand». De waarde is weer de uitkomst van «Maak PDF». Eén
+bestand per verzoek.
+
+Komt er een link binnen in plaats van een bestand, dan zegt de app dat. Die link
+wordt niet opgehaald.
 
 De code en de stappen staan bij Instellingen, onder iPhone-scans. De code zie je één
 keer, zolang die pagina open is, en je kunt hem daar kopiëren. Een binnengekomen scan

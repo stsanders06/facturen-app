@@ -6,6 +6,7 @@ kenmerk eisen.
 """
 import hashlib
 import io
+import logging
 import os
 import re
 import struct
@@ -365,9 +366,16 @@ def test_de_uitleg_noemt_de_opdracht_en_het_veld(client):
     assert "Haal inhoud van URL op" in pagina
     assert "Toon meer" in pagina
     assert "Vraag om hoofdtekst" in pagina
+    assert "Maak PDF" in pagina
+    assert "URL" in pagina
+    assert "bestanden" in pagina
+    assert "zonder veldnaam" in pagina
     assert "Formulier" in pagina
+    assert "Vorm" in pagina
     assert "type Bestand" in pagina
+    assert "zonder het bestand erin" in pagina
     assert "geen bestand" in pagina
+    assert "haalt de app die niet op" in pagina
     assert "Herhaal voor elk onderdeel" in pagina
     assert "Herhaal onderdeel" in pagina
     assert "Stop herhalen" in pagina
@@ -387,6 +395,7 @@ def test_de_documentatie_noemt_de_koptekst_en_de_grens():
         assert "Authorization" in tekst
         assert "Bearer <code>" in tekst
     assert "iets minder dan 100 MB" in docs
+    assert "zonder het bestand erin" in docs
 
 
 def test_de_ci_installeert_geen_webkit():
@@ -624,3 +633,235 @@ def test_de_code_is_op_een_telefoon_helemaal_te_bereiken(client, post):
             )
         finally:
             browser.close()
+
+
+def _post_ruw(client, token, lichaam, content_type, extra=None):
+    koppen = {"Authorization": f"Bearer {token}", "Content-Type": content_type}
+    if extra:
+        koppen.update(extra)
+    return client.post("/api/scans", data=lichaam, headers=koppen)
+
+
+def _tekstdeel(naam, data, grens="----ScanGrens"):
+    """Multipart-deel zonder bestandsnaam, zoals de opdracht een veld soms stuurt."""
+    lichaam = b"".join([
+        f"--{grens}\r\n".encode(),
+        f'Content-Disposition: form-data; name="{naam}"\r\n\r\n'.encode(),
+        data,
+        f"\r\n--{grens}--\r\n".encode(),
+    ])
+    return lichaam, f"multipart/form-data; boundary={grens}"
+
+
+def test_een_andere_veldnaam_telt_ook(client, post, db):
+    token = code_maken(client, post)
+    antwoord = client.post(
+        "/api/scans",
+        data={"foto": bestand(png_bytes(), "keuken.png")},
+        headers={"Authorization": f"Bearer {token}"},
+        content_type="multipart/form-data",
+    )
+    assert antwoord.status_code == 200
+    assert antwoord.data.decode().strip() == "Scan ontvangen: keuken.png"
+    assert db.execute("SELECT naam FROM scans").fetchone()[0] == "keuken.png"
+
+
+def test_een_hoofdletter_in_de_veldnaam_telt_ook(client, post, db):
+    token = code_maken(client, post)
+    antwoord = client.post(
+        "/api/scans",
+        data={"Bestand": bestand(png_bytes(), "bon.png")},
+        headers={"Authorization": f"Bearer {token}"},
+        content_type="multipart/form-data",
+    )
+    assert antwoord.status_code == 200
+    assert antwoord.data.decode().strip() == "Scan ontvangen: bon.png"
+
+
+def test_een_kale_pdf_is_de_scan(client, post, db):
+    token = code_maken(client, post)
+    antwoord = _post_ruw(
+        client, token, b"%PDF-1.4\n", "application/pdf",
+        {"Content-Disposition": 'attachment; filename="voorbeeld-factuur.pdf"'},
+    )
+    assert antwoord.status_code == 200
+    assert antwoord.data.decode().strip() == "Scan ontvangen: voorbeeld-factuur.pdf"
+    assert db.execute("SELECT soort FROM scans").fetchone()[0] == "pdf"
+
+
+def test_octet_stream_is_de_scan(client, post, db):
+    token = code_maken(client, post)
+    antwoord = _post_ruw(
+        client, token, png_bytes(), "application/octet-stream",
+        {"X-Filename": "tegel.png"},
+    )
+    assert antwoord.status_code == 200
+    assert antwoord.data.decode().strip() == "Scan ontvangen: tegel.png"
+    assert db.execute("SELECT soort FROM scans").fetchone()[0] == "png"
+
+
+def test_een_tekstveld_met_pdf_bytes_telt(client, post, db):
+    """Zonder bestandsnaam zet de parser het deel bij de tekst. De bytes
+    zijn wel een pdf, en die hoort niet zoek te raken."""
+    token = code_maken(client, post)
+    lichaam, soort = _tekstdeel("bestand", b"%PDF-1.4\n")
+    antwoord = _post_ruw(client, token, lichaam, soort)
+    assert antwoord.status_code == 200, antwoord.data
+    assert antwoord.data.decode().strip() == "Scan ontvangen: scan.pdf"
+    assert db.execute("SELECT COUNT(*) FROM scans").fetchone()[0] == 1
+
+
+def test_een_tekstveld_van_een_paar_mb_telt_mee(client, post, db):
+    """500 kB is de gewone formuliergrens. Een scan van een paar MB hoort
+    daar niet op stuk te lopen, en al helemaal niet met de melding over 100 MB."""
+    token = code_maken(client, post)
+    pdf = b"%PDF-1.4\n" + b"a" * (3 * 1024 * 1024)
+    lichaam, soort = _tekstdeel("bestand", pdf)
+    antwoord = _post_ruw(client, token, lichaam, soort)
+    assert antwoord.status_code == 200, antwoord.data[:300]
+    assert "100 MB" not in antwoord.data.decode()
+    assert db.execute("SELECT grootte FROM scans").fetchone()[0] == len(pdf)
+
+
+def test_een_tekstveld_boven_een_scan_krijgt_geen_totaalmelding(client, post, db):
+    """Groter dan één scan, kleiner dan het hele verzoek. De melding hoort
+    over dat ene veld te gaan, niet over de 100 MB."""
+    token = code_maken(client, post)
+    pdf = b"%PDF-1.4\n" + b"b" * (facturen.SCAN_PER_BESTAND + 1024)
+    lichaam, soort = _tekstdeel("bestand", pdf)
+    antwoord = _post_ruw(client, token, lichaam, soort)
+    tekst = antwoord.data.decode()
+    assert antwoord.status_code == 413
+    assert "Dit veld is groter dan dat" in tekst
+    assert "25 MB" in tekst
+    assert "Samen mogen de scans" not in tekst
+    assert db.execute("SELECT COUNT(*) FROM scans").fetchone()[0] == 0
+
+
+def test_een_urlencoded_veld_van_een_paar_mb_telt_mee(client, post, db):
+    token = code_maken(client, post)
+    pdf = b"%PDF-1.4\n" + b"c" * (3 * 1024 * 1024)
+    from urllib.parse import urlencode
+    lichaam = urlencode({"veld": pdf.decode("ascii")}).encode("ascii")
+    antwoord = _post_ruw(client, token, lichaam, "application/x-www-form-urlencoded")
+    assert antwoord.status_code == 200, antwoord.data[:300]
+    assert db.execute("SELECT soort FROM scans").fetchone()[0] == "pdf"
+
+
+def test_een_link_als_bestand_krijgt_geen_typefout(client, post, monkeypatch):
+    def verboden(*_args, **_kwargs):
+        raise AssertionError("de app haalde een link op")
+
+    monkeypatch.setattr(facturen, "urlopen", verboden)
+    token = code_maken(client, post)
+    link = b"https://voorbeeld.example/factuur.pdf"
+    antwoord = client.post(
+        "/api/scans",
+        data={"bestand": (io.BytesIO(link), "factuur.pdf")},
+        headers={"Authorization": f"Bearer {token}"},
+        content_type="multipart/form-data",
+    )
+    tekst = antwoord.data.decode()
+    assert antwoord.status_code == 400
+    assert "Er kwam een link binnen, geen bestand." in tekst
+    assert "geen PDF" not in tekst
+    assert "voorbeeld.example" not in tekst
+
+
+def test_een_link_in_json_krijgt_geen_typefout(client, post, monkeypatch):
+    def verboden(*_args, **_kwargs):
+        raise AssertionError("de app haalde een link op")
+
+    monkeypatch.setattr(facturen, "urlopen", verboden)
+    token = code_maken(client, post)
+    lichaam = b'{"bestand":"https://voorbeeld.example/factuur.pdf"}'
+    antwoord = _post_ruw(client, token, lichaam, "application/json")
+    tekst = antwoord.data.decode()
+    assert antwoord.status_code == 400
+    assert "Er kwam een link binnen, geen bestand." in tekst
+    assert "geen PDF" not in tekst
+    assert "voorbeeld.example" not in tekst
+
+
+def test_een_tekstveld_naast_een_bestand_blijft_bewaard(client, post, db):
+    token = code_maken(client, post)
+    grens = "----Naast"
+    png = png_bytes()
+    lichaam = b"".join([
+        f"--{grens}\r\n".encode(),
+        b'Content-Disposition: form-data; name="foto"; filename="keuken.png"\r\n',
+        b"Content-Type: image/png\r\n\r\n",
+        png,
+        f"\r\n--{grens}\r\n".encode(),
+        b'Content-Disposition: form-data; name="blad"\r\n\r\n',
+        b"%PDF-1.4\n",
+        f"\r\n--{grens}--\r\n".encode(),
+    ])
+    antwoord = _post_ruw(client, token, lichaam, f"multipart/form-data; boundary={grens}")
+    assert antwoord.status_code == 200, antwoord.data
+    assert antwoord.data.decode().strip() == "Scans ontvangen: keuken.png en scan.pdf"
+    assert db.execute("SELECT COUNT(*) FROM scans").fetchone()[0] == 2
+
+
+def test_een_tekstveld_met_jpeg_bytes_blijft_een_foto(client, post):
+    """Bytes die geen tekst zijn mogen niet door de tekst-decoder heen."""
+    token = code_maken(client, post)
+    jpeg = b"\xff\xd8\xff\xe0" + b"\x00" * 16
+    lichaam, soort = _tekstdeel("plaat", jpeg)
+    antwoord = _post_ruw(client, token, lichaam, soort)
+    assert antwoord.status_code == 200, antwoord.data
+    assert antwoord.data.decode().strip() == "Scan ontvangen: scan.jpg"
+
+
+def test_een_leeg_verzoek_zegt_wat_er_aankwam(client, post, caplog):
+    token = code_maken(client, post)
+    with caplog.at_level(logging.WARNING, logger="main"):
+        antwoord = client.post(
+            "/api/scans",
+            data={},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    tekst = antwoord.data.decode()
+    assert antwoord.status_code == 400
+    assert "Er zat geen bestand bij de scan." in tekst
+    assert "Aangekomen:" in tekst
+    assert "formuliervelden:" in tekst
+    assert "bestandsvelden:" in tekst
+    assert token not in tekst
+    assert token not in caplog.text
+    assert "Scan zonder bestand" in caplog.text
+
+
+def test_een_link_wordt_niet_opgehaald(client, post, monkeypatch, caplog):
+    """Een factuur uit een andere app komt soms alleen als adres binnen.
+    Dat ophalen zou een verzoek naar een willekeurige server zijn."""
+    def verboden(*_args, **_kwargs):
+        raise AssertionError("de app haalde een link op")
+
+    monkeypatch.setattr(facturen, "urlopen", verboden)
+    token = code_maken(client, post)
+    link = "https://voorbeeld.example/factuur.pdf"
+    with caplog.at_level(logging.WARNING, logger="main"):
+        antwoord = _post_ruw(client, token, link.encode(), "text/plain")
+    tekst = antwoord.data.decode()
+    assert antwoord.status_code == 400
+    assert "Er kwam een link binnen, geen bestand." in tekst
+    assert "haalt links niet op" in tekst
+    assert "voorbeeld.example" not in tekst
+    assert "voorbeeld.example" not in caplog.text
+    assert token not in tekst
+    assert token not in caplog.text
+
+    lichaam, soort = _tekstdeel("bestand", link.encode())
+    formulier = _post_ruw(client, token, lichaam, soort)
+    assert formulier.status_code == 400
+    assert "Er kwam een link binnen, geen bestand." in formulier.data.decode()
+    assert "voorbeeld.example" not in formulier.data.decode()
+
+
+def test_een_pdf_met_een_adres_erin_blijft_een_scan(client, post):
+    token = code_maken(client, post)
+    lichaam = b"%PDF-1.4\nhttps://voorbeeld.example/factuur.pdf\n"
+    antwoord = _post_ruw(client, token, lichaam, "application/pdf")
+    assert antwoord.status_code == 200
+    assert antwoord.data.decode().strip() == "Scan ontvangen: scan.pdf"

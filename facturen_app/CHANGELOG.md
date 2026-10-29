@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.42.1
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **Een scan uit een andere app komt ook aan.** Notities stuurde het bestand
+  zelf. Een factuur uit een winkel-app komt vaak als link of als los blad, en
+  dan zei de app dat er geen bestand bij zat. Vink bij Ontvang ook bestanden
+  en URL’s aan, en zet «Maak PDF» op «Herhaal onderdeel» vóór het versturen.
+  «Vraag om hoofdtekst» zet je op Bestand. Een link haalt de app niet zelf op.
+
 ## 1.42.0
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
