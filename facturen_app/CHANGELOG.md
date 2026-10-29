@@ -5,10 +5,11 @@
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
 genoeg; anders blijft de vorige versie draaien.
 
-- **Een taak is één rij.** Het vinkje staat naast de tekst, en omhoog, omlaag
-  en weg zijn kleine knoppen aan het eind van die rij. De knop Bewaar zie je
-  alleen als JavaScript uit staat. Hoeveel er af is, staat één keer bij de
-  notitie.
+- **Een taak blijft leesbaar op een telefoon.** Het vinkje staat naast de
+  tekst, en omhoog, omlaag en weg zitten er als kleine knoppen direct onder,
+  rechts. Weg is een grijs prullenbakje, niet het rode kruis van de notitie.
+  De knop Bewaar zie je alleen als JavaScript uit staat. Hoeveel er af is,
+  staat één keer bij de notitie.
 
 ## 1.43.2
 

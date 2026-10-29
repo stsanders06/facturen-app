@@ -449,17 +449,35 @@
     font-size: 13px;
   }
   .invoerrij-bij .notitie-voortgang { margin: 0 0 0 8px; }
-  /* De weg-kruis van de notitie hangt alleen naast de titel. Zonder deze
-     extra breedte houdt elk taakveld daaronder een lege strook rechts,
-     smaller dan de rest van de kaart. 42px knop plus 12px tussenruimte. */
-  .takenlijst { width: calc(100% + 54px); }
+  /* De weg-kruis blijft naast de titel. De lijst komt op de volgende rij,
+     over de volle kaart, zodat het tekstveld breed blijft en niet onder
+     het kruis doorloopt. Acht pixels ertussen, anders raken de kruisjes. */
+  .invoerrij:has(.takenlijst) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 12px;
+    row-gap: 8px;
+    align-items: start;
+  }
+  .invoerrij:has(.takenlijst) .invoerrij-inhoud { display: contents; }
+  .invoerrij:has(.takenlijst) > .invoerrij-weg { grid-column: 2; grid-row: 1; }
+  .invoerrij:has(.takenlijst) .invoerrij-inhoud > :first-child {
+    grid-column: 1;
+    grid-row: 1;
+    min-width: 0;
+  }
+  .invoerrij:has(.takenlijst) .takenlijst,
+  .invoerrij:has(.takenlijst) .bijlagen,
+  .invoerrij:has(.takenlijst) .invoerrij-acties,
+  .invoerrij:has(.takenlijst) .tekst-form { grid-column: 1 / -1; }
   .taken { list-style: none; margin: 0; padding: 0; min-width: 0; }
   .taak {
     display: grid;
-    grid-template-columns: 44px minmax(0, 1fr) auto;
-    gap: 8px;
+    grid-template-columns: 44px minmax(0, 1fr);
+    column-gap: 8px;
+    row-gap: 0;
     align-items: center;
-    margin: 0 0 8px;
+    margin: 0 0 4px;
     min-width: 0;
   }
   .taak-vink, .taak-tekst, .taak-nieuw { margin: 0; min-width: 0; }
@@ -487,33 +505,43 @@
     min-height: 44px;
     resize: none;
     overflow: hidden;
-    overflow-wrap: anywhere;
+    /* Gewone woorden breken op de spatie. Alleen een woord dat langer is
+       dan het veld zelf wordt afgebroken, anders duwt het de kaart opzij. */
+    overflow-wrap: break-word;
     white-space: pre-wrap;
+  }
+  /* Zonder script groeit het vak niet mee. Op één regel verdwijnt de rest. */
+  html:not(.js) .taak-tekst textarea {
+    min-height: 7.5em;
+    overflow: auto;
   }
   .taak.is-klaar .taak-tekst textarea {
     text-decoration: line-through;
     color: var(--text-secondary);
   }
+  /* Onder het veld, rechts. Het raakvlak blijft 44px; het teken is klein
+     en grijs, zonder de ruimte die de woorden Omhoog en Weg innamen. */
   .taak-knoppen {
+    grid-column: 2;
     display: flex;
     flex-wrap: nowrap;
+    justify-content: flex-end;
     align-items: center;
     gap: 0;
   }
-  /* Drie woorden naast het veld aten de tekst op. Tekens blijven raakbaar
-     doordat het vak 44px blijft, ook al is het teken zelf kleiner. */
   .taak-knoppen .btn {
     width: 44px;
     height: 44px;
     padding: 0;
-    font-size: 20px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 16px;
     line-height: 1;
   }
+  .taak-knoppen .btn:hover { background: var(--neutral-soft); color: var(--text); }
+  .taak-knoppen .taak-prullen svg { display: block; width: 18px; height: 18px; }
   .takenlijst.is-ingeklapt .taak.is-klaar { display: none; }
   .taak-nieuw { margin-top: 4px; }
-  @media (pointer: coarse), (max-width: 720px) {
-    .takenlijst { width: calc(100% + 56px); }
-  }
 
   @media (max-width: 620px) {
     /* Twee foto's naast elkaar in plaats van één: met 160px als ondergrens paste de
@@ -1547,7 +1575,7 @@
       knop.type = 'submit';
       knop.className = 'vink';
       knop.setAttribute('aria-pressed', 'false');
-      knop.setAttribute('aria-label', 'Afvinken');
+      knop.setAttribute('aria-label', 'Afvinken: ' + item.tekst);
       vink.appendChild(knop);
       var tekst = formulier(basis + '/tekst', 'taak-tekst', csrf);
       var invoer = document.createElement('textarea');
@@ -1577,7 +1605,7 @@
         knopje.type = 'submit';
         knopje.className = 'btn btn-text';
         knopje.textContent = paar[0] === 'omhoog' ? '\u2191' : '\u2193';
-        knopje.setAttribute('aria-label', paar[1]);
+        knopje.setAttribute('aria-label', paar[1] + ': ' + item.tekst);
         knopje.setAttribute('title', paar[1]);
         form.appendChild(knopje);
         knoppen.appendChild(form);
@@ -1586,9 +1614,9 @@
       weg.setAttribute('data-bevestig', 'Deze taak verwijderen?');
       var wegKnop = document.createElement('button');
       wegKnop.type = 'submit';
-      wegKnop.className = 'btn btn-text danger';
-      wegKnop.textContent = '\u00d7';
-      wegKnop.setAttribute('aria-label', 'Taak verwijderen');
+      wegKnop.className = 'btn btn-text taak-prullen';
+      wegKnop.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M7 7l1 12h8l1-12"/></svg>';
+      wegKnop.setAttribute('aria-label', 'Taak verwijderen: ' + item.tekst);
       wegKnop.setAttribute('title', 'Taak verwijderen');
       weg.appendChild(wegKnop);
       knoppen.appendChild(weg);
@@ -1608,6 +1636,18 @@
         klus.textContent = gegevens.klus_voortgang || '';
         klus.hidden = !gegevens.klus_totaal;
       }
+    }
+    function zetLabels(rij, tekst) {
+      var vink = rij.querySelector('.vink');
+      var open = rij.classList.contains('is-klaar');
+      if (vink) vink.setAttribute('aria-label', (open ? 'Weer openzetten: ' : 'Afvinken: ') + tekst);
+      [['omhoog', 'Omhoog'], ['omlaag', 'Omlaag']].forEach(function (paar) {
+        var invoer = rij.querySelector('input[value="' + paar[0] + '"]');
+        if (invoer) invoer.parentElement.querySelector('button').setAttribute(
+          'aria-label', paar[1] + ': ' + tekst);
+      });
+      var weg = rij.querySelector('.taak-weg button');
+      if (weg) weg.setAttribute('aria-label', 'Taak verwijderen: ' + tekst);
     }
     function knoppenBij(lijst) {
       var rijen = lijst.querySelectorAll('.taak');
@@ -1648,6 +1688,7 @@
           if (invoer) {
             var rij = rijMaken(lijst, gegevens);
             lijst.querySelector('.taken').appendChild(rij);
+            zetLabels(rij, gegevens.tekst || '');
             laatGroeien(rij.querySelector('textarea'));
             invoer.value = '';
             invoer.focus();
@@ -1657,13 +1698,15 @@
             var knop = form.querySelector('button');
             knop.setAttribute('aria-pressed', gegevens.klaar ? 'true' : 'false');
             knop.textContent = gegevens.klaar ? '✓' : '';
-            knop.setAttribute('aria-label', gegevens.klaar ? 'Weer openzetten' : 'Afvinken');
+            var tekst = rij.querySelector('.taak-tekst [name="tekst"]');
+            zetLabels(rij, tekst ? tekst.value : '');
           } else if (form.classList.contains('taak-weg')) {
             form.closest('.taak').remove();
           } else if (form.classList.contains('taak-tekst') && gegevens.tekst) {
             var veld = form.querySelector('[name="tekst"]');
             veld.value = gegevens.tekst;
             veld.defaultValue = gegevens.tekst;
+            zetLabels(veld.closest('.taak'), gegevens.tekst);
             laatGroeien(veld);
           } else if (gegevens.ids) {
             var ul = lijst.querySelector('.taken');
@@ -1733,6 +1776,7 @@
           if (gegevens.tekst) {
             e.target.value = gegevens.tekst;
             e.target.defaultValue = gegevens.tekst;
+            zetLabels(e.target.closest('.taak'), gegevens.tekst);
             laatGroeien(e.target);
           }
         }).catch(function (fout) {
