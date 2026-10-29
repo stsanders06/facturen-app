@@ -579,6 +579,11 @@ def _ruimere_scangrens():
     de app: anders mag een ander formulier intussen ook 100 MB sturen."""
     if request.endpoint == "scans_ontvangen":
         request.max_content_length = SCAN_VERZOEK_GRENS
+        # Een tekstveld zonder bestandsnaam valt onder de formuliergrens, niet
+        # onder de 100 MB van het hele verzoek. Die staat standaard op 500 kB.
+        # Een scan van een paar MB werd daardoor geweigerd vóór we de bytes
+        # zagen, met de melding over 100 MB. Eén veld mag tot één scan groot zijn.
+        request.max_form_memory_size = SCAN_PER_BESTAND
     return None
 
 
@@ -938,9 +943,18 @@ def te_groot(_fout):
     # komt uit de keuring per bestand; die hier zou de opdracht de verkeerde
     # grens laten zien.
     if request.path.rstrip("/").endswith("/api/scans"):
+        lengte = request.content_length
+        # Groter dan het hele verzoek: de 100 MB. Daaronder is het één veld
+        # dat niet in het geheugen van het formulier past, dus de 25 MB.
+        if lengte is not None and lengte > SCAN_VERZOEK_GRENS:
+            return _scan_tekst(
+                "Dat is te veel in één keer. Samen mogen de scans hooguit "
+                f"{_tekst_voor_grens(SCAN_VERZOEK_GRENS)} zijn.",
+                413,
+            )
         return _scan_tekst(
-            "Dat is te veel in één keer. Samen mogen de scans hooguit "
-            f"{_tekst_voor_grens(SCAN_VERZOEK_GRENS)} zijn.",
+            f"Eén scan mag hooguit {_tekst_voor_grens(SCAN_PER_BESTAND)} zijn. "
+            "Dit veld is groter dan dat.",
             413,
         )
     melding("Dat is te veel in één keer. Samen mogen de bestanden hooguit "
@@ -4660,12 +4674,64 @@ def _naam_uit_deelkop(blob):
     return ""
 
 
-def _uit_ruwe_delen(inhoud, grens):
+def _stroom_is_link(opslag):
+    """Of een meegestuurd 'bestand' in werkelijkheid alleen een http-adres is."""
+    stroom = getattr(opslag, "stream", None)
+    if stroom is None:
+        return False
+    plek = stroom.tell() if hasattr(stroom, "tell") else None
+    try:
+        data = stroom.read(2049)
+    except OSError:
+        return False
+    if plek is not None:
+        try:
+            stroom.seek(plek)
+        except OSError:
+            pass
+    if not data or len(data) > 2048:
+        return False
+    return _is_http_link(data)
+
+
+def _json_is_link(data):
+    """JSON met een http-adres erin. De app haalt dat adres niet op."""
+    if not data or len(data) > 8192:
+        return False
+    try:
+        tekst = bytes(data).strip().decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    if not tekst or tekst[0] not in '{["':
+        return False
+    try:
+        waarde = json.loads(tekst)
+    except json.JSONDecodeError:
+        return False
+    return _waarde_is_link(waarde)
+
+
+def _waarde_is_link(waarde):
+    if isinstance(waarde, str):
+        return _is_http_link(waarde.encode("utf-8"))
+    if isinstance(waarde, dict):
+        return any(_waarde_is_link(stuk) for stuk in waarde.values())
+    if isinstance(waarde, list):
+        return any(_waarde_is_link(stuk) for stuk in waarde)
+    return False
+
+
+def _uit_ruwe_delen(inhoud, grens, alleen_zonder_naam=False):
     gevonden = []
     link = False
     for kop, data in _multipart_ruwe_delen(inhoud, grens):
+        naam = _naam_uit_deelkop(kop)
+        # Een deel mét bestandsnaam zit al bij de bestanden. Alleen de
+        # tekstvelden ernaast mogen hier nog bij, anders bewaren we ze dubbel.
+        if alleen_zonder_naam and naam:
+            continue
         if soort_van_scan(data[:32])[0]:
-            gevonden.append(_stuk_uit_bytes(data, _naam_uit_deelkop(kop)))
+            gevonden.append(_stuk_uit_bytes(data, naam))
         elif _is_http_link(data):
             link = True
     if gevonden:
@@ -4697,22 +4763,38 @@ def _scanbijlagen():
     """
     soort = (request.mimetype or "").lower()
     if soort == "multipart/form-data":
+        # Eerst bewaren: de formulier-parser leest de stroom daarna leeg.
+        # Zonder deze kopie is een tekstveld naast een bestand niet meer
+        # terug te lezen. De grens per veld staat op één scan, niet op 500 kB.
         ruw = request.get_data(cache=True) or b""
+        grens = (request.mimetype_params or {}).get("boundary")
         bestanden = [
             opslag for _sleutel, opslag in request.files.items(multi=True)
             if opslag is not None
         ]
         if bestanden:
-            return bestanden, False
-        gevonden, link = _uit_ruwe_delen(
-            ruw, (request.mimetype_params or {}).get("boundary")
-        )
+            echt = []
+            link = False
+            for opslag in bestanden:
+                if _stroom_is_link(opslag):
+                    link = True
+                else:
+                    echt.append(opslag)
+            # Een tekstveld naast een bestand hoort mee, als de bytes een
+            # scan zijn. Anders verdwijnt die scan stil.
+            extra, link_erbij = _uit_ruwe_delen(ruw, grens, alleen_zonder_naam=True)
+            if echt or extra:
+                return echt + extra, False
+            if link or link_erbij:
+                return [], True
+            return [], False
+        gevonden, link = _uit_ruwe_delen(ruw, grens)
         if gevonden or link:
             return gevonden, link
         return _uit_formulier()
 
     ruw = request.get_data(cache=True) or b""
-    if _is_http_link(ruw):
+    if _is_http_link(ruw) or _json_is_link(ruw):
         return [], True
     if ruw and soort_van_scan(ruw[:32])[0]:
         return [_stuk_uit_bytes(ruw, _naam_van_verzoek())], False

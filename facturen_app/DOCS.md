@@ -271,8 +271,9 @@ als waarde de uitkomst van «Maak PDF». Dan is de scan zelf de inhoud, zonder
 veldnaam.
 
 Lukt Bestand niet, kies dan Formulier (op de iPhone soms «Vorm»). Het veld heet
-`bestand` en het type is Bestand; een tekstveld komt aan als «geen bestand». De
-waarde is weer de uitkomst van «Maak PDF». Eén bestand per verzoek.
+`bestand` en het type is Bestand. Alleen een tekstveld, zonder het bestand erin,
+komt aan als «geen bestand». De waarde is weer de uitkomst van «Maak PDF». Eén
+bestand per verzoek.
 
 Komt er een link binnen in plaats van een bestand, dan zegt de app dat. Die link
 wordt niet opgehaald.
