@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.43.2
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **Een scan vult het geheugen niet meer.** Een groot tekstveld wordt op schijf
+  gezet, en er komt maar één scan tegelijk binnen. Is de app daar nog mee bezig,
+  probeer het zo nog eens. Een veel te diepe aanvraag wordt netjes geweigerd.
+  Een link naast een echt bestand blijft zichtbaar; die link wordt niet opgehaald.
+
 ## 1.43.1
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
