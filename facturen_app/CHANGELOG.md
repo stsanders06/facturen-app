@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.43.1
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **Een taak bewaar je met Enter.** Een nieuwe regel in de taak zelf komt er
+  niet meer bij; die wordt een spatie. Zonder JavaScript staat er een knop
+  Bewaar. Een te lange aanpassing springt terug naar de tekst die er stond.
+  Een net toegevoegde lange taak is meteen helemaal te lezen. Haal je een
+  notitie terug uit de prullenbak, dan komen de taken mee, ook als hun nummer
+  intussen opnieuw gebruikt is.
+
 ## 1.43.0
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet

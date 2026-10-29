@@ -17,6 +17,9 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <textarea name="tekst" rows="1" class="groeit" maxlength="{{ taak_max_tekens }}"
                   aria-label="Taak aanpassen">{{ t.tekst }}</textarea>
+        {#- Enter in een tekstvak verstuurt niet. Zonder script is deze knop
+            de enige manier om de aanpassing te bewaren. -#}
+        <button type="submit" class="btn btn-text">Bewaar</button>
       </form>
       <div class="taak-knoppen">
         <form method="post" action="{{ url_for('taak_verplaats', notitie_id=n.id, taak_id=t.id) }}">

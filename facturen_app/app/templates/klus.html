@@ -474,7 +474,9 @@
     font-size: 18px;
   }
   .taak.is-klaar .vink { background: var(--primary-soft); color: var(--primary); }
+  .taak-tekst { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
   .taak-tekst textarea, .taak-nieuw input { width: 100%; min-width: 0; }
+  .taak-tekst .btn { align-self: flex-start; min-height: 44px; }
   .taak-tekst textarea {
     display: block;
     min-height: 44px;
@@ -1489,6 +1491,11 @@
   // Taken: een tik bewaart meteen. Zonder dit script verstuurt het formulier
   // de pagina opnieuw; Enter in het onderste veld voegt dan ook een taak toe.
   (function () {
+    function laatGroeien(veld) {
+      if (!veld) return;
+      veld.style.height = 'auto';
+      veld.style.height = (veld.scrollHeight + 2) + 'px';
+    }
     function verstuur(form) {
       return fetch(form.action, {
         method: 'POST',
@@ -1539,13 +1546,16 @@
       invoer.value = item.tekst;
       invoer.defaultValue = item.tekst;
       invoer.setAttribute('aria-label', 'Taak aanpassen');
-      // De pagina koppelt alleen de vakken die er al stonden. Een net
-      // toegevoegde taak groeit anders niet mee met een lange regel.
-      invoer.addEventListener('input', function () {
-        invoer.style.height = 'auto';
-        invoer.style.height = (invoer.scrollHeight + 2) + 'px';
-      });
+      // scrollHeight is 0 zolang de regel nog niet op de pagina staat.
+      // De aanroeper zet de hoogte dus pas na het invoegen; hier alleen
+      // bij het verder typen.
+      invoer.addEventListener('input', function () { laatGroeien(invoer); });
       tekst.appendChild(invoer);
+      var bewaar = document.createElement('button');
+      bewaar.type = 'submit';
+      bewaar.className = 'btn btn-text';
+      bewaar.textContent = 'Bewaar';
+      tekst.appendChild(bewaar);
       var knoppen = document.createElement('div');
       knoppen.className = 'taak-knoppen';
       [['omhoog', 'Omhoog'], ['omlaag', 'Omlaag']].forEach(function (paar) {
@@ -1622,7 +1632,9 @@
           ? form.querySelector('[name="tekst"]') : null;
         verstuur(form).then(function (gegevens) {
           if (invoer) {
-            lijst.querySelector('.taken').appendChild(rijMaken(lijst, gegevens));
+            var rij = rijMaken(lijst, gegevens);
+            lijst.querySelector('.taken').appendChild(rij);
+            laatGroeien(rij.querySelector('textarea'));
             invoer.value = '';
             invoer.focus();
           } else if (form.classList.contains('taak-vink')) {
@@ -1636,7 +1648,9 @@
             form.closest('.taak').remove();
           } else if (form.classList.contains('taak-tekst') && gegevens.tekst) {
             var veld = form.querySelector('[name="tekst"]');
+            veld.value = gegevens.tekst;
             veld.defaultValue = gegevens.tekst;
+            laatGroeien(veld);
           } else if (gegevens.ids) {
             var ul = lijst.querySelector('.taken');
             gegevens.ids.forEach(function (id) {
@@ -1646,9 +1660,29 @@
           }
           zetVoortgang(lijst, gegevens);
           knoppenBij(lijst);
-        }).catch(function () {
+        }).catch(function (fout) {
+          // Een te lange tekst blijft anders in het vak staan alsof hij
+          // bewaard is. Alleen een netwerkfout valt terug op het formulier.
+          if (fout && fout.fout) {
+            window.alert(fout.fout);
+            var veld = form.querySelector('[name="tekst"]');
+            if (veld && form.classList.contains('taak-tekst')) {
+              veld.value = veld.defaultValue;
+              laatGroeien(veld);
+            }
+            return;
+          }
           HTMLFormElement.prototype.submit.call(form);
         });
+      });
+      // Enter in het tekstvak is opslaan, geen nieuwe regel. Zonder script
+      // doet de knop Bewaar dat; die verstuurt het formulier gewoon.
+      lijst.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter' || e.target.name !== 'tekst') return;
+        var form = e.target.closest && e.target.closest('.taak-tekst');
+        if (!form || !lijst.contains(form)) return;
+        e.preventDefault();
+        if (form.requestSubmit) form.requestSubmit();
       });
       lijst.addEventListener('focusout', function (e) {
         var form = e.target.closest && e.target.closest('.taak-tekst');
@@ -1679,11 +1713,18 @@
           if (gegevens.fout) {
             window.alert(gegevens.fout);
             e.target.value = e.target.defaultValue;
+            laatGroeien(e.target);
             return;
           }
-          if (gegevens.tekst) e.target.defaultValue = gegevens.tekst;
+          if (gegevens.tekst) {
+            e.target.value = gegevens.tekst;
+            e.target.defaultValue = gegevens.tekst;
+            laatGroeien(e.target);
+          }
         }).catch(function (fout) {
           if (fout && fout.fout) window.alert(fout.fout);
+          e.target.value = e.target.defaultValue;
+          laatGroeien(e.target);
         });
       });
     });
