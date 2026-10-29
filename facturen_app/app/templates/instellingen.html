@@ -292,20 +292,30 @@
   <p class="hint">Een kant-en-klaar bestand om in te lezen werkt niet: de iPhone
     neemt alleen een opdracht aan die Apple heeft ondertekend. Zet hem zelf in
     elkaar in de Opdrachten-app. Elk bestand gaat in zijn eigen verzoek, ook
-    als je er maar één deelt.</p>
+    als je er maar één deelt. Notities stuurt het bestand zelf. Een factuur uit
+    een andere app komt vaak als link of als los blad; daarom horen die soorten
+    bij Ontvang, en maakt de iPhone er eerst een pdf van.</p>
   <ol class="scan-stappen">
-    <li>Nieuwe opdracht. Zet «Toon in deelpaneel» aan, en vink pdf’s en afbeeldingen aan.</li>
+    <li>Nieuwe opdracht. Zet «Toon in deelpaneel» aan. Vink bij Ontvang invoer
+      pdf’s, bestanden, afbeeldingen en URL’s aan. Een factuur uit een andere
+      app komt anders niet mee.</li>
     <li>«Herhaal voor elk onderdeel», over de invoer van de opdracht. De stappen
       hieronder horen tussen die taak en «Stop herhalen».</li>
+    <li>«Maak PDF» (in de lijst ook «Maak pdf aan»), van «Herhaal onderdeel».
+      Een link, een plaatje of een los blad wordt dan op de iPhone zelf een
+      echt pdf-bestand.</li>
     <li>«Haal inhoud van URL op». URL: het adres hierboven. Tik op «Toon meer»
       en zet de methode op POST. De methode staat niet meteen in beeld.</li>
     <li>Koptekst <span class="scan-code">Authorization</span>, met als waarde
       <span class="scan-code">Bearer</span>, een spatie, en de code.</li>
-    <li>«Vraag om hoofdtekst»: Formulier. Veld <span class="scan-code">bestand</span>,
-      type Bestand. Een ander type komt hier aan als «geen bestand». De waarde is
-      «Herhaal onderdeel»: het bestand van deze ronde, niet alle bestanden tegelijk.</li>
+    <li>«Vraag om hoofdtekst»: Bestand. De waarde is de uitkomst van «Maak PDF».
+      Dan is de scan zelf de inhoud, zonder veldnaam.</li>
+    <li>Lukt Bestand niet, kies dan Formulier (op de iPhone soms «Vorm»). Veld
+      <span class="scan-code">bestand</span>, type Bestand, waarde de uitkomst
+      van «Maak PDF». Een tekstveld komt aan als «geen bestand».</li>
     <li>«Toon melding», met het resultaat van «Haal inhoud van URL op». Daarin
-      staat of deze scan is aangekomen.</li>
+      staat of deze scan is aangekomen. Staat er dat er een link binnenkwam,
+      dan haalt de app die niet op: «Maak PDF» hoort vóór deze stap.</li>
   </ol>
   <script>
     // De Clipboard-API weigert op http, en het adres op het thuisnetwerk is http.

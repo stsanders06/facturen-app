@@ -36,14 +36,16 @@ from reportlab.lib.units import mm
 from reportlab.lib import colors
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
+from werkzeug.datastructures import FileStorage
 from werkzeug.exceptions import NotFound
+from werkzeug.http import parse_options_header
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.42.0"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.42.1"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -4547,6 +4549,216 @@ def _scans_zin(namen):
     return "Scans ontvangen: " + ", ".join(namen[:-1]) + " en " + namen[-1]
 
 
+def _logregel(tekst, lengte=80):
+    """Eén regel voor het log en de melding, zonder stuurtekens of de inhoud."""
+    schoon = "".join(
+        teken if teken.isprintable() and teken not in "\r\n\t" else " "
+        for teken in str(tekst or "")
+    )
+    return " ".join(schoon.split())[:lengte]
+
+
+def _sleutelzin(multi):
+    namen = []
+    for sleutel in multi.keys():
+        stuk = _logregel(sleutel, 40)
+        if stuk and stuk not in namen:
+            namen.append(stuk)
+        if len(namen) >= 8:
+            break
+    return ", ".join(namen)
+
+
+def _is_http_link(data):
+    """Of dit precies een http(s)-adres is, en dus geen bestand.
+
+    De app haalt zo'n adres niet op. Een factuur uit een andere app komt
+    soms alleen als link binnen, en die ophalen vanaf de server zou een
+    verzoek naar een willekeurig adres zijn."""
+    if not data or len(data) > 2048 or b"\x00" in data:
+        return False
+    try:
+        tekst = data.strip().decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    if not tekst or any(teken.isspace() for teken in tekst):
+        return False
+    lager = tekst.lower()
+    return lager.startswith("http://") or lager.startswith("https://")
+
+
+def _stuk_uit_bytes(data, naam):
+    return FileStorage(stream=io.BytesIO(data), filename=naam or "")
+
+
+def _bytes_van_veld(waarde):
+    if isinstance(waarde, bytes):
+        return waarde
+    if isinstance(waarde, str):
+        return waarde.encode("utf-8", "surrogateescape")
+    return b""
+
+
+def _bestandsnaam_uit_disposition(waarde):
+    if not waarde:
+        return ""
+    _soort, extra = parse_options_header(waarde)
+    naam = extra.get("filename") or extra.get("filename*") or ""
+    if isinstance(naam, tuple):
+        naam = naam[-1] or ""
+    return str(naam)
+
+
+def _naam_van_verzoek():
+    """Naam uit de koppen van de aanvraag, als de scan zelf de inhoud is."""
+    naam = _bestandsnaam_uit_disposition(request.headers.get("Content-Disposition", ""))
+    if naam:
+        return naam
+    return request.headers.get("X-Filename", "") or ""
+
+
+def _multipart_ruwe_delen(inhoud, grens):
+    """Ruwe delen van een multipart-aanvraag.
+
+    Zonder bestandsnaam maakt de formulier-parser er tekst van en vervangt
+    hij bytes die geen UTF-8 zijn. Een JPEG raakt dan zijn begin kwijt. Hier
+    blijven de bytes zoals ze binnenkwamen."""
+    if not inhoud or not grens:
+        return
+    try:
+        marker = grens.encode("ascii")
+    except UnicodeEncodeError:
+        return
+    scheiding = b"--" + marker
+    for deel in inhoud.split(scheiding):
+        if not deel or deel.startswith(b"--"):
+            continue
+        if deel.startswith(b"\r\n"):
+            deel = deel[2:]
+        elif deel.startswith(b"\n"):
+            deel = deel[1:]
+        if deel.endswith(b"\r\n"):
+            deel = deel[:-2]
+        elif deel.endswith(b"\n"):
+            deel = deel[:-1]
+        kop, sep, data = deel.partition(b"\r\n\r\n")
+        if not sep:
+            kop, sep, data = deel.partition(b"\n\n")
+        if not sep:
+            continue
+        yield kop, data
+
+
+def _naam_uit_deelkop(blob):
+    tekst = blob.decode("utf-8", "replace")
+    for regel in tekst.splitlines():
+        if ":" not in regel:
+            continue
+        naam, _, waarde = regel.partition(":")
+        if naam.strip().lower() == "content-disposition":
+            return _bestandsnaam_uit_disposition(waarde.strip())
+    return ""
+
+
+def _uit_ruwe_delen(inhoud, grens):
+    gevonden = []
+    link = False
+    for kop, data in _multipart_ruwe_delen(inhoud, grens):
+        if soort_van_scan(data[:32])[0]:
+            gevonden.append(_stuk_uit_bytes(data, _naam_uit_deelkop(kop)))
+        elif _is_http_link(data):
+            link = True
+    if gevonden:
+        return gevonden, False
+    return [], link
+
+
+def _uit_formulier():
+    gevonden = []
+    link = False
+    for sleutel, waarde in request.form.items(multi=True):
+        data = _bytes_van_veld(waarde)
+        if soort_van_scan(data[:32])[0]:
+            gevonden.append(_stuk_uit_bytes(data, str(sleutel)))
+        elif _is_http_link(data):
+            link = True
+    if gevonden:
+        return gevonden, False
+    return [], link
+
+
+def _scanbijlagen():
+    """De scans in dit verzoek, en of er een link binnenkwam in plaats daarvan.
+
+    Elk bestandsveld telt, niet alleen «bestand»: de opdracht noemt het soms
+    «Bestand» of helemaal anders. Ontbreekt de bestandsnaam, dan staat de
+    scan als tekstveld of is de aanvraag zelf het bestand. Een http-adres
+    halen we niet op.
+    """
+    soort = (request.mimetype or "").lower()
+    if soort == "multipart/form-data":
+        ruw = request.get_data(cache=True) or b""
+        bestanden = [
+            opslag for _sleutel, opslag in request.files.items(multi=True)
+            if opslag is not None
+        ]
+        if bestanden:
+            return bestanden, False
+        gevonden, link = _uit_ruwe_delen(
+            ruw, (request.mimetype_params or {}).get("boundary")
+        )
+        if gevonden or link:
+            return gevonden, link
+        return _uit_formulier()
+
+    ruw = request.get_data(cache=True) or b""
+    if _is_http_link(ruw):
+        return [], True
+    if ruw and soort_van_scan(ruw[:32])[0]:
+        return [_stuk_uit_bytes(ruw, _naam_van_verzoek())], False
+    if soort == "application/x-www-form-urlencoded":
+        gevonden, link = _uit_formulier()
+        if gevonden or link:
+            return gevonden, link
+    # Geen multipart: pdf, image/*, octet-stream of een ander type. De scan
+    # is dan de aanvraag zelf. De herkenning hierna wijst een gewone tekst af.
+    if ruw:
+        return [_stuk_uit_bytes(ruw, _naam_van_verzoek())], False
+    return [], False
+
+
+def _melding_geen_scan(link):
+    """Wat er aankwam, zonder de inhoud en zonder de code."""
+    mime = _logregel(request.mimetype or "geen type", 80) or "geen type"
+    lengte = request.content_length
+    lengte_tekst = (
+        f"{lengte} bytes" if isinstance(lengte, int) and lengte >= 0
+        else "lengte onbekend"
+    )
+    velden = _sleutelzin(request.form) or "geen"
+    bestanden = _sleutelzin(request.files) or "geen"
+    if link:
+        app.logger.warning(
+            "Scan zonder bestand: er kwam een link binnen. type=%s lengte=%s "
+            "velden=%s bestanden=%s",
+            mime, lengte_tekst, velden, bestanden,
+        )
+        return (
+            "Er kwam een link binnen, geen bestand. De app haalt links niet op. "
+            "Zet in de opdracht «Maak PDF» op «Herhaal onderdeel», vóór het "
+            "versturen, zodat de iPhone er zelf een pdf van maakt."
+        )
+    app.logger.warning(
+        "Scan zonder bestand: type=%s lengte=%s velden=%s bestanden=%s",
+        mime, lengte_tekst, velden, bestanden,
+    )
+    return (
+        "Er zat geen bestand bij de scan. "
+        f"Aangekomen: type {mime}, {lengte_tekst}, "
+        f"formuliervelden: {velden}, bestandsvelden: {bestanden}."
+    )
+
+
 @app.route("/api/scans", methods=["POST"])
 def scans_ontvangen():
     """Scans vanaf de opdracht op de iPhone. Geen sessie, wel de code."""
@@ -4555,9 +4767,9 @@ def scans_ontvangen():
             "Deze scan is niet geaccepteerd. Maak in Instellingen een nieuwe code aan.",
             401,
         )
-    binnen = [b for b in request.files.getlist("bestand") if b is not None]
-    if not binnen:
-        return _scan_tekst("Er zat geen bestand bij de scan.", 400)
+    binnen, link = _scanbijlagen()
+    if link or not binnen:
+        return _scan_tekst(_melding_geen_scan(link), 400)
     if len(binnen) > SCAN_MAX_AANTAL:
         return _scan_tekst(
             f"Te veel bestanden. Eén verzoek mag hooguit {SCAN_MAX_AANTAL} scans bevatten.",
