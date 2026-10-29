@@ -45,7 +45,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.43.1"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.43.2"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -189,6 +189,14 @@ SCAN_MAX_AANTAL = 20
 # Stukken, zodat een te groot bestand stopt met lezen in plaats van eerst helemaal
 # in het geheugen te belanden.
 _SCAN_STUK = 64 * 1024
+# Tot hier blijft een tijdelijk bestand in het geheugen. Daarboven gaat het naar
+# schijf, zodat vier scans van 25 MB niet samen een halve gigabyte vasthouden.
+_SCAN_SPOEL = 1024 * 1024
+# Eén scan tegelijk uitpakken. Drie naast elkaar liepen naar ruim een gigabyte.
+_SCAN_BEZIG = threading.BoundedSemaphore(1)
+# Dieper dan dit is geen scan maar een bom. json.loads loopt dan vast en de
+# traceback vult het log.
+_JSON_DIEPTE = 32
 # Zelfde lengte als een echte sha256-hex, zodat compare_digest niet weigert als
 # er nog geen code is opgeslagen. Een kortere tekst gooit hij anders meteen weg
 # en dan verraadt de fout juist dát er geen code is.
@@ -5114,8 +5122,15 @@ def _stroom_is_link(opslag):
     return _is_http_link(data)
 
 
+class _JsonTeDiep(Exception):
+    """De JSON is zo diep genest dat uitpakken het log vol zou schrijven."""
+
+
 def _json_is_link(data):
-    """JSON met een http-adres erin. De app haalt dat adres niet op."""
+    """JSON met een http-adres erin. De app haalt dat adres niet op.
+
+    Te diep genest gooit _JsonTeDiep: json.loads zelf recurses, en die
+    fout werd een 500 met duizenden logregels."""
     if not data or len(data) > 8192:
         return False
     try:
@@ -5126,18 +5141,34 @@ def _json_is_link(data):
         return False
     try:
         waarde = json.loads(tekst)
+    except RecursionError:
+        raise _JsonTeDiep()
     except json.JSONDecodeError:
         return False
-    return _waarde_is_link(waarde)
+    uit = _waarde_is_link(waarde)
+    if uit == "te_diep":
+        raise _JsonTeDiep()
+    return uit is True
 
 
 def _waarde_is_link(waarde):
-    if isinstance(waarde, str):
-        return _is_http_link(waarde.encode("utf-8"))
-    if isinstance(waarde, dict):
-        return any(_waarde_is_link(stuk) for stuk in waarde.values())
-    if isinstance(waarde, list):
-        return any(_waarde_is_link(stuk) for stuk in waarde)
+    """Of er ergens een http-adres in zit, zonder zelf te recursen.
+
+    Geeft 'te_diep' terug als de boom dieper is dan _JSON_DIEPTE."""
+    stapel = [(waarde, 1)]
+    while stapel:
+        stuk, diepte = stapel.pop()
+        if diepte > _JSON_DIEPTE:
+            return "te_diep"
+        if isinstance(stuk, str):
+            if _is_http_link(stuk.encode("utf-8")):
+                return True
+        elif isinstance(stuk, dict):
+            for onder in stuk.values():
+                stapel.append((onder, diepte + 1))
+        elif isinstance(stuk, list):
+            for onder in stuk:
+                stapel.append((onder, diepte + 1))
     return False
 
 
@@ -5173,72 +5204,274 @@ def _uit_formulier():
     return [], link
 
 
-def _scanbijlagen():
-    """De scans in dit verzoek, en of er een link binnenkwam in plaats daarvan.
+class _VeldTeGroot(Exception):
+    """Eén deel is groter dan één scan. Niet het totaal van 100 MB."""
 
-    Elk bestandsveld telt, niet alleen «bestand»: de opdracht noemt het soms
-    «Bestand» of helemaal anders. Ontbreekt de bestandsnaam, dan staat de
-    scan als tekstveld of is de aanvraag zelf het bestand. Een http-adres
-    halen we niet op.
+
+def _nieuwe_spoel():
+    return tempfile.SpooledTemporaryFile(max_size=_SCAN_SPOEL, mode="w+b")
+
+
+def _spoel_van_stroom(stroom):
+    """Het lichaam naar schijf, in stukken. Niet als één blok in het geheugen."""
+    spoel = _nieuwe_spoel()
+    totaal = 0
+    while True:
+        blok = stroom.read(_SCAN_STUK)
+        if not blok:
+            break
+        totaal += len(blok)
+        if totaal > SCAN_VERZOEK_GRENS:
+            spoel.close()
+            from werkzeug.exceptions import RequestEntityTooLarge
+            raise RequestEntityTooLarge()
+        spoel.write(blok)
+    spoel.seek(0)
+    return spoel, totaal
+
+
+def _zoek_in_bestand(bestand, naald, vanaf, tot=None):
+    bestand.seek(vanaf)
+    cursor = vanaf
+    venster = b""
+    while tot is None or cursor < tot:
+        blok = bestand.read(_SCAN_STUK)
+        if not blok:
+            return -1
+        if tot is not None and cursor + len(venster) + len(blok) > tot:
+            blok = blok[:max(0, tot - (cursor + len(venster)))]
+            if not blok:
+                return -1
+        venster += blok
+        plek = venster.find(naald)
+        if plek >= 0:
+            return cursor + plek
+        behoud = max(0, len(naald) - 1)
+        if len(venster) > behoud:
+            cursor += len(venster) - behoud
+            venster = venster[-behoud:] if behoud else b""
+    return -1
+
+
+def _lees_bereik(bestand, start, eind):
+    bestand.seek(start)
+    return bestand.read(max(0, eind - start))
+
+
+def _kopieer_bereik(bestand, start, eind):
+    if eind - start > SCAN_PER_BESTAND:
+        raise _VeldTeGroot()
+    spoel = _nieuwe_spoel()
+    bestand.seek(start)
+    over = eind - start
+    while over > 0:
+        blok = bestand.read(min(_SCAN_STUK, over))
+        if not blok:
+            break
+        spoel.write(blok)
+        over -= len(blok)
+    spoel.seek(0)
+    return spoel
+
+
+def _deelkop(blob):
+    """(bestandsnaam, of de parameter filename er überhaupt staat).
+
+    filename="" is wél een bestandsdeel. Alleen kijken of de naam leeg is
+    telde dat deel nog een keer als tekstveld, en de scan werd twee keer
+    opgeslagen."""
+    tekst = bytes(blob).decode("utf-8", "replace")
+    disp = ""
+    for regel in tekst.splitlines():
+        if ":" not in regel:
+            continue
+        naam, _, waarde = regel.partition(":")
+        if naam.strip().lower() == "content-disposition":
+            disp = waarde.strip()
+    if not disp:
+        return "", False
+    _soort, extra = parse_options_header(disp)
+    heeft = "filename" in extra or "filename*" in extra
+    naam = extra.get("filename") or extra.get("filename*") or ""
+    if isinstance(naam, tuple):
+        naam = naam[-1] or ""
+    return str(naam), heeft
+
+
+def _spoel_is_link(spoel):
+    spoel.seek(0, os.SEEK_END)
+    if spoel.tell() > 2048:
+        spoel.seek(0)
+        return False
+    spoel.seek(0)
+    data = spoel.read()
+    spoel.seek(0)
+    return _is_http_link(data)
+
+
+def _multipart_van_spoel(bron, grens):
+    scheiding = b"--" + grens.encode("ascii")
+    bron.seek(0, os.SEEK_END)
+    grootte = bron.tell()
+    pos = _zoek_in_bestand(bron, scheiding, 0, grootte)
+    if pos < 0:
+        return
+    pos += len(scheiding)
+    while pos <= grootte:
+        bron.seek(pos)
+        twee = bron.read(2)
+        if twee.startswith(b"--"):
+            return
+        if twee == b"\r\n":
+            pos += 2
+        elif twee[:1] == b"\n":
+            pos += 1
+        volgend = _zoek_in_bestand(bron, scheiding, pos, grootte)
+        if volgend < 0:
+            return
+        einde = volgend
+        if einde >= pos + 2:
+            staart = _lees_bereik(bron, einde - 2, einde)
+            if staart == b"\r\n":
+                einde -= 2
+            elif staart.endswith(b"\n"):
+                einde -= 1
+        kop_eind = _zoek_in_bestand(bron, b"\r\n\r\n", pos, einde)
+        sprong = 4
+        if kop_eind < 0:
+            kop_eind = _zoek_in_bestand(bron, b"\n\n", pos, einde)
+            sprong = 2
+        if kop_eind < 0 or kop_eind > einde:
+            pos = volgend + len(scheiding)
+            continue
+        kop = _lees_bereik(bron, pos, min(kop_eind, pos + 8192))
+        yield kop, kop_eind + sprong, einde
+        pos = volgend + len(scheiding)
+
+
+def _uit_multipart(bron, grens):
+    gevonden = []
+    link = False
+    velden = []
+    bestandsvelden = []
+    try:
+        for kop, start, einde in _multipart_van_spoel(bron, grens):
+            naam, heeft_naam = _deelkop(kop)
+            if heeft_naam:
+                bestandsvelden.append(naam or "(leeg)")
+            else:
+                velden.append(_logregel(naam, 40) or "veld")
+            if einde < start:
+                continue
+            stuk = _kopieer_bereik(bron, start, einde)
+            if _spoel_is_link(stuk):
+                # Een link naast een echte scan blijft een link: die hoort
+                # in het antwoord, niet stil weg.
+                link = True
+                stuk.close()
+                continue
+            stuk.seek(0)
+            # Een bestandsdeel dat geen scan is moet de 415 geven, ook als er
+            # een goede scan naast staat. Een tekstveld dat geen scan is valt weg.
+            if soort_van_scan(stuk.read(32))[0] or heeft_naam:
+                stuk.seek(0)
+                gevonden.append(FileStorage(stream=stuk, filename=naam or ""))
+            else:
+                stuk.close()
+    except _VeldTeGroot:
+        for stuk in gevonden:
+            stuk.close()
+        raise
+    return gevonden, link, ", ".join(velden), ", ".join(bestandsvelden)
+
+
+def _uit_urlencoded(bron):
+    """Formuliervelden zonder het lichaam een tweede keer in het geheugen te houden.
+
+    Alleen kleine waarden (een link) of een scan. Een groot veld gaat naar
+    een tijdelijk bestand, niet naar een BytesIO-kopie ernaast."""
+    bron.seek(0)
+    ruw = bron.read()
+    from urllib.parse import parse_qsl
+    try:
+        items = parse_qsl(ruw.decode("utf-8", "surrogateescape"), keep_blank_values=True)
+    except UnicodeError:
+        items = []
+    del ruw
+    gevonden = []
+    link = False
+    velden = []
+    for sleutel, waarde in items:
+        velden.append(_logregel(sleutel, 40) or "veld")
+        data = waarde.encode("utf-8", "surrogateescape")
+        if _is_http_link(data):
+            link = True
+            continue
+        if not soort_van_scan(data[:32])[0]:
+            continue
+        if len(data) > SCAN_PER_BESTAND:
+            raise _VeldTeGroot()
+        spoel = _nieuwe_spoel()
+        spoel.write(data)
+        spoel.seek(0)
+        gevonden.append(FileStorage(stream=spoel, filename=str(sleutel)))
+    return gevonden, link, ", ".join(velden), ""
+
+
+def _enkel_stuk(bron, totaal, soort):
+    if totaal == 0:
+        bron.close()
+        return [], False, "", ""
+    if totaal <= 8192:
+        bron.seek(0)
+        data = bron.read()
+        bron.seek(0)
+        if _is_http_link(data) or _json_is_link(data):
+            bron.close()
+            return [], True, "", ""
+    bron.seek(0)
+    kop = bron.read(32)
+    bron.seek(0)
+    if soort == "application/x-www-form-urlencoded" and not soort_van_scan(kop)[0]:
+        try:
+            return _uit_urlencoded(bron)
+        finally:
+            bron.close()
+    return [FileStorage(stream=bron, filename=_naam_van_verzoek() or "")], False, "", ""
+
+
+def _scanbijlagen():
+    """De scans in dit verzoek, en of er een link binnenkwam.
+
+    Het lichaam gaat naar een tijdelijk bestand. request.get_data hield het
+    én nog een kopie per tekstveld in het geheugen; vier scans van 25 MB
+    werden daar een halve gigabyte van.
     """
     soort = (request.mimetype or "").lower()
+    bron, totaal = _spoel_van_stroom(request.stream)
     if soort == "multipart/form-data":
-        # Eerst bewaren: de formulier-parser leest de stroom daarna leeg.
-        # Zonder deze kopie is een tekstveld naast een bestand niet meer
-        # terug te lezen. De grens per veld staat op één scan, niet op 500 kB.
-        ruw = request.get_data(cache=True) or b""
         grens = (request.mimetype_params or {}).get("boundary")
-        bestanden = [
-            opslag for _sleutel, opslag in request.files.items(multi=True)
-            if opslag is not None
-        ]
-        if bestanden:
-            echt = []
-            link = False
-            for opslag in bestanden:
-                if _stroom_is_link(opslag):
-                    link = True
-                else:
-                    echt.append(opslag)
-            # Een tekstveld naast een bestand hoort mee, als de bytes een
-            # scan zijn. Anders verdwijnt die scan stil.
-            extra, link_erbij = _uit_ruwe_delen(ruw, grens, alleen_zonder_naam=True)
-            if echt or extra:
-                return echt + extra, False
-            if link or link_erbij:
-                return [], True
-            return [], False
-        gevonden, link = _uit_ruwe_delen(ruw, grens)
-        if gevonden or link:
-            return gevonden, link
-        return _uit_formulier()
-
-    ruw = request.get_data(cache=True) or b""
-    if _is_http_link(ruw) or _json_is_link(ruw):
-        return [], True
-    if ruw and soort_van_scan(ruw[:32])[0]:
-        return [_stuk_uit_bytes(ruw, _naam_van_verzoek())], False
-    if soort == "application/x-www-form-urlencoded":
-        gevonden, link = _uit_formulier()
-        if gevonden or link:
-            return gevonden, link
-    # Geen multipart: pdf, image/*, octet-stream of een ander type. De scan
-    # is dan de aanvraag zelf. De herkenning hierna wijst een gewone tekst af.
-    if ruw:
-        return [_stuk_uit_bytes(ruw, _naam_van_verzoek())], False
-    return [], False
+        try:
+            if not grens:
+                return [], False, "", ""
+            return _uit_multipart(bron, grens)
+        finally:
+            bron.close()
+    return _enkel_stuk(bron, totaal, soort)
 
 
-def _melding_geen_scan(link):
-    """Wat er aankwam, zonder de inhoud en zonder de code."""
+def _melding_geen_scan(link, velden="", bestanden=""):
+    """Wat er aankwam, zonder de inhoud en zonder de code.
+
+    request.form hier aanraken zou het lichaam nóg een keer inlezen."""
     mime = _logregel(request.mimetype or "geen type", 80) or "geen type"
     lengte = request.content_length
     lengte_tekst = (
         f"{lengte} bytes" if isinstance(lengte, int) and lengte >= 0
         else "lengte onbekend"
     )
-    velden = _sleutelzin(request.form) or "geen"
-    bestanden = _sleutelzin(request.files) or "geen"
+    velden = velden or "geen"
+    bestanden = bestanden or "geen"
     if link:
         app.logger.warning(
             "Scan zonder bestand: er kwam een link binnen. type=%s lengte=%s "
@@ -5269,23 +5502,47 @@ def scans_ontvangen():
             "Deze scan is niet geaccepteerd. Maak in Instellingen een nieuwe code aan.",
             401,
         )
-    binnen, link = _scanbijlagen()
-    if link or not binnen:
-        return _scan_tekst(_melding_geen_scan(link), 400)
-    if len(binnen) > SCAN_MAX_AANTAL:
+    # Eén uitpakking tegelijk. Een tweede verzoek wacht niet in het geheugen.
+    if not _SCAN_BEZIG.acquire(blocking=False):
         return _scan_tekst(
-            f"Te veel bestanden. Eén verzoek mag hooguit {SCAN_MAX_AANTAL} scans bevatten.",
-            400,
+            "De app is een andere scan aan het ontvangen. Probeer het zo nog eens.",
+            503,
         )
-
-    # Eerst alles keuren. Eén bestand dat niet mag, en er wordt niets bewaard:
-    # anders staat een halve lading in de inbox en denkt de melding dat het
-    # mislukte.
-    goedgekeurd = []
+    binnen = []
+    link_erbij = False
     try:
+        try:
+            binnen, link, velden, bestandsvelden = _scanbijlagen()
+        except _VeldTeGroot:
+            return _scan_tekst(
+                f"Eén scan mag hooguit {_tekst_voor_grens(SCAN_PER_BESTAND)} zijn. "
+                "Dit veld is groter dan dat.",
+                413,
+            )
+        except _JsonTeDiep:
+            return _scan_tekst(
+                "Dit verzoek is te ingewikkeld. Stuur het bestand zelf.",
+                400,
+            )
+        if not binnen:
+            return _scan_tekst(_melding_geen_scan(link, velden, bestandsvelden), 400)
+        # De echte scans blijven. De link wordt niet stil weggegooid
+        # en ook niet opgehaald.
+        link_erbij = bool(link)
+        if len(binnen) > SCAN_MAX_AANTAL:
+            return _scan_tekst(
+                f"Te veel bestanden. Eén verzoek mag hooguit {SCAN_MAX_AANTAL} scans bevatten.",
+                400,
+            )
+
+        # Eerst alles keuren. Eén bestand dat niet mag, en er wordt niets bewaard:
+        # anders staat een halve lading in de inbox en denkt de melding dat het
+        # mislukte.
+        goedgekeurd = []
         for bestand in binnen:
             goed, fout, status = _ontvang_scanbestand(bestand)
             if fout:
+                _ruim_scanpaden(stuk.get("pad") for stuk in goedgekeurd)
                 return _scan_tekst(fout, status)
             goedgekeurd.append(goed)
 
@@ -5311,10 +5568,19 @@ def scans_ontvangen():
             raise
         finally:
             conn.close()
+        _ruim_scanpaden(stuk.get("pad") for stuk in goedgekeurd)
     finally:
-        _ruim_scanpaden(goed.get("pad") for goed in goedgekeurd)
+        for bestand in binnen:
+            try:
+                bestand.close()
+            except Exception:
+                pass
+        _SCAN_BEZIG.release()
 
-    return _scan_tekst(_scans_zin([goed["naam"] for goed in goedgekeurd]), 200)
+    zin = _scans_zin([goed["naam"] for goed in goedgekeurd])
+    if link_erbij:
+        zin += " Er kwam ook een link binnen. Die haalt de app niet op."
+    return _scan_tekst(zin, 200)
 
 
 def scan_upload_adres():

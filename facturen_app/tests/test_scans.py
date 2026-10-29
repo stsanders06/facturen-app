@@ -865,3 +865,71 @@ def test_een_pdf_met_een_adres_erin_blijft_een_scan(client, post):
     antwoord = _post_ruw(client, token, lichaam, "application/pdf")
     assert antwoord.status_code == 200
     assert antwoord.data.decode().strip() == "Scan ontvangen: scan.pdf"
+
+
+def test_diep_json_geeft_geen_serverfout(client, post, caplog):
+    """Honderden lagen JSON liepen vast in de recursie en vulden het log."""
+    token = code_maken(client, post)
+    lagen = 600
+    lichaam = ('{"a":' * lagen + '"x"' + "}" * lagen).encode()
+    with caplog.at_level(logging.ERROR, logger="main"):
+        antwoord = _post_ruw(client, token, lichaam, "application/json")
+    tekst = antwoord.data.decode()
+    assert antwoord.status_code == 400
+    assert "te ingewikkeld" in tekst
+    assert "Traceback" not in caplog.text
+    assert caplog.text.count("\n") < 30
+
+
+def test_een_lege_bestandsnaam_wordt_niet_twee_keer_bewaard(client, post, db):
+    """filename="" is wel een bestandsdeel. Het niet als tekstveld nog eens
+    meetellen bewaarde dezelfde pdf twee keer."""
+    token = code_maken(client, post)
+    grens = "----Leeg"
+    lichaam = b"".join([
+        f"--{grens}\r\n".encode(),
+        b'Content-Disposition: form-data; name="bestand"; filename=""\r\n\r\n',
+        b"%PDF-1.4\n",
+        f"\r\n--{grens}--\r\n".encode(),
+    ])
+    antwoord = _post_ruw(client, token, lichaam, f"multipart/form-data; boundary={grens}")
+    assert antwoord.status_code == 200, antwoord.data
+    assert antwoord.data.decode().strip() == "Scan ontvangen: scan.pdf"
+    assert db.execute("SELECT COUNT(*) FROM scans").fetchone()[0] == 1
+
+
+def test_een_link_naast_een_pdf_blijft_zichtbaar(client, post, db, monkeypatch):
+    def verboden(*_args, **_kwargs):
+        raise AssertionError("de app haalde een link op")
+
+    monkeypatch.setattr(facturen, "urlopen", verboden)
+    token = code_maken(client, post)
+    grens = "----NaastLink"
+    lichaam = b"".join([
+        f"--{grens}\r\n".encode(),
+        b'Content-Disposition: form-data; name="link"; filename="link.pdf"\r\n\r\n',
+        b"https://voorbeeld.example/factuur.pdf",
+        f"\r\n--{grens}\r\n".encode(),
+        b'Content-Disposition: form-data; name="blad"\r\n\r\n',
+        b"%PDF-1.4\n",
+        f"\r\n--{grens}--\r\n".encode(),
+    ])
+    antwoord = _post_ruw(client, token, lichaam, f"multipart/form-data; boundary={grens}")
+    tekst = antwoord.data.decode()
+    assert antwoord.status_code == 200, tekst
+    assert "Scan ontvangen: scan.pdf" in tekst
+    assert "Er kwam ook een link binnen" in tekst
+    assert "voorbeeld.example" not in tekst
+    assert db.execute("SELECT COUNT(*) FROM scans").fetchone()[0] == 1
+
+
+def test_een_tweede_scan_tegelijk_krijgt_geen_plek(client, post, db):
+    assert facturen._SCAN_BEZIG.acquire(blocking=False)
+    try:
+        token = code_maken(client, post)
+        antwoord = stuur(client, token, bestand(png_bytes(), "wacht.png"))
+        assert antwoord.status_code == 503
+        assert "zo nog eens" in antwoord.data.decode()
+        assert db.execute("SELECT COUNT(*) FROM scans").fetchone()[0] == 0
+    finally:
+        facturen._SCAN_BEZIG.release()
