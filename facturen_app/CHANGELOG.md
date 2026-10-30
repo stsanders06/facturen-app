@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.44.3
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **Een definitieve rekening blijft definitief.** Hij houdt zijn nummer als je
+  hem bewerkt. In de lijst staat dan Definitief, niet meer Concept, en er wordt
+  geen nieuw nummer verbruikt.
+- **Het menu bij de regels rekt de knop ernaast niet meer op.** Gewerkte dagen
+  blijft een gewone knop, ook als Bon van een klus openstaat.
+- **Datum, bedrag en notitie staan op één lijn** als je een betaling boekt.
+- **De rondjes bij een aanvraag staan onder elkaar.** Het vinkje zit in het
+  midden en loopt niet over de tekst.
+
 ## 1.44.2
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet

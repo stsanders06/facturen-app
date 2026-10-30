@@ -585,11 +585,13 @@
     min-width: 0;
   }
   .taak-vink, .taak-tekst, .taak-nieuw { margin: 0; min-width: 0; }
-  .vink, .taak-knoppen .btn, .taak-nieuw input {
+  /* Alleen het vinkje van een taak. .vink op de stappen van een aanvraag
+     erfde deze 44px en liep daardoor over de tekst ernaast. */
+  .taak .vink, .taak-knoppen .btn, .taak-nieuw input {
     min-height: 44px;
     min-width: 44px;
   }
-  .vink {
+  .taak .vink {
     width: 44px;
     height: 44px;
     padding: 0;
@@ -706,13 +708,20 @@
   .stappen li:last-child { border-bottom: none; }
   .stappen .vink {
     flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     width: 22px;
     height: 22px;
+    min-width: 22px;
+    min-height: 22px;
+    padding: 0;
+    box-sizing: border-box;
     border-radius: 50%;
     border: 2px solid var(--border);
     color: var(--card);
     font-size: 13px;
-    line-height: 19px;
+    line-height: 1;
     text-align: center;
   }
   .stappen li.af .vink { background: var(--ok); border-color: var(--ok); }

@@ -49,7 +49,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.44.2"
+VERSIE = os.environ.get("ADDON_VERSION") or "1.44.3"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -10109,8 +10109,11 @@ def definitief(factuur_id):
         conn.close()
         abort(404)
     if factuur["nummer"]:
+        # Het nummer is al vergeven. Nog een keer vastzetten zou een nieuw
+        # nummer pakken of dit nummer wissen; allebei is fout. De lijst toont
+        # hem als definitief, ook al is de status nog concept tot de mail weggaat.
         conn.close()
-        melding(f"Rekening {factuur['nummer']} was al definitief.", "fout")
+        melding(f"Rekening {factuur['nummer']} is al definitief en houdt dat nummer.")
         return redirect(terug_naar(url_for("index")))
 
     factuur = maak_definitief(conn, factuur_id)

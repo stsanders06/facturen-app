@@ -72,9 +72,12 @@ def test_telefoon_static_menu_alleen_binnen_acties():
 
 
 def test_haal_op_knoppen_stapelen_op_telefoon(client):
-    """Drie haal-op-pills naast elkaar knippen op iPhone; onder elkaar volle breedte."""
+    """Drie haal-op-pills naast elkaar knippen op iPhone; onder elkaar volle breedte.
+
+    Op een breed scherm mag de rij niet meerekken: stretch maakte Gewerkte
+    dagen even hoog als het open menu van Bon van een klus."""
     css = css_van(client.get("/nieuw").data.decode())
-    assert "align-items: stretch" in regel_met(css, ".regelknoppen .haal-op")
+    assert "align-items: flex-start" in regel_met(css, ".regelknoppen .haal-op")
     assert "position: relative" in regel_met(css, ".regelknoppen .menu")
     smal = css[css.rindex("@media (max-width: 620px)"):]
     assert "flex-direction: column" in regel_met(smal, ".regelknoppen .haal-op")
@@ -289,10 +292,28 @@ def test_het_intakevinkje_lijnt_uit_en_blijft_tikbaar(client, db):
     knop = regel_met(css, ".stappen .vink-knop")
     assert "width: 22px" in knop
     assert "height: 22px" in knop
+    # Het taak-vinkje is 44px. Zonder min-width hier wint die minimumbreedte
+    # en wordt het rondje van de intake groter én naar links geschoven.
+    rondje = regel_met(css, ".stappen .vink")
+    assert "min-width: 22px" in rondje
+    assert "min-height: 22px" in rondje
+    assert "align-items: center" in rondje
     tik = regel_met(css, ".stappen .vink-knop::after")
     assert "position: absolute" in tik
     assert "width: 44px" in tik
     assert "height: 44px" in tik
+
+
+def test_een_open_menu_rekt_de_knop_ernaast_niet_op(client):
+    css = css_van(client.get("/nieuw").data.decode())
+    assert "align-items: flex-start" in regel_met(css, ".regelknoppen .haal-op")
+
+
+def test_de_betaalrij_houdt_velden_even_hoog(client, maak_factuur):
+    factuur_id = maak_factuur(nummer="2026-004", status="verzonden")
+    css = css_van(client.get(f"/factuur/{factuur_id}/betalingen").data.decode())
+    assert "height: 44px" in regel_met(css, ".boekregel input")
+    assert "height: 44px" in regel_met(css, ".boekregel .btn")
 
 
 def test_het_kruisje_bij_een_nieuw_materiaal_blijft_naast_de_prijs(client, db):
