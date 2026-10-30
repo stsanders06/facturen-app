@@ -80,7 +80,8 @@ def app():
     conn.commit()
     conn.close()
     for pdf in pathlib.Path(facturen.PDF_DIR).iterdir():
-        if pdf.suffix == ".pdf" or ".min." in pdf.name:
+        # .min-01.png is een oude paginanaam; die hoort ook weg tussen tests.
+        if pdf.suffix == ".pdf" or ".min" in pdf.name:
             pdf.unlink()
     for bestand in pathlib.Path(facturen.BIJLAGE_DIR).iterdir():
         bestand.unlink()

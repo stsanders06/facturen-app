@@ -85,6 +85,9 @@
            {% if s.soort == 'pdf' %}class="is-pdf"{% endif %}>
       {% elif s.soort in ['heic', 'heif'] %}
       <span class="scan-icoon" aria-hidden="true">HEIC</span>
+      {% elif s.soort == 'pdf' and s.mini_versie %}
+      <span class="scan-icoon pdf-wacht" aria-hidden="true" data-beeld="is-pdf"
+            data-mini="{{ url_for('scan_miniatuur', scan_id=s.id, v=s.mini_versie) }}">PDF</span>
       {% else %}
       <span class="scan-icoon" aria-hidden="true">PDF</span>
       {% endif %}
