@@ -1055,13 +1055,9 @@
               <img src="{{ url_for('bijlage', bijlage_id=b.id) }}" alt="{{ b.naam }}" loading="lazy">
               {% elif b.soort == 'foto' %}
               <span class="bestandsicoon" aria-hidden="true">HEIC</span>
-              {% elif b.soort == 'pdf' and b.mini_versie %}
-              <span class="pdf-tegel">
-                <span class="bestandsicoon" aria-hidden="true">PDF</span>
-                <img class="is-pdf" alt="" loading="lazy" decoding="async"
-                     src="{{ url_for('bijlage_miniatuur', bijlage_id=b.id, v=b.mini_versie) }}"
-                     onerror="this.remove()">
-              </span>
+              {% elif b.soort == 'pdf' and b.heeft_miniatuur %}
+              <img class="is-pdf" alt="" loading="lazy" decoding="async"
+                   src="{{ url_for('bijlage_miniatuur', bijlage_id=b.id, v=b.mini_versie) }}">
               {% else %}
               <span class="bestandsicoon" aria-hidden="true">PDF</span>
               {% endif %}
@@ -1185,13 +1181,9 @@
               <img src="{{ url_for('bijlage', bijlage_id=b.id) }}" alt="{{ b.naam }}" loading="lazy">
               {% elif b.soort == 'foto' %}
               <span class="bestandsicoon" aria-hidden="true">HEIC</span>
-              {% elif b.soort == 'pdf' and b.mini_versie %}
-              <span class="pdf-tegel">
-                <span class="bestandsicoon" aria-hidden="true">PDF</span>
-                <img class="is-pdf" alt="" loading="lazy" decoding="async"
-                     src="{{ url_for('bijlage_miniatuur', bijlage_id=b.id, v=b.mini_versie) }}"
-                     onerror="this.remove()">
-              </span>
+              {% elif b.soort == 'pdf' and b.heeft_miniatuur %}
+              <img class="is-pdf" alt="" loading="lazy" decoding="async"
+                   src="{{ url_for('bijlage_miniatuur', bijlage_id=b.id, v=b.mini_versie) }}">
               {% else %}
               <span class="bestandsicoon" aria-hidden="true">PDF</span>
               {% endif %}

@@ -221,9 +221,7 @@
     {% elif naam.lower().endswith('.heic') or naam.lower().endswith('.heif') %}
     <span class="bestand-merk">HEIC</span>
     {% elif mini %}
-    <img class="is-pdf" src="{{ mini }}" alt="" loading="lazy" decoding="async"
-         onerror="this.remove()">
-    <span class="bestand-merk">PDF</span>
+    <img class="is-pdf" src="{{ mini }}" alt="" loading="lazy" decoding="async">
     {% else %}
     <svg class="pdf-icoon" viewBox="0 0 48 48" aria-hidden="true">
       <path fill="currentColor" opacity=".15"

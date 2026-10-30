@@ -12,6 +12,7 @@ import shutil
 import socket
 import sqlite3
 import smtplib
+import queue
 import subprocess
 import tempfile
 import threading
@@ -4059,7 +4060,15 @@ def bijlagen_van(conn, klus_id, notitie_id=None, inkoop_id=None):
             bijlage["soort"] = "foto"
         elif ext == ".pdf":
             bijlage["soort"] = "pdf"
-            bijlage["mini_versie"] = _pdf_versie(os.path.join(BIJLAGE_DIR, rij["bestand"] or ""))
+            bron = veilig_pad(BIJLAGE_DIR, rij["bestand"] or "")
+            # Alleen een plaatje dat er al is. Tekenen gebeurt op de
+            # achtergrond; de pagina wacht daar niet op.
+            if _plan_pdf_miniatuur(bron, BIJLAGE_DIR, rij["bestand"]):
+                bijlage["heeft_miniatuur"] = True
+                bijlage["mini_versie"] = _pdf_versie(bron)
+            else:
+                bijlage["heeft_miniatuur"] = False
+                bijlage["mini_versie"] = ""
         else:
             bijlage["soort"] = "bestand"
         # De opgeslagen naam kan een bidi-teken bevatten. Op de pagina (de
@@ -4867,7 +4876,7 @@ def bijlage_miniatuur(bijlage_id):
     if rij is None or not str(rij["bestand"] or "").lower().endswith(".pdf"):
         return niet_gevonden()
     bron = veilig_pad(BIJLAGE_DIR, rij["bestand"])
-    pad = _pdf_miniatuur(bron, BIJLAGE_DIR, rij["bestand"])
+    pad = _plan_pdf_miniatuur(bron, BIJLAGE_DIR, rij["bestand"])
     if pad is None:
         return niet_gevonden()
     return toon_miniatuur(pad)
@@ -5649,11 +5658,17 @@ def _scan_rij(conn, scan_id):
 # blijft scherp op een telefoon en een enorme pagina wordt niet op ware
 # grootte getekend.
 _MINI_SCHAAL = 480
-_MINI_TIJD = 15
+# Kort: een verzoeksthread mag hier niet op wachten, en een hangende
+# pdftoppm mag geen minuut een plek in de wachtrij bezet houden.
+_MINI_TIJD = 5
 # Groter dan dit proberen we niet. pdftoppm kan op een reuzenbestand het
 # geheugen vullen voordat de schaal ingaat.
 _MINI_GRENS = 32 * 1024 * 1024
-_MINI_SLOT = threading.Lock()
+_MINI_WACHTRIJ = queue.Queue()
+_MINI_GEPLAND = set()
+_MINI_LOCK = threading.Lock()
+_MINI_SLOTEN = {}
+_MINI_WERKER = None
 
 
 def _pdf_versie(pad):
@@ -5666,11 +5681,22 @@ def _pdf_versie(pad):
 
 
 def _schrijf_stempel(pad, stempel):
+    """Eerst naast het doel, dan omruilen. Een half geschreven stempel
+    zou anders een goed voorbeeld opnieuw laten tekenen."""
+    map_dir = os.path.dirname(pad)
+    tijdelijk = None
     try:
-        with open(pad, "w", encoding="utf-8") as uit:
+        fd, tijdelijk = tempfile.mkstemp(dir=map_dir, prefix=".stempel-")
+        with os.fdopen(fd, "w", encoding="utf-8") as uit:
             uit.write(stempel)
+        os.replace(tijdelijk, pad)
+        tijdelijk = None
     except OSError:
-        pass
+        if tijdelijk:
+            try:
+                os.remove(tijdelijk)
+            except OSError:
+                pass
 
 
 def _onthoud_mislukte_miniatuur(pad):
@@ -5682,19 +5708,123 @@ def _onthoud_mislukte_miniatuur(pad):
         pass
 
 
-def _pdf_miniatuur(bron, map_dir, sleutel):
-    """Eerste pagina als png naast het bestand, of None.
+def _mini_paden(map_dir, sleutel):
+    return (
+        veilig_pad(map_dir, sleutel + ".min.png"),
+        veilig_pad(map_dir, sleutel + ".min.stempel"),
+        veilig_pad(map_dir, sleutel + ".min.mislukt"),
+    )
 
-    pdftoppm komt uit poppler-utils (zie de Dockerfile): dat pakket is er
-    voor aarch64 en amd64, zonder een extra Python-wiel. Ontbreekt het,
-    dan onthouden we de mislukking niet — een update van de add-on kan het
-    alsnog brengen. Een PDF die het programma niet aankan (versleuteld,
-    kapot) blijft dat, tot het bestand zelf verandert."""
+
+def _lees_stempel(stempelpad):
+    if not stempelpad or not os.path.isfile(stempelpad):
+        return ""
+    try:
+        with open(stempelpad, encoding="utf-8") as bron:
+            return bron.read().strip()
+    except OSError:
+        return ""
+
+
+def _ruim_verouderd_voorbeeld(doel, mislukt, stempelpad, stempel):
+    """Een ander bestand onder dezelfde naam krijgt een nieuw voorbeeld."""
+    if _lees_stempel(stempelpad) == stempel:
+        return
+    for extra in (doel, mislukt):
+        if extra and os.path.isfile(extra):
+            try:
+                os.remove(extra)
+            except OSError:
+                pass
+
+
+def _start_mini_werker():
+    global _MINI_WERKER
+    with _MINI_LOCK:
+        if _MINI_WERKER is not None and _MINI_WERKER.is_alive():
+            return
+        _MINI_WERKER = threading.Thread(
+            target=_mini_werker, name="pdf-miniatuur", daemon=True,
+        )
+        _MINI_WERKER.start()
+
+
+def _mini_werker():
+    while True:
+        taak = _MINI_WACHTRIJ.get()
+        try:
+            _teken_pdf_miniatuur(*taak)
+        finally:
+            _MINI_WACHTRIJ.task_done()
+
+
+def _wacht_op_miniaturen():
+    """Voor de tests: wacht tot de achtergrond klaar is met tekenen."""
+    _MINI_WACHTRIJ.join()
+
+
+def _slot_voor(sleutel_vol):
+    with _MINI_LOCK:
+        slot = _MINI_SLOTEN.get(sleutel_vol)
+        if slot is None:
+            slot = threading.Lock()
+            _MINI_SLOTEN[sleutel_vol] = slot
+        return slot
+
+
+def _teken_pdf_miniatuur(bron, map_dir, sleutel, stempel):
+    """Tekent buiten de verzoeken. Een slot per bestand, zonder te wachten."""
+    doel, stempelpad, mislukt = _mini_paden(map_dir, sleutel)
+    sleutel_vol = (map_dir, sleutel)
+    slot = _slot_voor(sleutel_vol)
+    if not slot.acquire(blocking=False):
+        with _MINI_LOCK:
+            _MINI_GEPLAND.discard(sleutel_vol)
+        return
+    try:
+        if not os.path.isfile(bron) or _pdf_versie(bron) != stempel:
+            return
+        if os.path.isfile(doel):
+            return
+        # -singlefile: de naam is precies voorvoegsel.png. Zonder die vlag
+        # zet pdftoppm bij 10+ pagina's -01.png en bij 10000 bladzijden
+        # -00001.png, en blijft dat bestand achter na verwijderen.
+        voorvoegsel = doel + ".tmp"
+        try:
+            subprocess.run(
+                ["pdftoppm", "-png", "-singlefile", "-f", "1", "-l", "1",
+                 "-scale-to", str(_MINI_SCHAAL), bron, voorvoegsel],
+                check=True, timeout=_MINI_TIJD, capture_output=True,
+            )
+        except (OSError, subprocess.SubprocessError):
+            _onthoud_mislukte_miniatuur(mislukt)
+            _schrijf_stempel(stempelpad, stempel)
+            return
+        gemaakt = voorvoegsel + ".png"
+        if not os.path.isfile(gemaakt):
+            _onthoud_mislukte_miniatuur(mislukt)
+            _schrijf_stempel(stempelpad, stempel)
+            return
+        try:
+            os.replace(gemaakt, doel)
+        except OSError:
+            return
+        _schrijf_stempel(stempelpad, stempel)
+    finally:
+        slot.release()
+        with _MINI_LOCK:
+            _MINI_GEPLAND.discard(sleutel_vol)
+
+
+def _plan_pdf_miniatuur(bron, map_dir, sleutel):
+    """Het plaatje als het er al is. Anders tekenen op de achtergrond.
+
+    Het verzoek keert meteen terug. Vier zware PDF's mogen de rest van de
+    app niet laten wachten: die draait in een andere draad, met een slot
+    per bestand dat niet blijft hangen."""
     if not bron or not sleutel or not os.path.isfile(bron):
         return None
-    doel = veilig_pad(map_dir, sleutel + ".min.png")
-    stempelpad = veilig_pad(map_dir, sleutel + ".min.stempel")
-    mislukt = veilig_pad(map_dir, sleutel + ".min.mislukt")
+    doel, stempelpad, mislukt = _mini_paden(map_dir, sleutel)
     if not doel or not stempelpad or not mislukt:
         return None
     try:
@@ -5707,58 +5837,28 @@ def _pdf_miniatuur(bron, map_dir, sleutel):
         stempel = _pdf_versie(bron)
     except OSError:
         return None
-    oud = ""
-    if os.path.isfile(stempelpad):
-        try:
-            with open(stempelpad, encoding="utf-8") as bron_stempel:
-                oud = bron_stempel.read().strip()
-        except OSError:
-            oud = ""
-    if oud != stempel:
-        for extra in (doel, mislukt):
-            if os.path.isfile(extra):
-                try:
-                    os.remove(extra)
-                except OSError:
-                    pass
+    if not stempel:
+        return None
+    _ruim_verouderd_voorbeeld(doel, mislukt, stempelpad, stempel)
     if os.path.isfile(doel):
         return doel
-    if os.path.isfile(mislukt):
+    if os.path.isfile(mislukt) or shutil.which("pdftoppm") is None:
         return None
-    if shutil.which("pdftoppm") is None:
-        return None
-    voorvoegsel = bron + ".min"
-    with _MINI_SLOT:
-        if os.path.isfile(doel):
-            return doel
-        try:
-            subprocess.run(
-                ["pdftoppm", "-png", "-f", "1", "-l", "1",
-                 "-scale-to", str(_MINI_SCHAAL), bron, voorvoegsel],
-                check=True, timeout=_MINI_TIJD, capture_output=True,
-            )
-        except (OSError, subprocess.SubprocessError):
-            _onthoud_mislukte_miniatuur(mislukt)
-            _schrijf_stempel(stempelpad, stempel)
+    sleutel_vol = (map_dir, sleutel)
+    with _MINI_LOCK:
+        if sleutel_vol in _MINI_GEPLAND:
             return None
-        gemaakt = voorvoegsel + "-1.png"
-        if not os.path.isfile(gemaakt):
-            _onthoud_mislukte_miniatuur(mislukt)
-            _schrijf_stempel(stempelpad, stempel)
-            return None
-        try:
-            os.replace(gemaakt, doel)
-        except OSError:
-            return None
-    _schrijf_stempel(stempelpad, stempel)
-    return doel
+        _MINI_GEPLAND.add(sleutel_vol)
+    _MINI_WACHTRIJ.put((bron, map_dir, sleutel, stempel))
+    _start_mini_werker()
+    return None
 
 
 def _wis_pdfminiatuur(map_dir, sleutel):
     """Voorbeeld, stempel en een mislukte poging horen bij het bestand."""
     if not sleutel:
         return
-    for extra in (".min.png", ".min.stempel", ".min.mislukt"):
+    for extra in (".min.png", ".min.stempel", ".min.mislukt", ".min.png.tmp.png"):
         pad = veilig_pad(map_dir, sleutel + extra)
         if pad and os.path.isfile(pad):
             try:
@@ -5780,7 +5880,7 @@ def _miniatuur_pad(rij):
         return pad
     if rij["soort"] != "pdf":
         return None
-    return _pdf_miniatuur(pad, SCAN_DIR, rij["bestand"])
+    return _plan_pdf_miniatuur(pad, SCAN_DIR, rij["bestand"])
 
 
 def _wis_scanminiatuur(rij):
@@ -7834,7 +7934,14 @@ def bewerk(factuur_id):
         conn.close()
 
         # De PDF hoort bij de oude gegevens, dus opnieuw tekenen.
+        # Het mailvoorbeeld van een concept staat in een apart bestand; dat
+        # hoort mee te gaan, anders toont de mail een oude eerste pagina.
         maak_pdf(factuur_id)
+        voorbeeld = f"voorbeeld-{factuur_id}.pdf"
+        voorbeeld_pad = veilig_pad(PDF_DIR, voorbeeld)
+        if voorbeeld_pad and os.path.isfile(voorbeeld_pad):
+            os.remove(voorbeeld_pad)
+        _wis_pdfminiatuur(PDF_DIR, voorbeeld)
         # Bewerken mailt niet mee, ook niet als `verstuur=ja` in het formulier staat.
         # Mailen is een aparte stap, na de controle van wat er de deur uitgaat.
         melding(f"Rekening {factuurnaam(factuur)} bijgewerkt.")
@@ -8130,9 +8237,12 @@ def offerte_mail(offerte_id):
         wie=offerte["klant_naam"],
         inhoud=mailinhoud_offerte(offerte),
         pdf_url=url_for("bekijk_offerte", offerte_id=offerte_id),
-        mini_document=url_for(
-            "offerte_miniatuur", offerte_id=offerte_id, v=_pdf_versie(pdf_pad),
-        ) if pdf_pad and os.path.isfile(pdf_pad) else "",
+        mini_document=(
+            url_for("offerte_miniatuur", offerte_id=offerte_id, v=_pdf_versie(pdf_pad))
+            if pdf_pad and os.path.isfile(pdf_pad)
+            and _plan_pdf_miniatuur(pdf_pad, PDF_DIR, os.path.basename(pdf_pad))
+            else ""
+        ),
         document_grootte=formaat_grootte(pdf_pad),
         concept=False,
         voorlopig_nummer=False,
@@ -9337,7 +9447,9 @@ def _bon_dict(rij):
         "soort": soort,
         "mini": (
             url_for("bijlage_miniatuur", bijlage_id=rij["id"], v=_pdf_versie(pad))
-            if ext == ".pdf" and os.path.isfile(pad) else ""
+            if ext == ".pdf" and os.path.isfile(pad)
+            and _plan_pdf_miniatuur(pad, BIJLAGE_DIR, rij["bestand"])
+            else ""
         ),
         "grootte": grootte,
         "bon": bon,
@@ -9404,6 +9516,7 @@ def draai_nummer_terug(factuur_id):
     conn.close()
     if os.path.exists(genummerd):
         os.remove(genummerd)
+    _wis_pdfminiatuur(PDF_DIR, os.path.basename(genummerd))
     maak_pdf(factuur_id)
 
 
@@ -9712,11 +9825,13 @@ def download_pdf(factuur_id):
     )
 
 
-def _miniatuur_van_bestand(pad, map_dir):
-    """Url-stempel voor een PDF die al op schijf staat. Tekent nog niets."""
-    if not pad or not os.path.isfile(pad):
-        return ""
-    return _pdf_versie(pad)
+def _dien_pdfminiatuur(pad, map_dir, naam):
+    if not pad or not naam:
+        return niet_gevonden()
+    thumb = _plan_pdf_miniatuur(pad, map_dir, naam)
+    if thumb is None:
+        return niet_gevonden()
+    return toon_miniatuur(thumb)
 
 
 @app.route("/factuur/<int:factuur_id>/miniatuur")
@@ -9728,13 +9843,8 @@ def factuur_miniatuur(factuur_id):
     if factuur is None:
         return niet_gevonden()
     naam = pdf_bestandsnaam(factuur) if factuur["nummer"] else f"voorbeeld-{factuur_id}.pdf"
-    pad = os.path.join(PDF_DIR, naam)
-    if not os.path.isfile(pad):
-        return niet_gevonden()
-    thumb = _pdf_miniatuur(pad, PDF_DIR, naam)
-    if thumb is None:
-        return niet_gevonden()
-    return toon_miniatuur(thumb)
+    pad = veilig_pad(PDF_DIR, naam)
+    return _dien_pdfminiatuur(pad, PDF_DIR, naam)
 
 
 @app.route("/offerte/<int:offerte_id>/miniatuur")
@@ -9743,13 +9853,8 @@ def offerte_miniatuur(offerte_id):
     offerte = offerte_of_404(conn, offerte_id)
     conn.close()
     naam = f"{offerte['nummer']}.pdf"
-    pad = os.path.join(PDF_DIR, naam)
-    if not os.path.isfile(pad):
-        return niet_gevonden()
-    thumb = _pdf_miniatuur(pad, PDF_DIR, naam)
-    if thumb is None:
-        return niet_gevonden()
-    return toon_miniatuur(thumb)
+    pad = veilig_pad(PDF_DIR, naam)
+    return _dien_pdfminiatuur(pad, PDF_DIR, naam)
 
 
 @app.route("/factuur/<int:factuur_id>/mail")
@@ -9765,23 +9870,39 @@ def mail_voorbeeld(factuur_id):
     zoals_gemaild = factuur_zoals_in_de_mail(conn, factuur)
     bonnen = meegestuurde_bonnen(conn, factuur_id)
     conn.close()
+    # Niet bij elk bezoek opnieuw tekenen: dat verandert de tijd van het
+    # bestand en het voorbeeld van de eerste pagina wordt dan nooit hergebruikt.
+    # Bewerken tekent de PDF al opnieuw.
     if factuur["nummer"]:
-        pdf_pad = maak_pdf(factuur_id)
+        naam = pdf_bestandsnaam(factuur)
+        pdf_pad = veilig_pad(PDF_DIR, naam)
+        if pdf_pad is None or not os.path.isfile(pdf_pad):
+            pdf_pad = maak_pdf(factuur_id)
         pdf_url = url_for("bekijk_pdf", factuur_id=factuur_id)
     else:
         # Los bestand: de opgeslagen concept-PDF blijft "CONCEPT" zeggen. Het
         # voorbeeld toont het voorlopige nummer, zonder dat nummer vast te leggen.
-        pdf_pad = os.path.join(PDF_DIR, f"voorbeeld-{factuur_id}.pdf")
-        maak_pdf(factuur_id, weergavenummer=zoals_gemaild["nummer"], pad=pdf_pad)
+        naam = f"voorbeeld-{factuur_id}.pdf"
+        pdf_pad = veilig_pad(PDF_DIR, naam)
+        if pdf_pad is None or not os.path.isfile(pdf_pad):
+            pdf_pad = maak_pdf(
+                factuur_id, weergavenummer=zoals_gemaild["nummer"],
+                pad=os.path.join(PDF_DIR, naam),
+            )
         pdf_url = url_for("mail_pdf", factuur_id=factuur_id)
+    mini_document = ""
+    if pdf_pad and os.path.isfile(pdf_pad):
+        pdf_naam = os.path.basename(pdf_pad)
+        if _plan_pdf_miniatuur(pdf_pad, PDF_DIR, pdf_naam):
+            mini_document = url_for(
+                "factuur_miniatuur", factuur_id=factuur_id, v=_pdf_versie(pdf_pad),
+            )
     return render_template(
         "mailen.html",
         wie=factuur["klant_naam"],
         inhoud=mailinhoud_rekening(zoals_gemaild, bonnen),
         pdf_url=pdf_url,
-        mini_document=url_for(
-            "factuur_miniatuur", factuur_id=factuur_id, v=_pdf_versie(pdf_pad),
-        ) if pdf_pad and os.path.isfile(pdf_pad) else "",
+        mini_document=mini_document,
         document_grootte=formaat_grootte(pdf_pad),
         concept=not factuur["nummer"],
         voorlopig_nummer=not factuur["nummer"],
@@ -10056,9 +10177,12 @@ def herinnering(factuur_id):
                 "bonnen": [],
             },
             pdf_url=url_for("bekijk_pdf", factuur_id=factuur_id) if factuur["nummer"] else "",
-            mini_document=url_for(
-                "factuur_miniatuur", factuur_id=factuur_id, v=_pdf_versie(pdf_pad),
-            ) if pdf_pad and os.path.isfile(pdf_pad) else "",
+            mini_document=(
+                url_for("factuur_miniatuur", factuur_id=factuur_id, v=_pdf_versie(pdf_pad))
+                if pdf_pad and os.path.isfile(pdf_pad)
+                and _plan_pdf_miniatuur(pdf_pad, PDF_DIR, os.path.basename(pdf_pad))
+                else ""
+            ),
             document_grootte=formaat_grootte(pdf_pad) if pdf_pad else "",
             concept=False,
             voorlopig_nummer=False,

@@ -507,6 +507,7 @@ def test_een_mislukte_pdfminiatuur_wordt_niet_opnieuw_geprobeerd(client, post, d
     monkeypatch.setattr(facturen.shutil, "which", lambda _naam: "/usr/bin/pdftoppm")
     monkeypatch.setattr(facturen.subprocess, "run", nep)
     assert client.get("/scans").status_code == 200
+    facturen._wacht_op_miniaturen()
     assert client.get("/scans").status_code == 200
     assert aanroepen["n"] == 1
     assert any(naam.endswith(".min.mislukt") for naam in os.listdir(facturen.SCAN_DIR))
@@ -528,9 +529,9 @@ def test_zonder_pdftoppm_onthouden_we_de_mislukking_niet(client, post, monkeypat
 
 def test_een_pdfminiatuur_blijft_heel_in_het_vak(client):
     css = css_van(client.get("/scans").data.decode())
-    regel = regel_met(css, ".scan-beeld img.is-pdf")
-    assert "object-fit: cover" in regel
-    assert "object-position: top" in regel
+    assert "object-fit: contain" in regel_met(css, ".scan-beeld img.is-pdf")
+    # Foto's blijven het vak vullen. De contain-regel geldt alleen voor de PDF.
+    assert "object-fit: cover" in css
     assert "is-pdf" in css
 
 
