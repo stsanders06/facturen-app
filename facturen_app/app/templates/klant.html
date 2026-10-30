@@ -310,11 +310,15 @@
       <div class="links">
         <span class="nr">{{ f.nummer or 'nog geen nummer' }}</span>
         <span class="datum">{{ f.datum|datum_nl }}</span>
-        <span class="chip chip-{{ f.status }}">
-          {% if f.status == 'concept' %}Concept
-          {% elif f.status == 'verzonden' %}Verzonden
-          {% else %}Betaald{% endif %}
-        </span>
+        {% if f.status == 'betaald' %}
+        <span class="chip chip-betaald">Betaald</span>
+        {% elif f.status == 'verzonden' %}
+        <span class="chip chip-verzonden">Verzonden</span>
+        {% elif f.nummer %}
+        <span class="chip chip-definitief">Definitief</span>
+        {% else %}
+        <span class="chip chip-concept">Concept</span>
+        {% endif %}
         {% if f.verlopen %}<span class="chip chip-verlopen">Te laat</span>{% endif %}
         {% if f.deels_betaald %}
         <span class="chip chip-deels">&euro; {{ f.betaald|bedrag }} binnen</span>

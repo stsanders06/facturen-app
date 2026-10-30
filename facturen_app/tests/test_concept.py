@@ -123,6 +123,83 @@ def test_kopie_krijgt_de_datum_van_vandaag(post, db, maak_factuur):
     assert kopie["datum"] == date.today().isoformat()
 
 
+def _kaart(html, nummer):
+    """De lijstkaart die dit nummer noemt, tot het eind van het artikel."""
+    return html.split(nummer, 1)[1].split("</article>", 1)[0]
+
+
+def test_bewerken_houdt_een_definitieve_rekening_op_zijn_nummer(post, db, client):
+    """Definitief maken zet het nummer, maar liet de status op concept. De knop
+    verdwijnt dan (die kijkt naar het nummer) en je kunt hem niet nog eens
+    vastzetten. Bewerken mag dat nummer niet wissen en geen nieuw nummer vragen."""
+    factuur_id = maak_concept(post, db, "Voorbeeld Klant")
+    post(f"/factuur/{factuur_id}/definitief")
+    nummer = db.execute(
+        "SELECT nummer FROM facturen WHERE id=?", (factuur_id,)
+    ).fetchone()[0]
+    assert nummer.endswith("-001")
+
+    post(f"/factuur/{factuur_id}/bewerk", {
+        "klant_naam": "Voorbeeld Klant",
+        "datum": "2026-08-14",
+        "omschrijving": "Kraan",
+        "type": "materiaal",
+        "aantal": "2",
+        "prijs": "80",
+    })
+    rij = db.execute(
+        "SELECT nummer, status FROM facturen WHERE id=?", (factuur_id,)
+    ).fetchone()
+    assert rij["nummer"] == nummer
+    # De mail is niet weg. Die status blijft concept, zodat een mislukte mail
+    # van een écht concept zijn nummer nog terug kan geven.
+    assert rij["status"] == "concept"
+    kaart = _kaart(client.get("/").data.decode(), nummer)
+    assert "chip-definitief" in kaart
+    assert ">Definitief<" in kaart
+    assert ">Concept<" not in kaart
+    assert "Definitief maken" not in kaart
+
+    tekst = tekst_uit_pdf(os.path.join(facturen.PDF_DIR, f"{nummer}.pdf"))
+    assert nummer in tekst
+    assert "CONCEPT" not in tekst
+
+    tweede = maak_concept(post, db, "Tweede Klant")
+    post(f"/factuur/{tweede}/definitief")
+    assert db.execute(
+        "SELECT nummer FROM facturen WHERE id=?", (tweede,)
+    ).fetchone()[0].endswith("-002")
+
+
+def test_bewerken_van_een_verzonden_rekening_blijft_verzonden(post, db, client, maak_factuur):
+    factuur_id = maak_factuur(nummer="2026-004", status="verzonden", klant="Voorbeeld Klant")
+    post(f"/factuur/{factuur_id}/bewerk", {
+        "klant_naam": "Voorbeeld Klant",
+        "datum": "2026-08-14",
+        "omschrijving": "Kraan vervangen",
+        "type": "arbeid_uur",
+        "aantal": "2",
+        "prijs": "60.5",
+    })
+    rij = db.execute(
+        "SELECT nummer, status FROM facturen WHERE id=?", (factuur_id,)
+    ).fetchone()
+    assert rij["nummer"] == "2026-004"
+    assert rij["status"] == "verzonden"
+    kaart = _kaart(client.get("/").data.decode(), "2026-004")
+    assert "chip-verzonden" in kaart
+    assert ">Concept<" not in kaart
+
+
+def test_opnieuw_definitief_pakt_geen_nieuw_nummer(post, db, maak_factuur):
+    factuur_id = maak_factuur(nummer="2026-004", status="concept")
+    post(f"/factuur/{factuur_id}/definitief")
+    assert db.execute(
+        "SELECT nummer FROM facturen WHERE id=?", (factuur_id,)
+    ).fetchone()[0] == "2026-004"
+    assert facturen.volgend_nummer(db) == "2026-005"
+
+
 def test_kopie_neemt_de_klus_koppeling_niet_mee(post, db, maak_factuur):
     """Die uren staan al op de oorspronkelijke rekening; ze horen niet twee keer
     gefactureerd te raken."""

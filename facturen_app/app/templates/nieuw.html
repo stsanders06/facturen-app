@@ -225,16 +225,18 @@
   /* ---------- De knoppen onder de regels ---------- */
   .regelknoppen {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 8px;
     flex-wrap: wrap;
     margin-top: 14px;
   }
   /* De twee menu's schuiven naar rechts: links zet je zelf een regel bij, rechts
      haal je ze ergens vandaan. */
+  /* flex-start: een open menu groeit naar beneden. Met stretch werd
+     Gewerkte dagen even hoog als dat menu. */
   .regelknoppen .haal-op {
     display: flex;
-    align-items: stretch;
+    align-items: flex-start;
     gap: 8px;
     margin-left: auto;
   }
