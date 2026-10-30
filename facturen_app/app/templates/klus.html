@@ -24,6 +24,13 @@
     border: 1px solid var(--border);
     background: var(--bg);
   }
+  /* De kop van de bon hoort in het vak. Zonder top center snijdt het
+     vak het midden uit en verdwijnt de bovenste regel. De klasse zit op
+     de link: het plaatje is haar kind. */
+  .pdf-tegel img.is-pdf {
+    object-fit: cover;
+    object-position: top center;
+  }
   .bestandsicoon {
     display: flex;
     align-items: center;
@@ -1038,12 +1045,20 @@
           {% for b in n.fotos %}
           <figure class="bijlage">
             <a href="{{ url_for('bijlage', bijlage_id=b.id) }}" {{ nieuw_tabblad }}
+               {% if b.soort == 'pdf' %}class="pdf-tegel"{% endif %}
                data-soort="{{ b.soort }}" data-naam="{{ b.naam }}"
                title="{{ b.naam }} openen">
               {% if b.plaatje %}
               <img src="{{ url_for('bijlage', bijlage_id=b.id) }}" alt="{{ b.naam }}" loading="lazy">
               {% elif b.soort == 'foto' %}
               <span class="bestandsicoon" aria-hidden="true">HEIC</span>
+              {% elif b.soort == 'pdf' and b.heeft_miniatuur %}
+              <img class="is-pdf" alt="" loading="lazy" decoding="async"
+                   src="{{ url_for('bijlage_miniatuur', bijlage_id=b.id, v=b.mini_versie) }}">
+              {% elif b.soort == 'pdf' and b.mini_versie %}
+              <span class="bestandsicoon pdf-wacht" aria-hidden="true"
+                    data-beeld="is-pdf"
+                    data-mini="{{ url_for('bijlage_miniatuur', bijlage_id=b.id, v=b.mini_versie) }}">PDF</span>
               {% else %}
               <span class="bestandsicoon" aria-hidden="true">PDF</span>
               {% endif %}
@@ -1161,12 +1176,20 @@
           {% for b in i.bestanden %}
           <figure class="bijlage">
             <a href="{{ url_for('bijlage', bijlage_id=b.id) }}" {{ nieuw_tabblad }}
+               {% if b.soort == 'pdf' %}class="pdf-tegel"{% endif %}
                data-soort="{{ b.soort }}" data-naam="{{ b.naam }}"
                title="{{ b.naam }} openen">
               {% if b.plaatje %}
               <img src="{{ url_for('bijlage', bijlage_id=b.id) }}" alt="{{ b.naam }}" loading="lazy">
               {% elif b.soort == 'foto' %}
               <span class="bestandsicoon" aria-hidden="true">HEIC</span>
+              {% elif b.soort == 'pdf' and b.heeft_miniatuur %}
+              <img class="is-pdf" alt="" loading="lazy" decoding="async"
+                   src="{{ url_for('bijlage_miniatuur', bijlage_id=b.id, v=b.mini_versie) }}">
+              {% elif b.soort == 'pdf' and b.mini_versie %}
+              <span class="bestandsicoon pdf-wacht" aria-hidden="true"
+                    data-beeld="is-pdf"
+                    data-mini="{{ url_for('bijlage_miniatuur', bijlage_id=b.id, v=b.mini_versie) }}">PDF</span>
               {% else %}
               <span class="bestandsicoon" aria-hidden="true">PDF</span>
               {% endif %}

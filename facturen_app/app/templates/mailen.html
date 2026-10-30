@@ -66,6 +66,7 @@
     text-decoration: none;
   }
   .bijlage-voorbeeld {
+    position: relative;
     flex: none;
     width: 48px;
     height: 48px;
@@ -82,7 +83,12 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+    object-position: top center;
   }
+  .bijlage-voorbeeld img.is-pdf { position: absolute; inset: 0; }
+  /* Het grijze icoon blijft het flex-kind. De span zelf neemt geen plek in,
+     anders schuift het icoon tot het plaatje er is. */
+  .bijlage-voorbeeld .pdf-wacht { display: contents; }
   .pdf-icoon { width: 32px; height: 32px; }
   .bestand-merk {
     font-size: 11px;
@@ -208,7 +214,7 @@
   <div class="card-head">
     <h2>Bijlagen</h2>
   </div>
-  {% macro voorbeeld(plaatje, url, naam) %}
+  {% macro voorbeeld(plaatje, url, naam, mini='', wacht='') %}
   <span class="bijlage-voorbeeld">
     {% if plaatje %}
     {# Geen verkleinde kopie op de server: dat vraagt Pillow in de add-on, en
@@ -217,7 +223,11 @@
     <img src="{{ url }}" alt="" loading="lazy" decoding="async">
     {% elif naam.lower().endswith('.heic') or naam.lower().endswith('.heif') %}
     <span class="bestand-merk">HEIC</span>
+    {% elif mini %}
+    <img class="is-pdf" src="{{ mini }}" alt="" loading="lazy" decoding="async">
     {% else %}
+    {# Zonder script blijft dit icoon staan. Met script wordt de span het plaatje. #}
+    {% if wacht %}<span class="pdf-wacht" data-beeld="is-pdf" data-mini="{{ wacht }}" aria-hidden="true">{% endif %}
     <svg class="pdf-icoon" viewBox="0 0 48 48" aria-hidden="true">
       <path fill="currentColor" opacity=".15"
             d="M12 4h16l10 10v28a2 2 0 0 1-2 2H12a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/>
@@ -227,6 +237,7 @@
       <text x="24" y="34" text-anchor="middle" font-size="11" font-weight="700"
             fill="currentColor">PDF</text>
     </svg>
+    {% if wacht %}</span>{% endif %}
     {% endif %}
   </span>
   {% endmacro %}
@@ -240,7 +251,7 @@
       {% endif %}
       <a class="bijlage-open" href="{{ pdf_url }}" {{ nieuw_tabblad }} data-soort="pdf"
          aria-label="{{ document_label }} ({{ inhoud.pdf }}) bekijken">
-        {{ voorbeeld(false, pdf_url, inhoud.pdf) }}
+        {{ voorbeeld(false, pdf_url, inhoud.pdf, mini_document|default(''), mini_wacht|default('')) }}
         <span class="bijlage-tekst">
           <span class="bijlage-naam" title="{{ inhoud.pdf }}">{{ document_label }}</span>
           <span class="bijlage-bestand">{{ inhoud.pdf }}</span>
@@ -262,7 +273,7 @@
          data-soort="{{ 'foto' if bon.plaatje or bon.soort == 'HEIC' else ('pdf' if bon.soort == 'PDF' else 'bestand') }}"
          data-naam="{{ bon.naam }}"
          aria-label="{{ bon.naam }} bekijken, {{ bon.info }}">
-        {{ voorbeeld(bon.plaatje, url_for('bijlage', bijlage_id=bon.id), bon.naam) }}
+        {{ voorbeeld(bon.plaatje, url_for('bijlage', bijlage_id=bon.id), bon.naam, bon.mini|default(''), bon.mini_wacht|default('')) }}
         <span class="bijlage-tekst">
           <span class="bijlage-naam" title="{{ bon.naam }}">{{ bon.naam }}</span>
           <span class="bijlage-info">{{ bon.info }}</span>

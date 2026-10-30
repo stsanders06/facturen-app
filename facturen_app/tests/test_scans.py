@@ -11,6 +11,7 @@ import os
 import re
 import struct
 import subprocess
+import time
 import zlib
 
 from conftest import facturen
@@ -500,14 +501,23 @@ def test_een_mislukte_pdfminiatuur_wordt_niet_opnieuw_geprobeerd(client, post, d
     assert stuur(client, token, bestand(b"%PDF-1.4\n", "kapot.pdf")).status_code == 200
     aanroepen = {"n": 0}
 
-    def nep(*_args, **_kwargs):
+    def nep(_cmd):
         aanroepen["n"] += 1
+        # De pagina moet het grijze vak nog zien. Klaar vóór de render
+        # zou de wacht-tegel overslaan.
+        time.sleep(0.2)
         raise subprocess.CalledProcessError(1, "pdftoppm")
 
     monkeypatch.setattr(facturen.shutil, "which", lambda _naam: "/usr/bin/pdftoppm")
-    monkeypatch.setattr(facturen.subprocess, "run", nep)
-    assert client.get("/scans").status_code == 200
-    assert client.get("/scans").status_code == 200
+    monkeypatch.setattr(facturen, "_run_pdftoppm", nep)
+    eerste = client.get("/scans").data.decode()
+    # Het script noemt de klasse ook. De tegel zelf is de span, niet het plaatje.
+    assert 'class="scan-icoon pdf-wacht"' in eerste
+    assert 'data-beeld="is-pdf"' in eerste
+    facturen._wacht_op_miniaturen()
+    tweede = client.get("/scans").data.decode()
+    assert tweede
+    assert 'class="scan-icoon pdf-wacht"' not in tweede
     assert aanroepen["n"] == 1
     assert any(naam.endswith(".min.mislukt") for naam in os.listdir(facturen.SCAN_DIR))
     scan_id = db.execute("SELECT id FROM scans").fetchone()[0]

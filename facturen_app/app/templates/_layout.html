@@ -1113,6 +1113,34 @@
   // Bevestiging vragen voor onomkeerbare acties. De vraag staat in een
   // data-attribuut en niet in de HTML-regel zelf: een apostrof in een naam
   // ("Anne d'Hondt") brak anders de code, waarna er zonder vragen werd verwijderd.
+  // Het voorbeeld van een PDF komt op de achtergrond. Zonder script blijft
+  // het grijze vak. Met script proberen we een paar keer, samen hooguit
+  // een kwart minuut, en zetten het plaatje erin zodra het er is.
+  (function () {
+    var wachtenden = document.querySelectorAll('.pdf-wacht[data-mini]');
+    if (!wachtenden.length) return;
+    var pauze = [400, 1200, 3400, 10000];
+    function probeer(el, poging) {
+      var url = el.getAttribute('data-mini');
+      if (!url) return;
+      var proef = new Image();
+      proef.onload = function () {
+        var img = document.createElement('img');
+        img.className = el.getAttribute('data-beeld') || 'is-pdf';
+        img.alt = '';
+        img.decoding = 'async';
+        img.src = url;
+        el.replaceWith(img);
+      };
+      proef.onerror = function () {
+        if (poging >= pauze.length) return;
+        setTimeout(function () { probeer(el, poging + 1); }, pauze[poging]);
+      };
+      proef.src = url;
+    }
+    wachtenden.forEach(function (el) { probeer(el, 0); });
+  })();
+
   document.addEventListener('submit', function (e) {
     var vraag = e.target.dataset ? e.target.dataset.bevestig : null;
     if (vraag && !window.confirm(vraag)) {

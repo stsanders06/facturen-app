@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.44.0
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **Een PDF-bon toont de eerste pagina.** In het kleine vak zie je de bovenkant
+  van de bon, niet meer alleen het grijze woord PDF. Het plaatje verschijnt
+  vanzelf zodra het klaar is. Dat geldt voor bonnen, notities, de inbox van
+  scans en de bijlagen bij een mail. Lukt het tekenen niet, dan blijft het
+  grijze vak staan. Een tik opent nog steeds de PDF zelf.
+
 ## 1.43.3
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
