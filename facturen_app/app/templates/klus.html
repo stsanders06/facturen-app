@@ -375,9 +375,47 @@
     color: var(--text-secondary);
   }
   .invoerrij .materialen li {
-    display: flex; gap: 8px; flex-wrap: wrap; padding: 2px 0;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    /* Niet omwikkelen: het prullenbakje bleef anders op een eigen regel
+       staan, rechts onder de tekst, en de regel werd hoger dan nodig. */
+    flex-wrap: nowrap;
+    padding: 0;
   }
-  .invoerrij .materialen .mat-weg { margin-left: auto; }
+  .invoerrij .materialen li > span {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    padding: 8px 0;
+  }
+  .invoerrij .materialen .mat-weg { margin: 0; flex: none; }
+  /* Zelfde prullenbak als bij een taak: het teken is klein en grijs,
+     het raakvlak blijft 44px. Rood was het woord Weg, en dat leek op
+     het kruis van de hele bon. */
+  .invoerrij .materialen .mat-prullen {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+  .invoerrij .materialen .mat-prullen:hover {
+    background: var(--neutral-soft);
+    color: var(--text);
+  }
+  .invoerrij .materialen .mat-prullen:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+  .invoerrij .materialen .mat-prullen svg { display: block; width: 18px; height: 18px; }
   /* Materiaal toevoegen hoort onder de materialenlijst van díe bon, niet
      tussen de actieknoppen — anders lijken de velden los te zweven. Geen
      eigen kader: dat werd een kaart in de kaart. */
@@ -391,6 +429,20 @@
   .invoerrij .mat-toevoegen input[name="omschrijving"] { width: 9rem; flex: 1 1 9rem; }
   .invoerrij .mat-toevoegen input[name="aantal"] { width: 4rem; }
   .invoerrij .mat-toevoegen input[name="prijs"] { width: 5rem; }
+  /* Op 390 px paste de omschrijving nog naast het aantal, en zakte alleen
+     het euroveld naar de volgende regel. Onder elkaar blijft het bedrag
+     naast het aantal. */
+  @media (max-width: 620px) {
+    .invoerrij .mat-toevoegen {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+    .invoerrij .mat-toevoegen input[name="omschrijving"],
+    .invoerrij .mat-toevoegen .btn { grid-column: 1 / -1; width: auto; }
+    .invoerrij .mat-toevoegen input[name="aantal"],
+    .invoerrij .mat-toevoegen input[name="prijs"] { width: auto; min-width: 0; }
+    .invoerrij .mat-toevoegen .btn { justify-self: start; }
+  }
   .inkoop-form .fields-rij,
   .invoerrij .fields-rij {
     display: grid; grid-template-columns: 1fr 7rem; gap: 10px;
@@ -631,8 +683,7 @@
   @media (pointer: coarse), (max-width: 720px) {
     .invoerrij-acties .btn-text,
     .invoerrij .erbij-form .btn-text,
-    .invoerrij .mat-toevoegen .btn-text,
-    .invoerrij .materialen .btn-text {
+    .invoerrij .mat-toevoegen .btn-text {
       min-height: 40px;
       display: inline-flex;
       align-items: center;
@@ -1265,11 +1316,18 @@
           {% for m in i.materialen %}
           <li>
             <span>{{ m.omschrijving }}{% if m.aantal and m.aantal != 1 %} × {{ '%g'|format(m.aantal) }}{% endif %}{% if m.prijs %} · €&nbsp;{{ '%.2f'|format(m.prijs) }}{% endif %}</span>
+            {#- Een lange naam in het label maakt de knop onbruikbaar voor
+                een schermlezer. De vraag bij het verwijderen houdt de hele naam. -#}
+            {% set oms = (m.omschrijving[:59] ~ '…') if m.omschrijving|length > 60 else m.omschrijving %}
             <form method="post" class="mat-weg"
                   action="{{ url_for('inkoop_materiaal_verwijder', materiaal_id=m.id) }}"
                   data-bevestig="{{ m.omschrijving }} verwijderen?">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button type="submit" class="btn btn-text danger">Weg</button>
+              <button type="submit" class="mat-prullen"
+                      aria-label="Materiaalregel {{ oms }} verwijderen"
+                      title="Materiaalregel verwijderen">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M7 7l1 12h8l1-12"/></svg>
+              </button>
             </form>
           </li>
           {% endfor %}

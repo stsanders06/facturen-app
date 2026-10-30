@@ -67,16 +67,126 @@ def test_optioneel_materiaal_onder_een_inkoop(client, db, klus_id):
     assert materialen[0]["prijs"] == 12.5
 
 
-def test_materiaal_erbij_en_weg(post, db, klus_id):
-    post(f"/klus/{klus_id}/inkoop", {"omschrijving": "AH", "bedrag": "10"},
+def test_materiaal_erbij_en_weg(post, db, client, klus_id):
+    post(f"/klus/{klus_id}/inkoop", {"omschrijving": "Bouwmarkt", "bedrag": "10"},
          follow_redirects=True)
     inkoop_id = db.execute("SELECT id FROM inkopen").fetchone()[0]
     post(f"/inkoop/{inkoop_id}/materiaal",
          {"omschrijving": "Kit", "aantal": "1", "prijs": "4,50"},
          follow_redirects=True)
     mat_id = db.execute("SELECT id FROM inkoop_materialen").fetchone()[0]
+    # Zonder script is de knop een gewoon formulier naar dezelfde route.
+    pagina = client.get(f"/klus/{klus_id}").data.decode()
+    assert ">Weg<" not in pagina
+    assert f'action="/inkoop_materiaal/{mat_id}/verwijder"' in pagina
+    assert 'class="mat-prullen"' in pagina
+    assert 'aria-label="Materiaalregel Kit verwijderen"' in pagina
+    assert 'data-bevestig="Kit verwijderen?"' in pagina
+    assert 'name="csrf_token"' in pagina
+    assert 'type="submit"' in pagina
     post(f"/inkoop_materiaal/{mat_id}/verwijder", follow_redirects=True)
     assert db.execute("SELECT COUNT(*) FROM inkoop_materialen").fetchone()[0] == 0
+    assert 'aria-label="Materiaalregel Kit verwijderen"' not in client.get(
+        f"/klus/{klus_id}").data.decode()
+
+
+def test_een_lange_materiaalnaam_wordt_afgekapt_in_het_label(post, db, client, klus_id):
+    """Het label noemt de regel, maar een naam van een alinea past niet in
+    de aankondiging. De bevestiging houdt de hele zin."""
+    lang = "Voegmiddel voor de wand van Voorbeeldstraat " + ("lang " * 12)
+    lang = lang.strip()
+    assert len(lang) > 60
+    post(f"/klus/{klus_id}/inkoop", {"omschrijving": "Bouwmarkt", "bedrag": "10"})
+    inkoop_id = db.execute("SELECT id FROM inkopen").fetchone()[0]
+    post(f"/inkoop/{inkoop_id}/materiaal", {"omschrijving": lang, "aantal": "1", "prijs": "3"})
+    pagina = client.get(f"/klus/{klus_id}").data.decode()
+    assert f'data-bevestig="{lang} verwijderen?"' in pagina
+    assert f'aria-label="Materiaalregel {lang} verwijderen"' not in pagina
+    begin = pagina.index('aria-label="Materiaalregel ')
+    label = pagina[begin:].split('"', 2)[1]
+    assert label.startswith("Materiaalregel ")
+    assert label.endswith(" verwijderen")
+    assert label.endswith("… verwijderen")
+    naam = label.removeprefix("Materiaalregel ").removesuffix(" verwijderen")
+    assert len(naam) == 60
+    assert lang.startswith(naam[:-1])
+
+
+def test_het_euroveld_blijft_naast_het_aantal(client, klus_id):
+    """Op 390 px zakte alleen de prijs naar de volgende regel."""
+    from test_smalle_weergave import css_van
+
+    css = css_van(client.get(f"/klus/{klus_id}").data.decode())
+    begin = css.index(".invoerrij .mat-toevoegen input[name=\"prijs\"]")
+    smal = css[css.index("@media (max-width: 620px)", begin):]
+    assert "grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)" in smal
+    assert "grid-column: 1 / -1" in smal
+
+
+def test_het_prullenbakje_is_te_raken_en_vraagt_toestemming(post, db, client, klus_id):
+    from browser import meetbrowser, playwright_verplicht
+
+    post(f"/klus/{klus_id}/inkoop", {"omschrijving": "Bouwmarkt", "bedrag": "18"})
+    inkoop_id = db.execute("SELECT id FROM inkopen").fetchone()[0]
+    post(f"/inkoop/{inkoop_id}/materiaal",
+         {"omschrijving": "Tegellijm", "aantal": "2", "prijs": "12,50"})
+    html = client.get(f"/klus/{klus_id}").data.decode()
+    sync_playwright = playwright_verplicht()
+    with sync_playwright() as p:
+        browser = meetbrowser(p)
+        try:
+            for breedte in (390, 320):
+                pagina = browser.new_page(viewport={"width": breedte, "height": 844})
+                pagina.set_content(html)
+                maten = pagina.evaluate("""() => {
+                  const knop = document.querySelector('.mat-prullen');
+                  const r = knop.getBoundingClientRect();
+                  const svg = knop.querySelector('svg').getBoundingClientRect();
+                  const regel = knop.closest('li');
+                  const rr = regel.getBoundingClientRect();
+                  const stijl = getComputedStyle(knop);
+                  const tekst = getComputedStyle(knop.closest('li').querySelector('span'));
+                  const bon = getComputedStyle(document.querySelector('.invoerrij-weg .weg'));
+                  knop.focus({focusVisible: true});
+                  const ring = getComputedStyle(knop);
+                  return {
+                    w: r.width, h: r.height,
+                    svg: svg.width,
+                    gelijkAanTekst: stijl.color === tekst.color,
+                    gelijkAanBon: stijl.color === bon.color,
+                    buiten: rr.right - document.documentElement.clientWidth,
+                    focus: document.activeElement === knop && ring.outlineStyle !== 'none',
+                  };
+                }""")
+                assert maten["w"] >= 44 and maten["h"] >= 44, (breedte, maten)
+                assert 16 <= maten["svg"] <= 20, (breedte, maten)
+                assert maten["buiten"] <= 1, (breedte, maten)
+                assert maten["focus"], (breedte, maten)
+                assert maten["gelijkAanTekst"], (breedte, maten)
+                assert not maten["gelijkAanBon"], (breedte, maten)
+                pagina.close()
+
+            pagina = browser.new_page(viewport={"width": 390, "height": 844})
+            pagina.set_content(html)
+            pagina.evaluate("""() => {
+              document.querySelector('form.mat-weg').addEventListener('submit', (e) => {
+                document.body.dataset.verstuurd = e.target.getAttribute('action');
+                e.preventDefault();
+              });
+            }""")
+            gezien = {}
+
+            def bevestig(dialoog):
+                gezien["tekst"] = dialoog.message
+                dialoog.accept()
+
+            pagina.on("dialog", bevestig)
+            pagina.locator(".mat-prullen").click()
+            assert gezien["tekst"] == "Tegellijm verwijderen?"
+            assert pagina.evaluate("() => document.body.dataset.verstuurd").endswith(
+                "/verwijder")
+        finally:
+            browser.close()
 
 
 def test_bon_regel_op_factuur_zet_factuur_id(post, db, klus_id):
