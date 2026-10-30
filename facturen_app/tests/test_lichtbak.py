@@ -1,6 +1,6 @@
 """De lichtbak opent een foto overal, niet alleen op het mailscherm.
 
-Een PDF blijft een gewone link. Verwijderen is een knop buiten
+Een PDF blijft een gewone link. Het kruisje op de tegel staat buiten
 de link, dus een tik daarop opent de foto niet.
 """
 import base64
@@ -76,7 +76,7 @@ def _wacht_op_foto(pagina):
 
 def test_een_notitiefoto_opent_in_de_lichtbak(post, db, client):
     """Notitiefoto's, vorige en volgende, Escape na een tik op de foto.
-    Een PDF en Verwijderen doen dat niet."""
+    Een PDF en het kruisje op de tegel doen dat niet."""
     html = _vul(post, db, client)
     assert html.count('id="lichtbak"') == 1
     assert 'data-soort="foto"' in html
@@ -84,7 +84,8 @@ def test_een_notitiefoto_opent_in_de_lichtbak(post, db, client):
     assert 'data-soort="pdf"' in html
     # De knop staat na de link, niet erin.
     figuur = html.split('data-naam="voeg-links.png"', 1)[1].split("</figure>", 1)[0]
-    assert figuur.index("</a>") < figuur.index("Verwijderen")
+    assert figuur.index("</a>") < figuur.index("Bijlage voeg-links.png verwijderen")
+    assert "<button" not in figuur.split("</a>", 1)[0]
 
     p, browser, pagina = _browser(html)
     try:
@@ -162,7 +163,7 @@ def test_een_notitiefoto_opent_in_de_lichtbak(post, db, client):
         pagina.locator('a[data-soort="pdf"]').click()
         assert bak.get_attribute("hidden") is not None
 
-        weg = pagina.locator("button", has_text="Verwijderen").first
+        weg = pagina.locator('button[aria-label="Bijlage voeg-links.png verwijderen"]')
         weg.evaluate("el => el.addEventListener('click', e => e.preventDefault(), true)")
         weg.click()
         assert bak.get_attribute("hidden") is not None
@@ -203,9 +204,9 @@ def test_een_bonfoto_en_een_heic_openen_in_de_lichtbak(post, db, client):
         assert pagina.evaluate(
             "() => document.activeElement.getAttribute('data-naam') === 'scherm.heic'")
 
-        pagina.locator("button", has_text="Weg").first.evaluate(
-            "el => el.addEventListener('click', e => e.preventDefault(), true)")
-        pagina.locator("button", has_text="Weg").first.click()
+        kruis = pagina.locator('button[aria-label="Bijlage bon-gamma.png verwijderen"]')
+        kruis.evaluate("el => el.addEventListener('click', e => e.preventDefault(), true)")
+        kruis.click()
         assert bak.get_attribute("hidden") is not None
     finally:
         _dicht(p, browser)

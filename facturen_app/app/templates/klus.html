@@ -14,8 +14,10 @@
     margin-top: 16px;
   }
   .bijlage { margin: 0; }
-  /* Geen onderstreping: het bestandsicoon is een plaatje, geen tekstlink. */
-  .bijlage a { display: block; text-decoration: none; }
+  /* Geen onderstreping: het bestandsicoon is een plaatje, geen tekstlink.
+     De minimale hoogte houdt het kruisje in de hoek als het plaatje niet
+     laadt: een kapotte img zakt anders in tot de hoogte van de alt-tekst. */
+  .bijlage a { display: block; min-height: 120px; text-decoration: none; }
   .bijlage img {
     width: 100%;
     height: 120px;
@@ -53,10 +55,53 @@
     white-space: nowrap;
   }
   .bijlage .wanneer { display: block; font-size: 12px; color: var(--text-secondary); }
-  .bijlage-acties { display: flex; flex-wrap: wrap; margin: 2px -12px 0; }
-  .bijlage-acties form { display: contents; }
-  .bijlage-acties .btn-text { padding: 6px 12px; min-height: 0; font-size: 13px; }
-  .bijlage-acties .aan { color: var(--ok); font-weight: 500; }
+  /* Het kruisje ligt op de hoek van het vak, niet in de link. Anders opent
+     een tik om te verwijderen de foto of de PDF. Het vak zelf blijft links
+     van het rode kruis van de bon of de notitie. */
+  .bijlage-vak { position: relative; }
+  .bijlage-weg {
+    position: absolute;
+    top: 0;
+    right: 0;
+    margin: 0;
+    z-index: 1;
+  }
+  /* Het rondje is klein, het tikvlak is 44px en steekt het vak in. Buiten
+     het vak zou het het rode kruis van de bon raken. */
+  .tegel-weg {
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-end;
+    width: 44px;
+    height: 44px;
+    margin: 0;
+    padding: 4px 4px 0 0;
+    border: 0;
+    background: transparent;
+    color: #fff;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+  }
+  .tegel-weg span {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: rgba(28, 32, 36, .62);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .4);
+  }
+  .tegel-weg svg { display: block; width: 14px; height: 14px; }
+  .tegel-weg:hover span,
+  .tegel-weg:focus-visible span { background: rgba(28, 32, 36, .82); }
+  /* De ring zit op het rondje. Om de hele 44px zou je een leeg vak zien. */
+  .tegel-weg:focus-visible span {
+    outline: 2px solid #fff;
+    outline-offset: 1px;
+    box-shadow: 0 0 0 3px var(--primary), 0 1px 3px rgba(0, 0, 0, .4);
+  }
 
   /* ---------- Invoerkaart: dagen, notities en inkopen ----------
      Eén patroon, zodat de drie secties niet opnieuw uit elkaar groeien:
@@ -554,6 +599,7 @@
     /* Twee foto's naast elkaar in plaats van één: met 160px als ondergrens paste de
        tweede kolom er net niet in en werd elke foto zo hoog als een half scherm. */
     .bijlagen { grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 10px; }
+    .bijlage a { min-height: 96px; }
     .bijlage img, .bestandsicoon { height: 96px; }
 
     /* De twee knoppen bij de bonnetjes onder elkaar over de volle breedte, net als
@@ -580,13 +626,11 @@
   }
 
   /* Op een telefoon zijn deze knoppen met een vinger te raken. Ze staan dicht op
-     elkaar — "Bewerken" naast "Verwijderen", en per foto nog eens twee — dus een
-     knop van 20px hoog levert daar de verkeerde tik op. Op een muisscherm mogen ze
-     klein blijven; daar staat de tekst rustiger. */
+     elkaar — "Bewerken" naast "Foto erbij" — dus een knop van 20px hoog levert
+     daar de verkeerde tik op. Op een muisscherm mogen ze klein blijven. */
   @media (pointer: coarse), (max-width: 720px) {
     .invoerrij-acties .btn-text,
     .invoerrij .erbij-form .btn-text,
-    .bijlage-acties .btn-text,
     .invoerrij .mat-toevoegen .btn-text,
     .invoerrij .materialen .btn-text {
       min-height: 40px;
@@ -595,9 +639,6 @@
       padding-left: 12px;
       padding-right: 12px;
     }
-    /* Met die hoogte erbij passen twee knoppen onder een foto niet meer naast
-       elkaar op 320px; ze mogen dan onder elkaar. */
-    .bijlage-acties { gap: 2px; }
   }
 
   .kop-acties { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -681,6 +722,21 @@
 </style>
 {% endblock %}
 {% block content %}
+{% macro tegel_weg(b) %}
+<form method="post" class="bijlage-weg" action="{{ url_for('bijlage_verwijder', bijlage_id=b.id) }}"
+      data-bevestig="{{ b.naam }} verwijderen?">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <button type="submit" class="tegel-weg" aria-label="Bijlage {{ b.naam }} verwijderen">
+    <span aria-hidden="true">
+      <svg viewBox="0 0 14 14" focusable="false">
+        <path d="M3.2 3.2l7.6 7.6M10.8 3.2L3.2 10.8" fill="none" stroke="currentColor"
+              stroke-width="1.6" stroke-linecap="round"/>
+      </svg>
+    </span>
+  </button>
+</form>
+{% endmacro %}
+
 
 <div class="page-head">
   <h1>{{ klus.naam }}</h1>
@@ -1044,6 +1100,7 @@
         <div class="bijlagen">
           {% for b in n.fotos %}
           <figure class="bijlage">
+            <div class="bijlage-vak">
             <a href="{{ url_for('bijlage', bijlage_id=b.id) }}" {{ nieuw_tabblad }}
                {% if b.soort == 'pdf' %}class="pdf-tegel"{% endif %}
                data-soort="{{ b.soort }}" data-naam="{{ b.naam }}"
@@ -1063,18 +1120,13 @@
               <span class="bestandsicoon" aria-hidden="true">PDF</span>
               {% endif %}
             </a>
+            {{ tegel_weg(b) }}
+            </div>
             <figcaption>
               <span class="bestandsnaam" title="{{ b.naam }}">{{ b.naam }}</span>
               {% if b.soort == 'foto' and not b.plaatje %}
               <span class="hint">Geen voorbeeld. Een JPG of PNG wel.</span>
               {% endif %}
-              <span class="bijlage-acties">
-                <form method="post" action="{{ url_for('bijlage_verwijder', bijlage_id=b.id) }}"
-                      data-bevestig="{{ b.naam }} verwijderen?">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                  <button type="submit" class="btn btn-text danger">Verwijderen</button>
-                </form>
-              </span>
             </figcaption>
           </figure>
           {% endfor %}
@@ -1175,6 +1227,7 @@
         <div class="bijlagen">
           {% for b in i.bestanden %}
           <figure class="bijlage">
+            <div class="bijlage-vak">
             <a href="{{ url_for('bijlage', bijlage_id=b.id) }}" {{ nieuw_tabblad }}
                {% if b.soort == 'pdf' %}class="pdf-tegel"{% endif %}
                data-soort="{{ b.soort }}" data-naam="{{ b.naam }}"
@@ -1194,20 +1247,13 @@
               <span class="bestandsicoon" aria-hidden="true">PDF</span>
               {% endif %}
             </a>
+            {{ tegel_weg(b) }}
+            </div>
             <figcaption>
               <span class="bestandsnaam" title="{{ b.naam }}">{{ b.naam }}</span>
               {% if b.soort == 'foto' and not b.plaatje %}
               <span class="hint">Geen voorbeeld. Een JPG of PNG wel.</span>
               {% endif %}
-              <span class="bijlage-acties">
-                {#- Geen vinkje 'meesturen' meer. Staat de bon op de rekening,
-                    dan gaat het bestand mee; uitvinken doe je op het mailscherm. -#}
-                <form method="post" action="{{ url_for('bijlage_verwijder', bijlage_id=b.id) }}"
-                      data-bevestig="{{ b.naam }} verwijderen?">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                  <button type="submit" class="btn btn-text danger">Weg</button>
-                </form>
-              </span>
             </figcaption>
           </figure>
           {% endfor %}
