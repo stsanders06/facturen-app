@@ -61,6 +61,8 @@ jobs:
 
       - name: Pakketten installeren
         run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils
           pip install -r facturen_app/app/requirements.txt
           pip install -r facturen_app/tests/requirements.txt
 

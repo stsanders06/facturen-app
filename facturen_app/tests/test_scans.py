@@ -528,9 +528,9 @@ def test_zonder_pdftoppm_onthouden_we_de_mislukking_niet(client, post, monkeypat
 
 def test_een_pdfminiatuur_blijft_heel_in_het_vak(client):
     css = css_van(client.get("/scans").data.decode())
-    assert "object-fit: contain" in regel_met(css, ".scan-beeld img.is-pdf")
-    # Foto's blijven het vak vullen. De contain-regel geldt alleen voor de PDF.
-    assert "object-fit: cover" in css
+    regel = regel_met(css, ".scan-beeld img.is-pdf")
+    assert "object-fit: cover" in regel
+    assert "object-position: top" in regel
     assert "is-pdf" in css
 
 

@@ -16,8 +16,10 @@ COPY app/requirements.txt /opt/app/requirements.txt
 # ca-certificates is nodig om adressen op te kunnen zoeken bij PDOK: zonder de
 # certificaten mislukt die verbinding, en dan blijven de suggesties stil weg.
 # poppler-utils levert pdftoppm, voor het voorbeeld van de eerste pagina van
-# een scan die als PDF binnenkomt. Zonder dat pakket blijft zo'n scan een
-# kaal merk "PDF".
+# een PDF (scan, bon of notitie). Het pakket zit in Alpine voor aarch64 en
+# amd64; een Python-wheel als pypdfium2 trekt een zwaardere bibliotheek mee
+# en is op Alpine niet overal als wiel te krijgen. Zonder dit pakket blijft
+# de tegel het grijze merk "PDF".
 RUN \
     apk add --no-cache \
         ca-certificates \

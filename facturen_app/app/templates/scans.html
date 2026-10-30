@@ -28,9 +28,8 @@
     border: 1px solid var(--border);
     background: var(--bg);
   }
-  /* Een foto vult het vak. Een PDF-pagina afsnijden verbergt het bedrag;
-     die past er in zijn geheel in. */
-  .scan-beeld img.is-pdf { object-fit: contain; }
+  /* De bovenkant van de bon blijft in beeld; de rest mag afgesneden worden. */
+  .scan-beeld img.is-pdf { object-fit: cover; object-position: top center; }
   .scan-icoon {
     display: flex;
     align-items: center;
