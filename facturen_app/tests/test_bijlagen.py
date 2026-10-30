@@ -290,6 +290,161 @@ def test_de_bonnen_gaan_echt_als_bijlage_mee(monkeypatch, post, db, klus_id):
     assert "bonnetjes zitten erbij" in opgevangen["tekst"]
 
 
+def _figuur(html, naam):
+    """Het hele figure, inclusief de link. data-naam staat pas op de <a>."""
+    marker = f'data-naam="{naam}"'
+    kop, _staart = html.split(marker, 1)
+    start = kop.rfind("<figure")
+    return html[start:].split("</figure>", 1)[0]
+
+
+def test_het_kruisje_vervangt_het_woord_weg(post, client, klus_id):
+    """Onder de tegel stond een rode tekstlink. Het kruisje zit op het vak."""
+    upload(post, klus_id, "scan.pdf", b"%PDF-1.4 test")
+    upload(post, klus_id, "voeg.png")
+    post(f"/klus/{klus_id}/notitie", {
+        "tekst": "Voegen in de badkamer",
+        "foto": (io.BytesIO(PNG), "voeg-notitie.png"),
+    }, content_type="multipart/form-data")
+    html = client.get(f"/klus/{klus_id}").data.decode()
+    assert ">Weg<" not in html
+    for naam in ("scan.pdf", "voeg.png", "voeg-notitie.png"):
+        figuur = _figuur(html, naam)
+        assert ">Weg<" not in figuur
+        assert ">Verwijderen<" not in figuur
+        assert f'aria-label="Bijlage {naam} verwijderen"' in figuur
+        assert 'class="tegel-weg"' in figuur
+        assert 'type="submit"' in figuur
+        assert 'method="post"' in figuur
+        assert "/verwijder" in figuur
+        assert 'name="csrf_token"' in figuur
+        assert f'data-bevestig="{naam} verwijderen?"' in figuur
+        assert 'class="bestandsnaam"' in figuur
+        # Buiten de link, anders opent verwijderen de foto.
+        assert "<button" not in figuur.split("</a>", 1)[0]
+        assert figuur.index("</a>") < figuur.index("tegel-weg")
+    assert 'data-soort="pdf"' in _figuur(html, "scan.pdf")
+
+
+def test_verwijderen_zonder_script_post_het_formulier(post, client, db, klus_id):
+    """Zonder JavaScript is er geen vraag, maar de knop verstuurt wel."""
+    upload(post, klus_id, "scan.pdf", b"%PDF-1.4 test")
+    html = client.get(f"/klus/{klus_id}").data.decode()
+    figuur = _figuur(html, "scan.pdf")
+    assert 'class="tegel-weg"' in figuur
+    bijlage_id = db.execute("SELECT id FROM bijlagen").fetchone()[0]
+    assert f'action="/bijlage/{bijlage_id}/verwijder"' in figuur
+    post(f"/bijlage/{bijlage_id}/verwijder")
+    assert db.execute("SELECT COUNT(*) FROM bijlagen").fetchone()[0] == 0
+    # De melding noemt de naam nog. De tegel zelf is weg.
+    assert 'aria-label="Bijlage scan.pdf verwijderen"' not in client.get(
+        f"/klus/{klus_id}").data.decode()
+
+
+def test_het_kruisje_vraagt_toestemming_en_blijft_van_de_bon_af(post, client, klus_id):
+    """Met script dezelfde vraag als vroeger. Het tikvlak raakt het rode kruis niet."""
+    from browser import meetbrowser, playwright_verplicht
+
+    upload(post, klus_id, "scan.pdf", b"%PDF-1.4 test")
+    upload(post, klus_id, "voeg.png")
+    post(f"/klus/{klus_id}/notitie", {
+        "tekst": "Voegen in de badkamer",
+        "foto": (io.BytesIO(PNG), "voeg-notitie.png"),
+    }, content_type="multipart/form-data")
+    html = client.get(f"/klus/{klus_id}").data.decode()
+    sync_playwright = playwright_verplicht()
+    with sync_playwright() as p:
+        browser = meetbrowser(p)
+        try:
+            for breedte in (390, 320):
+                pagina = browser.new_page(
+                    viewport={"width": breedte, "height": 900},
+                    device_scale_factor=1,
+                )
+                pagina.set_content(html)
+                maten = pagina.evaluate("""() => {
+                  function vak(el) {
+                    const r = el.getBoundingClientRect();
+                    return {l: r.left, r: r.right, t: r.top, b: r.bottom,
+                            w: r.width, h: r.height};
+                  }
+                  function gat(a, b) {
+                    const gx = Math.max(a.l - b.r, b.l - a.r);
+                    const gy = Math.max(a.t - b.b, b.t - a.b);
+                    if (gx < -0.5 && gy < -0.5) return -1;
+                    if (gx < 0) return gy;
+                    if (gy < 0) return gx;
+                    return Math.hypot(gx, gy);
+                  }
+                  const uit = [];
+                  document.querySelectorAll('.tegel-weg').forEach(knop => {
+                    const rij = knop.closest('.invoerrij');
+                    const bon = rij && rij.querySelector('.invoerrij-weg .weg');
+                    const span = knop.querySelector('span');
+                    const anker = knop.closest('.bijlage-vak').querySelector('a');
+                    const naam = knop.closest('figure').querySelector('.bestandsnaam');
+                    const stijl = getComputedStyle(naam);
+                    knop.focus({focusVisible: true});
+                    const ring = getComputedStyle(span);
+                    uit.push({
+                      label: knop.getAttribute('aria-label'),
+                      knop: vak(knop),
+                      rond: vak(span),
+                      tegel: vak(knop.closest('.bijlage-vak')),
+                      anker: vak(anker),
+                      ankerHoog: getComputedStyle(anker).height,
+                      gat: bon ? gat(vak(knop), vak(bon)) : null,
+                      eenRegel: stijl.whiteSpace === 'nowrap'
+                        && stijl.textOverflow === 'ellipsis',
+                      focus: document.activeElement === knop
+                        && ring.outlineStyle !== 'none',
+                    });
+                  });
+                  return uit;
+                }""")
+                assert maten, breedte
+                for stuk in maten:
+                    assert stuk["knop"]["w"] >= 44 and stuk["knop"]["h"] >= 44, stuk
+                    assert 24 <= stuk["rond"]["w"] <= 28, stuk
+                    assert 24 <= stuk["rond"]["h"] <= 28, stuk
+                    tegel, rond = stuk["tegel"], stuk["rond"]
+                    assert rond["l"] >= tegel["l"] - 1 and rond["r"] <= tegel["r"] + 1, (
+                        breedte, stuk)
+                    assert rond["t"] >= tegel["t"] - 1 and rond["b"] <= tegel["b"] + 1, (
+                        breedte, stuk)
+                    assert stuk["gat"] is None or stuk["gat"] >= 8, (breedte, stuk)
+                    assert stuk["eenRegel"]
+                    assert stuk["focus"], stuk
+                    assert stuk["label"].startswith("Bijlage ")
+                    assert stuk["label"].endswith(" verwijderen")
+                pagina.close()
+
+            pagina = browser.new_page(viewport={"width": 390, "height": 900})
+            pagina.set_content(html)
+            pagina.evaluate("""() => {
+              document.querySelectorAll('form.bijlage-weg').forEach(form => {
+                form.addEventListener('submit', (e) => {
+                  document.body.dataset.verstuurd = form.getAttribute('action');
+                  e.preventDefault();
+                });
+              });
+            }""")
+            gezien = {}
+
+            def bevestig(dialoog):
+                gezien["tekst"] = dialoog.message
+                dialoog.accept()
+
+            pagina.on("dialog", bevestig)
+            pagina.locator('button[aria-label="Bijlage scan.pdf verwijderen"]').click()
+            assert gezien["tekst"] == "scan.pdf verwijderen?"
+            assert pagina.evaluate("() => document.body.dataset.verstuurd").endswith(
+                "/verwijder")
+            assert pagina.locator("#lichtbak").get_attribute("hidden") is not None
+        finally:
+            browser.close()
+
+
 def test_onbekende_bijlage_geeft_404(client, db):
     antwoord = client.get("/bijlage/9999")
     assert antwoord.status_code == 404

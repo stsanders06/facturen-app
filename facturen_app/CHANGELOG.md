@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.44.1
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **Een bijlage haal je weg met een kruisje op de foto.** Het staat rechtsboven
+  in het vak, bij een bon en bij een notitie. De bestandsnaam blijft eronder.
+  Een tik op de foto of de PDF opent hem nog steeds.
+
 ## 1.44.0
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet

@@ -112,7 +112,7 @@ with sync_playwright() as p:
     pg.goto(BASIS + "/klus/1", wait_until="networkidle")
     knoppen = pg.evaluate("""() => {
       const klein = [];
-      document.querySelectorAll('.notities button, .bijlage-acties button').forEach(el => {
+      document.querySelectorAll('.notities button, .tegel-weg').forEach(el => {
         const r = el.getBoundingClientRect();
         if (r.height > 0 && r.height < 36) klein.push(el.textContent.trim() + ' ' + Math.round(r.height));
       });
