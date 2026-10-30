@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.44.2
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **Een materiaalregel gaat weg met een prullenbakje.** Het staat rechts op de
+  regel, klein en grijs, net als bij een taak. Het rode woord Weg is daar weg.
+- **Aantal en bedrag staan naast elkaar.** Bij een nieuw materiaal op een
+  telefoon zakt het bedrag niet meer alleen naar de volgende regel.
+
 ## 1.44.1
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
