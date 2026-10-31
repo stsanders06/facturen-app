@@ -338,20 +338,12 @@
     min-width: 32px;
     padding: 4px 8px;
   }
-  /* Het tikvlak zit in de eigen regel. Een negatieve marge liep over de
-     nummerregel eronder, en een tik daarop opende de klant. */
-  .factuur .klant,
-  .offerte .klant { min-height: 32px; display: flex; align-items: center; }
   .factuur .klant a,
   .offerte .klant a,
   .opsomming a {
-    display: inline-flex;
-    align-items: center;
-    vertical-align: middle;
-    min-height: 32px;
-    margin: 0;
-    padding: 0 2px;
-    box-sizing: border-box;
+    display: inline-block;
+    padding: 6px 2px;
+    margin: -6px -2px;
   }
   /* Op een aanraakscherm moet elke knop met een duim te raken zijn: 44px is de
      richtlijn van zowel Apple als Google. */
@@ -360,16 +352,28 @@
     .btn-text { padding: 12px 14px; min-height: 44px; min-width: 44px; font-size: 14px; }
     .menu > summary { min-width: 44px; min-height: 44px; }
     .menu-item { min-height: 44px; }
-    .factuur .klant,
-    .offerte .klant { min-height: 44px; }
+    /* De negatieve marge van hierboven liep op een telefoon over de
+       nummerregel. Het tikvlak van 44 px hangt boven de tekst en telt
+       niet mee in de rij, anders wordt elke kaart hoger. */
     .factuur .klant a,
     .offerte .klant a,
     .opsomming a {
-      display: inline-flex;
-      align-items: center;
-      min-height: 44px;
-      min-width: 44px;
+      position: relative;
+      display: inline-block;
+      vertical-align: baseline;
       margin: 0;
+      padding: 0 2px;
+    }
+    .factuur .klant a::after,
+    .offerte .klant a::after,
+    .opsomming a::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      bottom: 0;
+      width: 100%;
+      min-width: 44px;
+      height: 44px;
     }
     .checkregel { min-height: 44px; align-items: center; }
     .checkregel label { display: flex; align-items: center; min-height: 44px; flex: 1; }
@@ -1225,25 +1229,22 @@
     }
     .fabs .btn, .fabs form { flex: 1; }
     .fabs form .btn { width: 100%; }
-    /* De balk hangt vast boven de tabbladen. Het formulier schuift in de
-       ruimte erboven: 78 px is de onderkant van de balk, 44 px de knop,
-       16 px lucht. Een vaste balk over de pagina dekte + Regel tot je
-       helemaal onderaan stond. */
-    html:has(.fabs),
-    body:has(.fabs) {
-      height: 100dvh;
-      overflow: hidden;
-    }
     body:has(.fabs) .container {
-      box-sizing: border-box;
-      height: calc(100dvh - 78px - 44px - 16px - env(safe-area-inset-bottom, 0px));
-      overflow-x: hidden;
-      overflow-y: auto;
-      padding-bottom: 24px;
-      scroll-padding-bottom: 16px;
+      padding-bottom: calc(190px + env(safe-area-inset-bottom, 0px));
     }
     body:has(.fabs) .indienen {
-      bottom: 0;
+      bottom: calc(140px + env(safe-area-inset-bottom, 0px));
+    }
+  }
+  /* Alleen het scherm. Dezelfde breedte gold ook voor afdrukken, en een
+     vaste hoogte knipte de rekening dan tot één pagina. 78 px is de
+     onderkant van Definitief maken en Mailen, 44 px de knop, 16 px lucht. */
+  @media screen and (max-width: 900px) {
+    html:has(.fabs) {
+      scroll-padding-bottom: calc(78px + 44px + 16px + env(safe-area-inset-bottom, 0px));
+    }
+    body:has(.fabs) form :is(input, select, textarea, button, a) {
+      scroll-margin-bottom: calc(78px + 44px + 16px + env(safe-area-inset-bottom, 0px));
     }
   }
   .lijstkop {
@@ -1380,21 +1381,10 @@
   var bewaardeSchuif = 0;
   var schuifLosgelaten = false;
 
-  function schuifvlak() {
-    // Definitief maken en Mailen houden het formulier in een eigen vlak.
-    // Het venster schuift dan niet; de plek zit op de pagina zelf.
-    var main = document.querySelector('main.container');
-    if (!main) return document.scrollingElement || document.documentElement;
-    var stijl = getComputedStyle(main);
-    if ((stijl.overflowY === 'auto' || stijl.overflowY === 'scroll')
-        && main.scrollHeight > main.clientHeight + 1) return main;
-    return document.scrollingElement || document.documentElement;
-  }
-
   function bewaarSchuif() {
     try {
-      var el = schuifvlak();
-      var y = el.scrollTop || window.scrollY || 0;
+      var el = document.scrollingElement || document.documentElement;
+      var y = window.scrollY || el.scrollTop || 0;
       sessionStorage.setItem(SCHUIFSLEUTEL, JSON.stringify({
         pad: location.pathname + location.search,
         y: y
@@ -1419,7 +1409,7 @@
   function herstelSchuif() {
     if (schuifLosgelaten || !(bewaardeSchuif > 0)) return;
     window.scrollTo(0, bewaardeSchuif);
-    var doel = schuifvlak();
+    var doel = document.scrollingElement || document.documentElement;
     if (doel.scrollTop !== bewaardeSchuif) doel.scrollTop = bewaardeSchuif;
   }
 
@@ -1473,17 +1463,11 @@
   // omhoog. Anders dekt hij de onderste regels.
   (function () {
     var vorige = 0;
-    function bijSchuif(y) {
+    window.addEventListener('scroll', function () {
+      var y = window.scrollY || 0;
       if (y > 80 && y > vorige + 6) document.body.classList.add('tab-klein');
       else if (y < vorige - 6 || y < 24) document.body.classList.remove('tab-klein');
       vorige = y;
-    }
-    window.addEventListener('scroll', function () {
-      bijSchuif(window.scrollY || 0);
-    }, {passive: true});
-    var main = document.querySelector('main.container');
-    if (main) main.addEventListener('scroll', function () {
-      bijSchuif(main.scrollTop || 0);
     }, {passive: true});
   })();
 

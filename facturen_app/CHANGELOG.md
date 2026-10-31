@@ -22,7 +22,11 @@ genoeg; anders blijft de vorige versie draaien.
 - Een tik op het nummer of de status opent de rekening. De naam van de klant
   is apart te raken en pakt de regel eronder niet mee.
 - Op de telefoon blijft + Regel vrij van Definitief maken en Mailen.
-- Het vinkje bij «Hoe ver staat het» is met een duim te raken.
+  De pagina schuift gewoon door; een veld dat je aanwijst verdwijnt niet
+  onder die balk.
+- Het vinkje bij «Hoe ver staat het» is met een duim te raken en blijft
+  in lijn met de andere stappen.
+- Een lange rekening drukt weer over meer dan één pagina af.
 
 ## 1.44.3
 
