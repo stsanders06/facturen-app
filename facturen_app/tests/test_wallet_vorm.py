@@ -344,8 +344,9 @@ def test_op_een_mac_blijft_de_rij_zo_hoog_als_eerder(client, db, maak_factuur, m
             assert uit["toon"] == "inline-block", uit
             assert uit["regel"] <= 24, uit
             assert uit["verschil"] < 1, uit
-            # De link is hoger door de vulling, de regel zelf niet.
-            assert uit["link"] <= uit["regel"] + 16, uit
+            # Vulling van 6 px om de tekst. Geen rij van 44 px. De exacte
+            # hoogte hangt van het lettertype af; in CI is de regel lager.
+            assert 28 <= uit["link"] <= 40, uit
         finally:
             browser.close()
 
