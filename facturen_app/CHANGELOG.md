@@ -19,6 +19,10 @@ genoeg; anders blijft de vorige versie draaien.
   Een tik op de regel opent het invulveld.
 - Het openstaande bedrag op Vandaag blijft wit, ook in de lichte stand.
   Bij Klussen staat hoeveel uur er nog openstaat, niet alleen een getal.
+- Een tik op het nummer of de status opent de rekening. De naam van de klant
+  is apart te raken en pakt de regel eronder niet mee.
+- Op de telefoon blijft + Regel vrij van Definitief maken en Mailen.
+- Het vinkje bij «Hoe ver staat het» is met een duim te raken.
 
 ## 1.44.3
 

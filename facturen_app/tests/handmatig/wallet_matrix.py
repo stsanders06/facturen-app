@@ -28,8 +28,11 @@ def meet(page, breedte):
     return page.evaluate(
         """(telefoon) => {
           const doc = document.documentElement;
-          const overflow = doc.scrollWidth > doc.clientWidth + 1;
+          const main = document.querySelector('main.container');
+          const mainOverflow = !!(main && main.scrollWidth > main.clientWidth + 1);
+          const overflow = doc.scrollWidth > doc.clientWidth + 1 || mainOverflow;
           window.scrollTo(0, doc.scrollHeight);
+          if (main && main.scrollHeight > main.clientHeight + 1) main.scrollTop = main.scrollHeight;
           const tab = document.querySelector('.tabbar');
           const tabZichtbaar = tab && getComputedStyle(tab).display !== 'none';
           const tabBox = tabZichtbaar ? tab.getBoundingClientRect() : null;

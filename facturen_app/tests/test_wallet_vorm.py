@@ -202,3 +202,242 @@ def test_een_bewerkte_rekening_biedt_definitief_en_mailen(client, maak_factuur):
     assert "Definitief maken" in tekst
     assert "Mailen" in tekst
     assert 'action="/factuur/%d/definitief"' % factuur_id in tekst
+
+
+def _klant(db):
+    return db.execute(
+        "INSERT INTO klanten (naam, adres, email) VALUES (?, ?, ?)",
+        ("Voorbeeld Klant", "Voorbeeldstraat 1", "klant@example.org"),
+    ).lastrowid
+
+
+def test_een_tik_naast_de_klantnaam_opent_de_rekening(client, db, maak_factuur, maak_offerte):
+    """De naam is 44 px, in de eigen regel. Een tik op het nummer of het
+    label raakt die link niet. Een negatieve marge liep daaroverheen."""
+    from browser import meetbrowser, playwright_verplicht
+
+    sync_playwright = playwright_verplicht()
+    klant_id = _klant(db)
+    maak_factuur(klant="Voorbeeld Klant", email="klant@example.org")
+    maak_offerte(klant="Voorbeeld Klant")
+    db.execute("UPDATE facturen SET klant_id=?", (klant_id,))
+    db.execute("UPDATE offertes SET klant_id=?", (klant_id,))
+    db.commit()
+
+    script = """() => {
+      function midden(el) {
+        const r = el.getBoundingClientRect();
+        return [r.left + r.width / 2, r.top + r.height / 2];
+      }
+      function raaktKlant(el) {
+        const [x, y] = midden(el);
+        const raak = document.elementFromPoint(x, y);
+        return !!(raak && raak.closest('.klant a'));
+      }
+      function overlapt(a, b) {
+        const A = a.getBoundingClientRect();
+        const B = b.getBoundingClientRect();
+        return A.left < B.right - 0.5 && A.right > B.left + 0.5
+          && A.top < B.bottom - 0.5 && A.bottom > B.top + 0.5;
+      }
+      const link = document.querySelector('.klant a');
+      const stijl = getComputedStyle(link);
+      const doos = link.getBoundingClientRect();
+      const rij = link.parentElement.getBoundingClientRect();
+      const meta = document.querySelector('.meta');
+      const chip = document.querySelector('.onderkant .chip, .chips .chip');
+      return {
+        hoog: doos.height,
+        breed: doos.width,
+        marge: parseFloat(stijl.marginTop) + parseFloat(stijl.marginBottom),
+        inDeRij: doos.top >= rij.top - 0.5 && doos.bottom <= rij.bottom + 0.5,
+        meta: raaktKlant(meta),
+        chip: raaktKlant(chip),
+        metaOverlapt: overlapt(link, meta),
+        chipOverlapt: overlapt(link, chip),
+      };
+    }"""
+
+    with sync_playwright() as p:
+        browser = meetbrowser(p)
+        try:
+            for pad in ("/", "/offertes"):
+                pagina = browser.new_page(viewport={"width": 390, "height": 844})
+                pagina.set_content(client.get(pad).data.decode())
+                uit = pagina.evaluate(script)
+                pagina.close()
+                assert uit["hoog"] >= 44, (pad, uit)
+                assert uit["breed"] >= 44, (pad, uit)
+                assert uit["marge"] >= 0, (pad, uit)
+                assert uit["inDeRij"], (pad, uit)
+                assert not uit["meta"], (pad, uit)
+                assert not uit["chip"], (pad, uit)
+                assert not uit["metaOverlapt"], (pad, uit)
+                assert not uit["chipOverlapt"], (pad, uit)
+        finally:
+            browser.close()
+
+
+def test_de_klantnaam_op_een_klus_raakt_de_buren_niet(client, db):
+    """Zelfde duimmaat op de klus, zonder over het vinkje of de status te liggen."""
+    from browser import meetbrowser, playwright_verplicht
+
+    sync_playwright = playwright_verplicht()
+    klant_id = _klant(db)
+    db.execute(
+        """INSERT INTO klussen (naam, klant_id, uurtarief, status, gestart, aangevraagd_op)
+           VALUES ('Badkamer Voorbeeldstraat', ?, 50, 'aangevraagd', '2026-10-01', '2026-10-01')""",
+        (klant_id,),
+    )
+    db.commit()
+    klus_id = db.execute("SELECT id FROM klussen").fetchone()[0]
+
+    with sync_playwright() as p:
+        browser = meetbrowser(p)
+        pagina = browser.new_page(viewport={"width": 390, "height": 844})
+        try:
+            pagina.set_content(client.get(f"/klus/{klus_id}").data.decode())
+            uit = pagina.evaluate(
+                """() => {
+                  const link = document.querySelector('.opsomming a');
+                  const doos = link.getBoundingClientRect();
+                  const knop = document.querySelector('.vink-knop');
+                  const chip = document.querySelector('.opsomming .chip');
+                  function overlapt(a, b) {
+                    return a.left < b.right - 0.5 && a.right > b.left + 0.5
+                      && a.top < b.bottom - 0.5 && a.bottom > b.top + 0.5;
+                  }
+                  function raaktLink(el) {
+                    const r = el.getBoundingClientRect();
+                    const raak = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+                    return !!(raak && raak.closest('.opsomming a'));
+                  }
+                  const kr = knop.getBoundingClientRect();
+                  const cr = chip.getBoundingClientRect();
+                  return {
+                    hoog: doos.height,
+                    breed: doos.width,
+                    knop: overlapt(doos, kr),
+                    chip: overlapt(doos, cr),
+                    chipMidden: raaktLink(chip),
+                    knopMidden: raaktLink(knop),
+                  };
+                }"""
+            )
+            assert uit["hoog"] >= 44, uit
+            assert uit["breed"] >= 44, uit
+            assert not uit["knop"], uit
+            assert not uit["chip"], uit
+            assert not uit["chipMidden"], uit
+            assert not uit["knopMidden"], uit
+        finally:
+            browser.close()
+
+
+def test_regel_erbij_ligt_niet_onder_de_balk(client, db, maak_factuur):
+    """Definitief maken en Mailen hangen vast. + Regel moet daar vrij
+    van blijven, ook als de regels lang zijn."""
+    from browser import meetbrowser, playwright_verplicht
+
+    sync_playwright = playwright_verplicht()
+    factuur_id = maak_factuur(nummer="", status="concept", email="klant@example.org",
+                              klant="Voorbeeld Klant")
+    for i in range(8):
+        db.execute(
+            """INSERT INTO regels (factuur_id, omschrijving, type, aantal, prijs, subtotaal)
+               VALUES (?, ?, 'materiaal', 1, 10, 10)""",
+            (factuur_id, f"Extra regel {i}"),
+        )
+    db.commit()
+
+    with sync_playwright() as p:
+        browser = meetbrowser(p)
+        pagina = browser.new_page(viewport={"width": 390, "height": 844})
+        try:
+            pagina.set_content(client.get(f"/factuur/{factuur_id}/bewerk").data.decode())
+            pagina.evaluate(
+                "() => { const d = document.querySelector('details.wijzig'); if (d) d.open = true; }"
+            )
+            uit = pagina.evaluate(
+                """() => {
+                  const knop = document.querySelector('#regel-erbij');
+                  knop.scrollIntoView({block: 'end'});
+                  const r = knop.getBoundingClientRect();
+                  const x = r.left + r.width / 2;
+                  const y = r.top + r.height / 2;
+                  const raak = document.elementFromPoint(x, y);
+                  const balk = document.querySelector('.fabs').getBoundingClientRect();
+                  const tab = document.querySelector('.tabbar').getBoundingClientRect();
+                  function snijdt(a, b) {
+                    return a.left < b.right - 0.5 && a.right > b.left + 0.5
+                      && a.top < b.bottom - 0.5 && a.bottom > b.top + 0.5;
+                  }
+                  return {
+                    zelf: !!(raak && (raak === knop || knop.contains(raak))),
+                    wie: raak && (raak.id || raak.className || raak.tagName),
+                    balk: snijdt(r, balk),
+                    tab: snijdt(r, tab),
+                  };
+                }"""
+            )
+            assert uit["zelf"], uit
+            assert not uit["balk"], uit
+            assert not uit["tab"], uit
+        finally:
+            browser.close()
+
+
+def test_het_aanvraagvinkje_is_op_een_telefoon_te_raken(client, db):
+    """Op een aanraakscherm is de knop zelf 44 px. Het vlak blijft in de
+    eigen stap, anders tikt een tik op de volgende regel dit vinkje aan."""
+    from browser import meetbrowser, playwright_verplicht
+
+    sync_playwright = playwright_verplicht()
+    db.execute(
+        """INSERT INTO klussen (naam, uurtarief, status, gestart, aangevraagd_op)
+           VALUES ('Badkamer Voorbeeldstraat', 50, 'aangevraagd', '2026-10-01', '2026-10-01')"""
+    )
+    db.commit()
+    klus_id = db.execute("SELECT id FROM klussen").fetchone()[0]
+
+    with sync_playwright() as p:
+        browser = meetbrowser(p)
+        pagina = browser.new_page(viewport={"width": 390, "height": 844})
+        try:
+            pagina.set_content(client.get(f"/klus/{klus_id}").data.decode())
+            uit = pagina.evaluate(
+                """() => {
+                  const knop = document.querySelector('.vink-knop');
+                  const li = knop.closest('li');
+                  const kr = knop.getBoundingClientRect();
+                  const lr = li.getBoundingClientRect();
+                  const vr = knop.querySelector('.vink').getBoundingClientRect();
+                  const volgende = li.nextElementSibling;
+                  const nr = volgende.getBoundingClientRect();
+                  const wat = volgende.querySelector('.wat');
+                  const wr = wat.getBoundingClientRect();
+                  const raak = document.elementFromPoint(
+                    wr.left + wr.width / 2, wr.top + wr.height / 2);
+                  const midden = document.elementFromPoint(
+                    kr.left + kr.width / 2, kr.top + kr.height / 2);
+                  return {
+                    breed: kr.width,
+                    hoog: kr.height,
+                    rondje: vr.width,
+                    inDeRij: kr.top >= lr.top - 0.5 && kr.bottom <= lr.bottom + 0.5
+                      && kr.left >= lr.left - 0.5 && kr.right <= lr.right + 0.5,
+                    vrij: kr.bottom <= nr.top + 0.5,
+                    buur: !!(raak && raak.closest('.vink-knop')),
+                    zelf: !!(midden && (midden === knop || knop.contains(midden))),
+                  };
+                }"""
+            )
+            assert uit["breed"] >= 44, uit
+            assert uit["hoog"] >= 44, uit
+            assert 20 <= uit["rondje"] <= 24, uit
+            assert uit["inDeRij"], uit
+            assert uit["vrij"], uit
+            assert not uit["buur"], uit
+            assert uit["zelf"], uit
+        finally:
+            browser.close()
