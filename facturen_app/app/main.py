@@ -26,7 +26,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from email.message import EmailMessage
 from email.utils import getaddresses
 from itertools import zip_longest
-from urllib.parse import quote, urlencode, urlsplit
+from urllib.parse import quote, unquote, urlencode, urlsplit
 from urllib.request import Request, urlopen
 from urllib.error import URLError
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -49,7 +49,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.44.3"
+VERSIE = os.environ.get("ADDON_VERSION") or "2.0.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -609,6 +609,11 @@ def controleer_csrf():
     # er zelf bij zet.
     if request.endpoint == "scans_ontvangen":
         return None
+    # Zonder inlog hoort de opdracht niet binnen te komen. De inlogcontrole
+    # stuurt je naar het scherm; een kale 400 zegt niet wat je moet doen.
+    if (not via_ingress() and request.endpoint not in OPEN_PAGINAS
+            and not session.get("gebruiker")):
+        return None
     verwacht = session.get("csrf_token")
     gekregen = request.form.get("csrf_token", "")
     if not verwacht or not secrets.compare_digest(verwacht, gekregen):
@@ -771,6 +776,40 @@ def _scans_in_het_menu():
 
 
 @app.context_processor
+def _wallet_menu():
+    """Tellingen en de bedrijfsnaam voor de zijbalk. Faalt de database even,
+    dan blijft het menu leeg in plaats van de pagina te breken."""
+    leeg = {
+        "bedrijfsnaam": "Facturen",
+        "menu_rekeningen": 0,
+        "menu_offertes": 0,
+        "menu_klussen": 0,
+        "menu_klanten": 0,
+        "menu_te_laat": 0,
+    }
+    try:
+        s = get_settings()
+        leeg["bedrijfsnaam"] = (s.get("naam") or "Facturen").strip() or "Facturen"
+        conn = get_db()
+        try:
+            leeg["menu_rekeningen"] = conn.execute("SELECT COUNT(*) FROM facturen").fetchone()[0]
+            leeg["menu_offertes"] = conn.execute("SELECT COUNT(*) FROM offertes").fetchone()[0]
+            leeg["menu_klussen"] = conn.execute("SELECT COUNT(*) FROM klussen").fetchone()[0]
+            leeg["menu_klanten"] = conn.execute("SELECT COUNT(*) FROM klanten").fetchone()[0]
+            vandaag_iso = nu().date().isoformat()
+            leeg["menu_te_laat"] = conn.execute(
+                """SELECT COUNT(*) FROM facturen
+                   WHERE status != 'betaald' AND vervalt_op != '' AND vervalt_op < ?""",
+                (vandaag_iso,),
+            ).fetchone()[0]
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        pass
+    return leeg
+
+
+@app.context_processor
 def _nieuw_tabblad():
     """Of een link een nieuw tabblad mag openen. In de zijbalk niet: dat venster valt
     buiten Ingress. Zie als_download() voor het hele verhaal."""
@@ -854,9 +893,37 @@ def account_instellen():
 
         session["gebruiker"] = naam
         melding("Je account staat klaar. Vanaf nu log je hiermee in op poort 8099.")
-        return redirect(url_for("index"))
+        return redirect(url_for("vandaag_pagina"))
 
     return render_template("instellen.html", minimum=WACHTWOORD_MINIMUM)
+
+
+# Een terugkeer na het inloggen mag alleen een pad in deze app zijn.
+# %09, %0d%0a en %2F%2F worden eerst uitgepakt: anders maakt de browser
+# van /%09/evil.example alsnog //evil.example, of crasht de redirect op een
+# regeleinde.
+_MAX_VERDER = 2000
+_LOKAAL_PAD = re.compile(r"/(?![/\\])[^\x00-\x1f\x7f\\]*")
+
+
+def lokale_bestemming(verder):
+    """Het pad om na het inloggen heen te gaan.
+
+    Gevaarlijke vormen worden geweigerd op de uitgepakte tekst, zodat een
+    tab of %2F%2F geen andere site wordt. Een gewone link gaat terug zoals
+    hij binnenkwam: anders wordt zoek=a%26b een tweede parameter."""
+    origineel = verder or ""
+    if len(origineel) > _MAX_VERDER:
+        return url_for("vandaag_pagina")
+    tekst = origineel
+    for _ in range(5):
+        uitgepakt = unquote(tekst)
+        if uitgepakt == tekst:
+            break
+        tekst = uitgepakt
+    if _LOKAAL_PAD.fullmatch(tekst):
+        return origineel
+    return url_for("vandaag_pagina")
 
 
 @app.route("/inloggen", methods=["GET", "POST"])
@@ -864,7 +931,7 @@ def inloggen():
     if not heeft_account():
         return redirect(url_for("account_instellen"))
     if session.get("gebruiker"):
-        return redirect(url_for("index"))
+        return redirect(url_for("vandaag_pagina"))
 
     if request.method == "POST":
         wacht = wachttijd_over()
@@ -888,11 +955,10 @@ def inloggen():
             session.permanent = request.form.get("onthoud") == "ja"
 
             verder = request.form.get("verder", "")
-            # Alleen terug naar een pagina binnen de app zelf; een adres van buiten
-            # zou je na het inloggen zomaar ergens anders naartoe kunnen sturen.
-            if verder.startswith("/") and not verder.startswith("//"):
-                return redirect(verder)
-            return redirect(url_for("index"))
+            # Alleen een pad in de app zelf. Een adres van buiten, of een
+            # schijnbaar lokaal pad met een tab of regeleinde, stuurt je
+            # anders na het inloggen naar een andere site.
+            return redirect(lokale_bestemming(verder))
 
         pogingen, _ = MISLUKTE_POGINGEN.get(_afzender(), (0, None))
         MISLUKTE_POGINGEN[_afzender()] = (pogingen + 1, nu())
@@ -3111,6 +3177,31 @@ def factuurlijst(conn, klant_id=None):
     return lijst
 
 
+@app.route("/vandaag")
+def vandaag_pagina():
+    """Het startscherm: wat openstaat, wat te laat is, en de klussen."""
+    conn = get_db()
+    facturen = factuurlijst(conn)
+    klussen = klussenlijst()
+    conn.close()
+    openstaand = [f for f in facturen if f["status"] != "betaald"]
+    te_laat = [f for f in openstaand if f["verlopen"]]
+    concepten = [f for f in facturen if not (f["nummer"] or "").strip()]
+    return render_template(
+        "vandaag.html",
+        actief="vandaag",
+        wanneer=nu().date(),
+        openstaand=sum(f["openstaand"] for f in openstaand),
+        open_aantal=len(openstaand),
+        te_laat_bedrag=sum(f["openstaand"] for f in te_laat),
+        te_laat=te_laat[:6],
+        concepten=concepten[:4],
+        klussen=klussen[:6],
+        fases=KLUS_FASES,
+        open_uren=round(sum(k["uren_open"] for k in klussen if k["status"] != "aangevraagd"), 2),
+    )
+
+
 @app.route("/")
 def index():
     # Wat er bij het opstarten is rechtgezet, hoort de gebruiker één keer te zien.
@@ -3569,7 +3660,7 @@ def klant_verwijder(klant_id):
 def klus_met_uren(conn, klus_id):
     """De klus, zijn dagen en de opgetelde uren. Geeft None als de klus niet bestaat."""
     klus = conn.execute(
-        """SELECT kl.*, k.naam AS klant_naam FROM klussen kl
+        """SELECT kl.*, k.naam AS klant_naam, k.adres AS klant_adres FROM klussen kl
            LEFT JOIN klanten k ON k.id = kl.klant_id WHERE kl.id=?""",
         (klus_id,),
     ).fetchone()
@@ -7934,6 +8025,7 @@ def _render_bewerk_ingevuld(factuur, ingevuld):
         kenmerk=ingevuld["kenmerk"],
         betaalmethode=ingevuld["betaalmethode"],
         termijn_aan=ingevuld["termijn_aan"],
+        formulier_open=True,
     )
 
 

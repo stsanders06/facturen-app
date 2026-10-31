@@ -202,6 +202,7 @@ def test_een_dagregel_rekent_met_de_minuten_en_de_tijden_blijven_heel(post, clie
             viewport={"width": 320, "height": 844}, device_scale_factor=1,
         )
         pagina.set_content(html)
+        pagina.evaluate("() => { const d = document.querySelector('details.wijzig'); if (d) d.open = true; }")
         assert _totaal_op_kaart(pagina) == _euro(334.03)
         veld = pagina.locator('.regel [name="omschrijving"]')
         assert veld.input_value() == ruw

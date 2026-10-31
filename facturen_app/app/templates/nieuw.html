@@ -381,12 +381,49 @@
 
 <div class="page-head">
   <h1>
-    {%- if factuur %}{{ 'Offerte' if is_offerte else 'Rekening' }} {{ factuur.nummer }} bewerken
+    {%- if factuur %}{{ 'Offerte' if is_offerte else 'Rekening' }} {{ factuur.nummer or 'concept' }}
     {%- else %}{{ 'Nieuwe offerte' if is_offerte else 'Nieuwe rekening' }}{% endif -%}
   </h1>
 </div>
 
-<form method="post" class="cards">
+{% if factuur %}
+<section class="card lees">
+  <div class="card-head" style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+    <h2>{{ factuur.klant_naam or 'Zonder klant' }}</h2>
+    {% if is_offerte %}
+    <span class="chip">{{ factuur.status }}</span>
+    {% elif factuur.status == 'betaald' %}
+    <span class="chip chip-betaald">Betaald</span>
+    {% elif factuur.status == 'verzonden' %}
+    <span class="chip chip-verzonden">Verzonden</span>
+    {% elif factuur.nummer %}
+    <span class="chip chip-definitief">Definitief</span>
+    {% else %}
+    <span class="chip chip-concept">Concept</span>
+    {% endif %}
+  </div>
+  {% if factuur.klant_adres %}<p class="hint">{{ factuur.klant_adres|replace('\n', ', ') }}</p>{% endif %}
+  {% for r in regels or [] %}
+  {% if r and r.omschrijving %}
+  <button type="button" class="rij" data-open-wijzig>
+    <span class="rij-tekst">
+      <b>{{ r.omschrijving }}</b>
+      <small>{{ r.aantal }} × € {{ r.prijs|bedrag }}</small>
+    </span>
+    <span class="rij-bedrag">€ {{ r.subtotaal|bedrag }}</span>
+  </button>
+  {% endif %}
+  {% endfor %}
+  <p class="rij" style="font-weight:700">
+    <span class="rij-tekst"><b>Totaal</b></span>
+    <span class="rij-bedrag">€ {{ factuur.totaal|bedrag }}</span>
+  </p>
+</section>
+<details class="wijzig"{% if formulier_open %} open{% endif %}>
+  <summary class="btn btn-outline">Wijzigen</summary>
+{% endif %}
+
+<form method="post" class="cards" id="stuk-form">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   {% if dagwaarschuwing|default('') %}
   <div class="letop" role="status">{{ dagwaarschuwing }}</div>
@@ -510,7 +547,7 @@
       <h2>Regels</h2>
     </div>
 
-    <div id="regels">
+    <div id="regels" role="group" aria-label="Regels">
       {% for r in regels or [none] %}
       {#- Een sqlite-rij heeft geen .get. Alleen een teruggezet formulier zet open. -#}
       {% set regel_open = r.get('open') if r and r.get is defined else false %}
@@ -533,8 +570,8 @@
         </div>
         <div class="regel-detail" {% if not regel_open %}hidden{% endif %}>
           <div class="field">
-            <label>Soort</label>
-            <select name="type" class="soort">
+            <label for="soort-{{ loop.index }}">Soort</label>
+            <select id="soort-{{ loop.index }}" name="type" class="soort" aria-label="Soort">
               <option value="materiaal" {% if r and r.type == 'materiaal' %}selected{% endif %}>Materiaal</option>
               <option value="arbeid_uur" {% if r and r.type == 'arbeid_uur' %}selected{% endif %}>Arbeid per uur</option>
               <option value="arbeid_dag" {% if r and r.type == 'arbeid_dag' %}selected{% endif %}>Arbeid per dag</option>
@@ -543,23 +580,26 @@
             </select>
           </div>
           <div class="field omschrijving-veld">
-            <label>Omschrijving</label>
-            <input type="text" name="omschrijving" placeholder="Bijv. buis 32 mm"
+            <label for="omschrijving-{{ loop.index }}">Omschrijving</label>
+            <input type="text" name="omschrijving" id="omschrijving-{{ loop.index }}"
+                   placeholder="Bijv. buis 32 mm"
                    value="{{ r.omschrijving if r else '' }}">
           </div>
           <div class="field aantal-veld">
-            <label class="aantal-label">Aantal</label>
+            <label class="aantal-label" for="aantal-{{ loop.index }}">Aantal</label>
             {#- Een dagregel volgt de gewerkte dag. Een lager aantal hier zou
                 uren stil van de rekening halen; een korting is een aparte regel. -#}
             <input type="number" step="any" inputmode="decimal" name="aantal"
+                   id="aantal-{{ loop.index }}"
                    {% if r and r.uur_id %}readonly
                    title="Het aantal volgt de dag. Een korting zet je op een aparte regel."
                    {% endif %}
                    value="{{ tekst_van_getal(r.aantal) if r else '1' }}">
           </div>
           <div class="field prijs-veld">
-            <label class="prijs-label">Prijs</label>
-            <input type="number" step="any" inputmode="decimal" name="prijs" placeholder="0,00"
+            <label class="prijs-label" for="prijs-{{ loop.index }}">Prijs</label>
+            <input type="number" step="any" inputmode="decimal" name="prijs"
+                   id="prijs-{{ loop.index }}" placeholder="0,00"
                    value="{{ tekst_van_getal(r.prijs) if r else '' }}">
           </div>
           <input type="hidden" name="regel_klus" value="{{ r.klus_id if r and r.klus_id else '' }}">
@@ -679,8 +719,34 @@
   </section>
 
 </form>
+{% if factuur %}
+</details>
+{% endif %}
+
+{% if factuur and ((not is_offerte and not factuur.nummer) or factuur.klant_email) %}
+<div class="fabs">
+  {% if not is_offerte and not factuur.nummer %}
+  <form method="post" action="{{ url_for('definitief', factuur_id=factuur.id) }}"
+        data-bevestig="Deze rekening definitief maken? Hij krijgt dan zijn nummer.">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn btn-outline">Definitief maken</button>
+  </form>
+  {% endif %}
+  {% if factuur.klant_email %}
+  <a class="btn" href="{{ url_for('offerte_mail', offerte_id=factuur.id) if is_offerte else url_for('mail_voorbeeld', factuur_id=factuur.id) }}">Mailen</a>
+  {% endif %}
+</div>
+{% endif %}
 
 <script>
+  document.querySelectorAll('[data-open-wijzig]').forEach(function (rij) {
+    rij.addEventListener('click', function () {
+      var details = document.querySelector('details.wijzig');
+      if (!details) return;
+      details.open = true;
+      details.scrollIntoView({block: 'start'});
+    });
+  });
   (function () {
     var container = document.getElementById('regels');
     var totaalveld = document.getElementById('totaal');
@@ -856,6 +922,10 @@
       var keuze = SOORTEN[regel.querySelector('.soort').value] || SOORTEN.materiaal;
       var aantalVeld = regel.querySelector('.aantal-veld');
       regel.querySelector('.aantal-label').textContent = keuze.aantal;
+      var aantalVeldNaam = regel.querySelector('[name="aantal"]');
+      // aria-label wint van het zichtbare label. Zonder deze zet blijft
+      // een urenregel «Aantal» heten terwijl er «Uren» staat.
+      if (aantalVeldNaam) aantalVeldNaam.setAttribute('aria-label', keuze.aantal);
       regel.querySelector('.prijs-label').textContent = keuze.prijs;
       aantalVeld.hidden = !keuze.metAantal;
       regel.classList.toggle('vaste-prijs', !keuze.metAantal);
@@ -957,6 +1027,32 @@
       totaalveld.textContent = euro(halfUpDelen(micro, 10000) / 100);
     }
 
+    function volgendRegelnummer() {
+      // Niet «aantal + 1»: na het weghalen van regel 2 is 5 er nog, en een
+      // nieuwe regel zou soort-5 nog een keer krijgen.
+      var hoogste = 0;
+      container.querySelectorAll('[id]').forEach(function (el) {
+        var gevonden = /-(\d+)$/.exec(el.id || '');
+        if (gevonden) hoogste = Math.max(hoogste, parseInt(gevonden[1], 10));
+      });
+      return hoogste + 1;
+    }
+
+    function verseIds(regel, nummer) {
+      regel.querySelectorAll('[id]').forEach(function (el) {
+        var oud = el.id;
+        if (!oud) return;
+        var nieuwId = oud.replace(/-\d+$/, '') + '-' + nummer;
+        regel.querySelectorAll('[for="' + oud + '"]').forEach(function (label) {
+          label.htmlFor = nieuwId;
+        });
+        regel.querySelectorAll('[aria-labelledby="' + oud + '"]').forEach(function (node) {
+          node.setAttribute('aria-labelledby', nieuwId);
+        });
+        el.id = nieuwId;
+      });
+    }
+
     function regelErbij() {
       var nieuw = container.children[0].cloneNode(true);
       nieuw.hidden = false;
@@ -975,6 +1071,7 @@
       // een nieuwe regel dat bedrag tonen zodra hij als bewaard geldt.
       var totaal = nieuw.querySelector('.regel-totaal');
       if (totaal) delete totaal.dataset.pdf;
+      verseIds(nieuw, volgendRegelnummer());
       zetOpen(nieuw, false);
       container.appendChild(nieuw);
       pasRegelAan(nieuw);

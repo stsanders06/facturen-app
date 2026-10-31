@@ -251,6 +251,9 @@ def test_sluiten_houdt_de_pagina_bij_de_foto_die_opende(post, db, client):
               const bon = document.querySelector('a[data-naam="bon-gamma.png"]');
               const ruimte = document.createElement('div');
               ruimte.style.height = '4000px';
+              // De tegels staan in een raster. Zonder volle breedte belandt de
+              // bon naast het blok, en dan is hij geen 4000 px lager.
+              ruimte.style.gridColumn = '1 / -1';
               bon.closest('figure').before(ruimte);
             }"""
         )

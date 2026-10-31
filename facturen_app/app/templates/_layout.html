@@ -2,28 +2,30 @@
 <html lang="nl">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
-<meta name="theme-color" content="#03a9f4">
+<meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
 <title>{% block title %}Rekeningen{% endblock %} · Facturen</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231f2329'/%3E%3Crect x='7' y='6' width='18' height='20' rx='2' fill='%23fff'/%3E%3Cg fill='%239aa0a8'%3E%3Crect x='10' y='10' width='12' height='2' rx='1'/%3E%3Crect x='10' y='14' width='12' height='2' rx='1'/%3E%3Crect x='10' y='18' width='7' height='2' rx='1'/%3E%3C/g%3E%3Crect x='10' y='22' width='12' height='2.5' rx='1.25' fill='%2303a9f4'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231f2329'/%3E%3Crect x='7' y='6' width='18' height='20' rx='2' fill='%23fff'/%3E%3Cg fill='%239aa0a8'%3E%3Crect x='10' y='10' width='12' height='2' rx='1'/%3E%3Crect x='10' y='14' width='12' height='2' rx='1'/%3E%3Crect x='10' y='18' width='7' height='2' rx='1'/%3E%3C/g%3E%3Crect x='10' y='22' width='12' height='2.5' rx='1.25' fill='%238e8e93'/%3E%3C/svg%3E">
 <style>
   /* ===================================================================
      Facturen App — visuele taal van Home Assistant, zodat de app zowel
      in de HA-zijbalk als los in de browser thuishoort.
      =================================================================== */
   :root {
-    --primary: #03a9f4;
-    --primary-hover: #0288d1;
-    --primary-soft: #e7f5fd;
+    /* Wallet: bijna alleen zwart, wit en grijs. Kleur blijft voor status. */
+    --primary: #1c1c1c;
+    --primary-hover: #000000;
+    --primary-soft: #ececef;
     --on-primary: #ffffff;
 
-    --bg: #f2f4f7;
+    --bg: #f2f2f7;
     --card: #ffffff;
-    --text: #1f2329;
-    --text-secondary: #6b7280;
-    --divider: #eceef1;
-    --border: #dde1e6;
+    --text: #1c1c1e;
+    --text-secondary: rgba(60, 60, 67, .72);
+    --divider: rgba(60, 60, 67, .12);
+    --border: rgba(60, 60, 67, .18);
     --input-bg: #ffffff;
 
     --ok: #2e7d43;
@@ -47,9 +49,10 @@
 
     --shadow-card: 0 1px 3px rgba(0, 0, 0, .11);
     --shadow-raised: 0 2px 6px rgba(0, 0, 0, .16);
-    --radius: 12px;
-    --radius-sm: 8px;
-    --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    --radius: 22px;
+    --radius-sm: 12px;
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+            "Helvetica Neue", system-ui, sans-serif;
     /* Hoogte van de tabbalk, zodat een melding eronder hangt en niet erover.
        JavaScript meet de echte hoogte; dit is de waarde tot die meting er is.
        De inkeping zit erbij omdat de tabbalk diezelfde marge bovenop krijgt. */
@@ -58,18 +61,18 @@
 
   @media (prefers-color-scheme: dark) {
     :root {
-      --primary: #33b1f0;
-      --primary-hover: #4fc0f7;
-      --primary-soft: #16232c;
-      --on-primary: #06222f;
+      --primary: #f2f2f2;
+      --primary-hover: #ffffff;
+      --primary-soft: #2c2c2e;
+      --on-primary: #111113;
 
-      --bg: #111417;
-      --card: #1c1f26;
-      --text: #e6e8eb;
-      --text-secondary: #9aa1ab;
-      --divider: #262a32;
-      --border: #333844;
-      --input-bg: #14171c;
+      --bg: #000000;
+      --card: #1c1c1e;
+      --text: #f2f2f7;
+      --text-secondary: rgba(235, 235, 245, .6);
+      --divider: rgba(255, 255, 255, .12);
+      --border: rgba(255, 255, 255, .16);
+      --input-bg: #2c2c2e;
 
       --ok: #6cc48a;
       --ok-soft: #16281c;
@@ -206,10 +209,11 @@
     margin-bottom: 16px;
   }
   h1 {
-    font-size: 24px;
-    font-weight: 500;
-    letter-spacing: -.015em;
+    font-size: 32px;
+    font-weight: 700;
+    letter-spacing: -.03em;
     margin: 0;
+    line-height: 1.15;
   }
   h2 {
     font-size: 17px;
@@ -221,7 +225,8 @@
   .card {
     background: var(--card);
     border-radius: var(--radius);
-    box-shadow: var(--shadow-card);
+    box-shadow: none;
+    border: 1px solid var(--divider);
     padding: 18px 20px;
   }
   .cards { display: flex; flex-direction: column; gap: 12px; }
@@ -307,6 +312,9 @@
     cursor: pointer;
     text-decoration: none;
     white-space: nowrap;
+    /* Op een Mac met een muis minstens een comfortabele hoogte. Op een
+       telefoon zet de regel hieronder er 44 px van. */
+    min-height: 32px;
   }
   .btn:hover { background: var(--primary-hover); }
   .btn:focus-visible, .tabs a:focus-visible, .link:focus-visible {
@@ -319,12 +327,62 @@
     padding: 7px 12px;
     border-radius: var(--radius-sm);
     font-size: 13px;
+    min-height: 32px;
+    min-width: 32px;
+  }
+  .menu > summary { min-width: 32px; min-height: 32px; }
+  .card.lijst .card-head a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 32px;
+    min-width: 32px;
+    padding: 4px 8px;
+  }
+  /* Een webadres in de notitie valt buiten deze vulling. Die hing over
+     de statuschip op de regel erboven. */
+  .factuur .klant a,
+  .offerte .klant a,
+  .opsomming a:not(.externe-link) {
+    display: inline-block;
+    padding: 6px 2px;
+    margin: -6px -2px;
   }
   /* Op een aanraakscherm moet elke knop met een duim te raken zijn: 44px is de
      richtlijn van zowel Apple als Google. */
   @media (pointer: coarse), (max-width: 620px) {
     .btn { padding: 12px 20px; min-height: 44px; }
-    .btn-text { padding: 12px 14px; min-height: 44px; font-size: 14px; }
+    .btn-text { padding: 12px 14px; min-height: 44px; min-width: 44px; font-size: 14px; }
+    .menu > summary { min-width: 44px; min-height: 44px; }
+    .menu-item { min-height: 44px; }
+    /* De negatieve marge van hierboven liep op een telefoon over de
+       nummerregel. Het tikvlak van 44 px hangt boven de tekst en telt
+       niet mee in de rij, anders wordt elke kaart hoger. */
+    .factuur .klant a,
+    .offerte .klant a,
+    .opsomming a:not(.externe-link) {
+      position: relative;
+      display: inline-block;
+      vertical-align: baseline;
+      margin: 0;
+      padding: 0 2px;
+    }
+    /* Alleen boven de eigen tekst, niet breder: een minimumbreedte liep
+       over het adres ernaast. De klusregel krijgt er ruimte boven, anders
+       vallen de tegels in dit vlak. */
+    .factuur .klant a::after,
+    .offerte .klant a::after,
+    .opsomming a:not(.externe-link)::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      bottom: 0;
+      width: 100%;
+      height: 44px;
+    }
+    .checkregel { min-height: 44px; align-items: center; }
+    .checkregel label { display: flex; align-items: center; min-height: 44px; flex: 1; }
+    .checkregel input[type=checkbox] { width: 22px; height: 22px; margin-top: 0; }
+    .card.lijst .card-head a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; }
   }
   .btn-text:hover { background: var(--primary-soft); }
   .btn-text.danger { color: var(--danger); }
@@ -733,7 +791,8 @@
     align-items: baseline;
     background: var(--card);
     border-radius: var(--radius);
-    box-shadow: var(--shadow-card);
+    box-shadow: none;
+    border: 1px solid var(--divider);
     padding: 14px 20px;
     margin-bottom: 12px;
   }
@@ -760,56 +819,514 @@
   .overzicht .waarschuwing b { color: var(--warn-text); }
 
   /* ---------- Filterknoppen ---------- */
-  .filters { display: flex; gap: 6px; flex-wrap: wrap; }
+  .filters {
+    display: flex;
+    gap: 2px;
+    flex-wrap: wrap;
+    width: fit-content;
+    max-width: 100%;
+    padding: 3px;
+    border-radius: 999px;
+    background: rgba(120, 120, 128, .12);
+  }
   .filters a {
     padding: 7px 14px;
-    border-radius: 20px;
+    border-radius: 999px;
     font-size: 13.5px;
     text-decoration: none;
     color: var(--text-secondary);
-    background: var(--card);
-    border: 1px solid var(--border);
+    background: transparent;
+    border: 0;
     white-space: nowrap;
+    min-height: 32px;
+    display: inline-flex;
+    align-items: center;
   }
   .filters a:hover { color: var(--text); }
   .filters a.aan {
-    background: var(--primary-soft);
-    border-color: var(--primary);
-    color: var(--primary);
-    font-weight: 500;
+    background: var(--card);
+    border-color: transparent;
+    color: var(--text);
+    font-weight: 650;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, .08);
   }
   @media (pointer: coarse), (max-width: 620px) {
-    .filters a { padding: 11px 16px; }
+    .filters a { padding: 11px 16px; min-height: 44px; }
   }
 
   @media (prefers-reduced-motion: reduce) {
     * { transition: none !important; animation: none !important; }
+  }
+
+  /* ---------- Wallet: zijbalk, tabbalk, glas ----------
+     Het glas zit alleen op het menu en de ronde plusknop. De kaarten blijven
+     vlak, anders wordt een lange kluspagina onrustig. */
+  .appbar.zijbalk .appbar-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    min-height: 0;
+    height: 100%;
+    flex-wrap: nowrap;
+  }
+  main a:not(.btn) { color: inherit; text-decoration: none; }
+  /* De openstaande-kaart is zelf een link. Zonder deze zwaardere regel wint
+     «color: inherit» hierboven, en wordt het bedrag bijna zwart op zwart. */
+  main a.vandaag-kaart,
+  main a.vandaag-kaart b { color: #fff; }
+  .appbar.zijbalk {
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    bottom: 12px;
+    width: 228px;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    overflow: auto;
+    background: rgba(255, 255, 255, .72);
+    -webkit-backdrop-filter: blur(24px) saturate(160%);
+    backdrop-filter: blur(24px) saturate(160%);
+    border-radius: 24px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .8), 0 10px 40px rgba(0, 0, 0, .08);
+    padding: 16px 10px 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    .appbar.zijbalk {
+      background: rgba(44, 44, 48, .72);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16), 0 10px 40px rgba(0, 0, 0, .45);
+    }
+  }
+  .zijmerk {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px 14px;
+    font-weight: 650;
+    letter-spacing: -.02em;
+    color: var(--text);
+    text-decoration: none;
+  }
+  .zijmerk span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .av {
+    width: 32px; height: 32px; border-radius: 50%; flex: none;
+    display: grid; place-items: center;
+    background: var(--primary); color: var(--on-primary);
+    font-size: 12px; font-weight: 700;
+  }
+  .zijgroep {
+    margin: 12px 12px 4px;
+    font-size: 11px; font-weight: 650; letter-spacing: .04em;
+    text-transform: uppercase; color: var(--text-secondary);
+  }
+  .zijlinks { display: flex; flex-direction: column; gap: 2px; }
+  .zijlinks a {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border-radius: 12px;
+    color: var(--text); text-decoration: none; font-weight: 550; font-size: 14px;
+    min-height: 44px;
+  }
+  .zijlinks a .tel { margin-left: auto; color: var(--text-secondary); font-size: 12px; font-weight: 600; }
+  .zijlinks a.aan, .zijlinks a.active {
+    background: rgba(120, 120, 128, .16);
+  }
+  @media (prefers-color-scheme: dark) {
+    .zijlinks a.aan, .zijlinks a.active { background: rgba(255, 255, 255, .12); box-shadow: none; }
+  }
+  .zijvoet { margin-top: auto; padding-top: 8px; }
+  .container { margin-left: 264px; max-width: 1100px; padding: 28px 28px 72px 8px; }
+  .tabbar { display: none; }
+
+  @media (max-width: 900px) {
+    .appbar.zijbalk { display: none; }
+    .container {
+      margin-left: auto;
+      max-width: 720px;
+      padding: 16px 16px calc(96px + env(safe-area-inset-bottom, 0px));
+    }
+    /* De tabbalk is 58 px hoog en hangt 10 px boven de rand. De laatste
+       regel moet daar voorbij kunnen schuiven, ook als een veld focus krijgt. */
+    html {
+      scroll-padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+    }
+    .tabbar {
+      display: flex;
+      position: fixed;
+      left: 12px; right: 12px;
+      bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+      z-index: 30;
+      align-items: center;
+      gap: 8px;
+      transition: left .25s ease, right .25s ease, transform .25s ease;
+    }
+    .tabbar .tab-pil {
+      flex: 1;
+      display: flex;
+      height: 58px;
+      padding: 4px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .72);
+      -webkit-backdrop-filter: blur(24px) saturate(160%);
+      backdrop-filter: blur(24px) saturate(160%);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .85), 0 8px 28px rgba(0, 0, 0, .12);
+    }
+    @media (prefers-color-scheme: dark) {
+      .tabbar .tab-pil, .tabbar .plus {
+        background: rgba(44, 44, 48, .78);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16), 0 8px 28px rgba(0, 0, 0, .45);
+      }
+    }
+    .tabbar .tab-pil > a,
+    .tabbar .meer > summary {
+      flex: 1;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 1px; min-width: 0; min-height: 44px;
+      border-radius: 999px;
+      color: var(--text); text-decoration: none;
+      font-size: 10px; font-weight: 650;
+      position: relative;
+      list-style: none;
+      cursor: pointer;
+    }
+    .tabbar .meer > summary::-webkit-details-marker { display: none; }
+    .tabbar .meer > summary::marker { content: ""; }
+    .tabbar .ico { width: 22px; height: 22px; display: block; flex: none; }
+    .tabbar .tab-pil > a.aan,
+    .tabbar .meer[open] > summary { background: rgba(255, 255, 255, .85); }
+    .tabbar .meer.aan > summary { background: rgba(120, 120, 128, .22); }
+    @media (prefers-color-scheme: dark) {
+      .tabbar .tab-pil > a.aan,
+      .tabbar .meer.aan > summary,
+      .tabbar .meer[open] > summary { background: rgba(255, 255, 255, .14); }
+    }
+    /* «Rekeningen» is op 390 px net 60 px. Meer blijft een icoon van 44 px,
+       dan passen de vier namen ernaast. Op 320 px niet meer: daar alleen het icoon. */
+    .tabbar .meer > summary > span {
+      position: absolute;
+      width: 1px; height: 1px;
+      margin: -1px; padding: 0;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+      border: 0;
+    }
+    @media (max-width: 389px) {
+      .tabbar .tab-pil > a > span:not(.bol):not(.tab-tel) {
+        position: absolute;
+        width: 1px; height: 1px;
+        margin: -1px; padding: 0;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+        border: 0;
+      }
+    }
+    .tabbar .meer { flex: 0 0 44px; min-width: 44px; position: relative; display: flex; }
+    .tabbar .meer-vel {
+      position: absolute;
+      right: 0;
+      bottom: calc(100% + 10px);
+      min-width: 210px;
+      padding: 6px;
+      border-radius: 18px;
+      background: var(--card);
+      box-shadow: var(--shadow-raised);
+      display: flex;
+      flex-direction: column;
+      z-index: 2;
+    }
+    .tabbar .meer-vel a {
+      display: flex;
+      align-items: center;
+      min-height: 44px;
+      padding: 0 14px;
+      border-radius: 12px;
+      color: var(--text);
+      text-decoration: none;
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .tabbar .meer-vel a.aan { background: rgba(120, 120, 128, .16); }
+    .tabbar .tab-tel,
+    .tabbar .bol {
+      position: absolute; top: 2px; right: 8px;
+      background: var(--danger); color: #fff;
+      font-size: 10px; font-weight: 700; line-height: 16px;
+      min-width: 16px; padding: 0 4px; border-radius: 9px; text-align: center;
+    }
+    .tabbar .plus {
+      width: 58px; height: 58px; border-radius: 50%; flex: none;
+      display: grid; place-items: center;
+      background: rgba(255, 255, 255, .72);
+      -webkit-backdrop-filter: blur(24px) saturate(160%);
+      backdrop-filter: blur(24px) saturate(160%);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .85), 0 8px 28px rgba(0, 0, 0, .12);
+      color: var(--text); text-decoration: none; font-size: 28px; line-height: 1;
+    }
+    body.tab-klein .tabbar { left: 50%; right: auto; transform: translateX(-50%); }
+    body.tab-klein .tabbar .tab-pil { height: 48px; }
+    body.tab-klein .tabbar .tab-pil > a,
+    body.tab-klein .tabbar .meer { font-size: 0; width: 48px; flex: none; }
+    body.tab-klein .tabbar .meer > summary { width: 48px; }
+    body.tab-klein .tabbar .plus { width: 48px; height: 48px; font-size: 24px; }
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    .appbar.zijbalk, .tabbar .tab-pil, .tabbar .plus {
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+      background: var(--card);
+    }
+  }
+  @media (prefers-contrast: more) {
+    :root {
+      --border: rgba(0, 0, 0, .72);
+      --divider: rgba(0, 0, 0, .45);
+    }
+    .appbar.zijbalk, .tabbar .tab-pil, .tabbar .plus, .card, .vandaag-rij a {
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+      background-color: var(--card);
+      border: 1px solid var(--border);
+    }
+  }
+  @media (prefers-contrast: more) and (prefers-color-scheme: dark) {
+    :root {
+      --border: rgba(255, 255, 255, .78);
+      --divider: rgba(255, 255, 255, .55);
+    }
+  }
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .appbar.zijbalk, .tabbar .tab-pil, .tabbar .plus {
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+      background: var(--card);
+    }
+  }
+
+  .vandaag-kaart {
+    display: block;
+    background: linear-gradient(145deg, #1c1c1e, #3a3a3c 62%, #2c2c2e);
+    color: #fff;
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    text-decoration: none;
+    margin-bottom: 14px;
+  }
+  .vandaag-kaart small { display: block; color: rgba(255, 255, 255, .88); font-size: 13px; }
+  .vandaag-kaart b {
+    display: block; font-size: 34px; letter-spacing: -.03em; font-weight: 700;
+    font-variant-numeric: tabular-nums; margin: 8px 0 4px;
+  }
+  .vandaag-rij {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+  .vandaag-rij a {
+    display: block; background: var(--card); border-radius: var(--radius);
+    padding: 14px; text-decoration: none; color: inherit; min-height: 88px;
+  }
+  .vandaag-rij small { display: block; color: var(--text-secondary); font-size: 13px; }
+  .vandaag-rij strong { display: block; font-size: 22px; margin-top: 6px; letter-spacing: -.02em; }
+  .vandaag-rij .laat strong { color: var(--danger); }
+  @media (max-width: 620px) {
+    .vandaag-rij { grid-template-columns: 1fr 1fr; }
+    .vandaag-rij a:first-child { grid-column: 1 / -1; }
+    h1 { font-size: 28px; }
+  }
+
+  /* Gegroepeerde rijen, zoals de lijsten op Vandaag. De kaart zelf houdt de
+     rand; de rij loopt tot de rand zodat de streep de volle breedte pakt. */
+  .card.lijst { padding: 4px 0 8px; }
+  .card.lijst .card-head { padding: 12px 16px 8px; margin: 0; }
+  .rij {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    min-height: 44px;
+    border-top: 1px solid var(--divider);
+    color: inherit;
+    text-decoration: none;
+  }
+  .card.lijst .card-head + .rij { border-top: 0; }
+  .rij-tekst { flex: 1; min-width: 0; }
+  .rij-tekst b {
+    display: block;
+    font-weight: 600;
+    letter-spacing: -.01em;
+    overflow-wrap: anywhere;
+  }
+  .rij-tekst small { display: block; color: var(--text-secondary); font-size: 13px; }
+  .rij-bedrag {
+    flex: none;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .rij-bedrag.laat { color: var(--danger); }
+
+  /* Formuliervelden in een kaart: het label erboven, het veld vlak, een
+     streep tussen de rijen. Zelfde opbouw op elk scherm. */
+  .card > .fields > .field,
+  .card > .row > .field {
+    padding-top: 12px;
+    border-top: 1px solid var(--divider);
+  }
+  .card > .fields > .field:first-child { border-top: 0; padding-top: 0; }
+  .card .field input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=hidden]),
+  .card .field select,
+  .card .field textarea {
+    background: rgba(120, 120, 128, .08);
+    border-color: transparent;
+  }
+  @media (pointer: coarse), (max-width: 620px) {
+    input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=hidden]),
+    select {
+      min-height: 44px;
+    }
+  }
+
+  /* Op de telefoon blijft de verzendknop boven de tabbalk plakken. De extra
+     acties (definitief, mailen) hangen daar vast boven. */
+  .fabs { display: none; }
+  .wijzig { margin-top: 12px; }
+  .wijzig > summary { margin-bottom: 12px; list-style: none; cursor: pointer; }
+  .wijzig > summary::-webkit-details-marker { display: none; }
+  /* .cards zet display:flex. Dat wint van de browserregel die een dicht
+     details-blok verbergt, waardoor het formulier altijd open bleef. */
+  .wijzig:not([open]) > :not(summary) { display: none; }
+  .lees button.rij {
+    width: 100%;
+    border: 0;
+    border-top: 1px solid var(--divider);
+    background: none;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  @media (max-width: 900px) {
+    .indienen {
+      position: sticky;
+      bottom: calc(78px + env(safe-area-inset-bottom, 0px));
+      z-index: 15;
+      background: var(--card);
+      border: 1px solid var(--divider);
+      border-radius: 18px;
+      padding: 8px;
+      margin-top: 12px;
+    }
+    .fabs {
+      display: flex;
+      position: fixed;
+      left: 12px;
+      right: 12px;
+      bottom: calc(78px + env(safe-area-inset-bottom, 0px));
+      z-index: 25;
+      gap: 8px;
+    }
+    .fabs .btn, .fabs form { flex: 1; }
+    .fabs form .btn { width: 100%; }
+    body:has(.fabs) .container {
+      padding-bottom: calc(190px + env(safe-area-inset-bottom, 0px));
+    }
+    body:has(.fabs) .indienen {
+      bottom: calc(140px + env(safe-area-inset-bottom, 0px));
+    }
+  }
+  /* Alleen het scherm. Dezelfde breedte gold ook voor afdrukken, en een
+     vaste hoogte knipte de rekening dan tot één pagina. 78 px is de
+     onderkant van Definitief maken en Mailen, 44 px de knop, 16 px lucht. */
+  @media screen and (max-width: 900px) {
+    html:has(.fabs) {
+      scroll-padding-bottom: calc(78px + 44px + 16px + env(safe-area-inset-bottom, 0px));
+    }
+    body:has(.fabs) form :is(input, select, textarea, button, a) {
+      scroll-margin-bottom: calc(78px + 44px + 16px + env(safe-area-inset-bottom, 0px));
+    }
+  }
+  .lijstkop {
+    font-size: 13px;
+    font-weight: 650;
+    letter-spacing: .02em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    margin: 18px 4px 8px;
   }
 </style>
 {% block head %}{% endblock %}
 </head>
 <body>
 
-<header class="appbar">
+{% set _naam = bedrijfsnaam or 'Facturen' %}
+{% set _delen = _naam.split() %}
+{% set _init = ((_delen[0][:1] if _delen else 'F') ~ (_delen[1][:1] if _delen|length > 1 else ''))|upper %}
+<aside class="appbar zijbalk">
   <div class="appbar-inner">
-    <a class="brand" href="{{ url_for('index') }}">
-      <svg width="24" height="24" viewBox="0 0 32 32" aria-hidden="true">
-        <rect width="32" height="32" rx="7" fill="currentColor" opacity=".12"></rect>
-        <rect x="8" y="6" width="16" height="20" rx="2" fill="none" stroke="currentColor" stroke-width="2"></rect>
-        <path d="M12 12h8M12 16h8M12 20h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
-      </svg>
-      Facturen
+    <a class="zijmerk" href="{{ url_for('vandaag_pagina') }}">
+      <span class="av" aria-hidden="true">{{ _init }}</span>
+      <span>{{ _naam }}</span>
     </a>
-    <nav class="tabs">
-      <a href="{{ url_for('index') }}" {% if actief in ['index', 'nieuw'] %}class="active"{% endif %}>Rekeningen</a>
-      <a href="{{ url_for('offertes') }}" {% if actief == 'offertes' %}class="active"{% endif %}>Offertes</a>
-      <a href="{{ url_for('klussen') }}" {% if actief == 'klussen' %}class="active"{% endif %}>Klussen</a>
-      <a href="{{ url_for('klanten') }}" {% if actief == 'klanten' %}class="active"{% endif %}>Klanten</a>
-      <a href="{{ url_for('scans') }}" {% if actief == 'scans' %}class="active"{% endif %}>Scans{% if scan_aantal %}<span class="tab-tel">{{ scan_aantal }}</span>{% endif %}</a>
-      <a href="{{ url_for('instellingen') }}" {% if actief == 'instellingen' %}class="active"{% endif %}>Instellingen</a>
+    <nav class="zijlinks">
+      <a href="{{ url_for('vandaag_pagina') }}" {% if actief == 'vandaag' %}class="aan" aria-current="page"{% endif %}>Vandaag</a>
+    </nav>
+    <div class="zijgroep">Geld</div>
+    <nav class="zijlinks">
+      <a href="{{ url_for('index') }}" {% if actief in ['index', 'nieuw'] %}class="aan" aria-current="page"{% endif %}>Rekeningen{% if menu_rekeningen %}<span class="tel">{{ menu_rekeningen }}</span>{% endif %}</a>
+      <a href="{{ url_for('offertes') }}" {% if actief == 'offertes' %}class="aan" aria-current="page"{% endif %}>Offertes{% if menu_offertes %}<span class="tel">{{ menu_offertes }}</span>{% endif %}</a>
+    </nav>
+    <div class="zijgroep">Werk</div>
+    <nav class="zijlinks">
+      <a href="{{ url_for('klussen') }}" {% if actief == 'klussen' %}class="aan" aria-current="page"{% endif %}>Klussen{% if menu_klussen %}<span class="tel">{{ menu_klussen }}</span>{% endif %}</a>
+      <a href="{{ url_for('scans') }}" {% if actief == 'scans' %}class="aan" aria-current="page"{% endif %}>Scans{% if scan_aantal %}<span class="tel">{{ scan_aantal }}</span>{% endif %}</a>
+      <a href="{{ url_for('klanten') }}" {% if actief == 'klanten' %}class="aan" aria-current="page"{% endif %}>Klanten{% if menu_klanten %}<span class="tel">{{ menu_klanten }}</span>{% endif %}</a>
+    </nav>
+    <nav class="zijlinks zijvoet">
+      <a href="{{ url_for('instellingen') }}" {% if actief == 'instellingen' %}class="aan" aria-current="page"{% endif %}>Instellingen</a>
     </nav>
   </div>
-</header>
+</aside>
+<nav class="tabbar" aria-label="Hoofdmenu">
+  <div class="tab-pil">
+    <a href="{{ url_for('vandaag_pagina') }}" {% if actief == 'vandaag' %}class="aan" aria-current="page"{% endif %}>
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M4 11l8-6.5L20 11v8.5a1 1 0 0 1-1 1h-4.5V15h-5v5.5H5a1 1 0 0 1-1-1z"/></svg>
+      <span>Vandaag</span>
+    </a>
+    <a href="{{ url_for('index') }}" {% if actief in ['index', 'nieuw'] %}class="aan" aria-current="page"{% endif %}>
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>
+      <span>Rekeningen</span>{% if menu_te_laat %}<span class="bol">{{ menu_te_laat }}</span>{% endif %}
+    </a>
+    <a href="{{ url_for('klussen') }}" {% if actief == 'klussen' %}class="aan" aria-current="page"{% endif %}>
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M14 4l6 6-3 3-6-6zM11 7L3 15l3 3 8-8"/></svg>
+      <span>Klussen</span>
+    </a>
+    <a href="{{ url_for('scans') }}" {% if actief == 'scans' %}class="aan" aria-current="page"{% endif %}>
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4M7 12h10"/></svg>
+      <span>Scans</span>{% if scan_aantal %}<span class="tab-tel">{{ scan_aantal }}</span>{% endif %}
+    </a>
+    {# Offertes, klanten en instellingen staan op een Mac in de zijbalk. Die
+       balk is op een telefoon weg; zonder dit menu zijn die pagina's daar
+       niet meer te vinden. #}
+    <details class="meer{% if actief in ['offertes', 'klanten', 'instellingen'] %} aan{% endif %}">
+      <summary{% if actief in ['offertes', 'klanten', 'instellingen'] %} aria-current="page"{% endif %}>
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><circle cx="6" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="18" cy="12" r="1.6"/></svg>
+        <span>Meer</span>
+      </summary>
+      <div class="meer-vel">
+        <a href="{{ url_for('offertes') }}" {% if actief == 'offertes' %}class="aan" aria-current="page"{% endif %}>Offertes</a>
+        <a href="{{ url_for('klanten') }}" {% if actief == 'klanten' %}class="aan" aria-current="page"{% endif %}>Klanten</a>
+        <a href="{{ url_for('instellingen') }}" {% if actief == 'instellingen' %}class="aan" aria-current="page"{% endif %}>Instellingen</a>
+      </div>
+    </details>
+  </div>
+  <a class="plus" href="{{ url_for('nieuw') }}" aria-label="Nieuw">+</a>
+</nav>
 
 <main class="container">
   {% set meldingen = get_flashed_messages(with_categories=true) %}
@@ -938,12 +1455,25 @@
   // omslaan. Zonder meting zou de melding over de tabbladen vallen of er
   // een gat onder laten.
   function meetBalk() {
-    var balk = document.querySelector('.appbar');
-    if (!balk) return;
-    document.documentElement.style.setProperty('--balkhoogte', balk.offsetHeight + 'px');
+    // De zijbalk is de volle hoogte. De melding hoort onder de inkeping,
+    // niet onder die hele balk.
+    document.documentElement.style.setProperty(
+      '--balkhoogte', 'calc(12px + env(safe-area-inset-top, 0px))');
   }
   meetBalk();
   window.addEventListener('resize', meetBalk);
+
+  // De tabbalk op de telefoon krimpt als je omlaag gaat, en groeit terug
+  // omhoog. Anders dekt hij de onderste regels.
+  (function () {
+    var vorige = 0;
+    window.addEventListener('scroll', function () {
+      var y = window.scrollY || 0;
+      if (y > 80 && y > vorige + 6) document.body.classList.add('tab-klein');
+      else if (y < vorige - 6 || y < 24) document.body.classList.remove('tab-klein');
+      vorige = y;
+    }, {passive: true});
+  })();
 
   function verdwijnMelding(melding) {
     if (!melding || !melding.parentNode || melding.dataset.weg) return;
@@ -1174,7 +1704,17 @@
   });
 
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') { sluitMenus(null); }
+    if (e.key !== 'Escape') return;
+    document.querySelectorAll('details.menu[open], details.meer[open]').forEach(function (menu) {
+      var binnen = menu.contains(document.activeElement);
+      menu.removeAttribute('open');
+      // Zonder dit belandt de focus op de pagina zodra het menu dichtgaat,
+      // terwijl je met het toetsenbord in het menu stond.
+      if (binnen) {
+        var knop = menu.querySelector('summary');
+        if (knop) knop.focus();
+      }
+    });
   });
 
   // Een tekstvak dat meegroeit met wat je typt. Het begint als één regel — anders
@@ -1210,6 +1750,13 @@
 
   document.querySelectorAll('[data-bewerkt]').forEach(function (knop) {
     knop.addEventListener('click', function () { wisselBewerken(knop.dataset.bewerkt, true); });
+  });
+  // Een tik op de gelezen regel opent hetzelfde veld als Bewerken.
+  document.querySelectorAll('[id$="-tekst"]').forEach(function (tekst) {
+    tekst.addEventListener('click', function (e) {
+      if (e.target.closest('a, button, input, textarea, form')) return;
+      wisselBewerken(tekst.id.replace(/-tekst$/, ''), true);
+    });
   });
   document.querySelectorAll('[data-stopt]').forEach(function (knop) {
     knop.addEventListener('click', function () { wisselBewerken(knop.dataset.stopt, false); });

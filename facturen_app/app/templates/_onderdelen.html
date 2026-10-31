@@ -12,14 +12,18 @@
 </details>
 {% endmacro %}
 
-{% macro invoerkaart(titel, id='', attributen=none) %}
+{% macro invoerkaart(titel, id='', attributen=none, plus='') %}
 {#- Kaart waarop je iets invult, toevoegt, en de bestaande regels eronder ziet.
     Gewerkte dagen, notities en inkopen gebruiken deze macro samen: anders
-    krijgt elke sectie weer een eigen opzet. -#}
+    krijgt elke sectie weer een eigen opzet. Met plus staat het formulier
+    dicht tot je op die knop tikt; zonder JavaScript blijft het open. -#}
 <section class="card invoerkaart"{% if id %} id="{{ id }}"{% endif %}
   {%- if attributen %}{% for naam, waarde in attributen.items() %} data-{{ naam }}="{{ waarde }}"{% endfor %}{% endif %}>
-  <div class="card-head">
+  <div class="card-head invoer-kop">
     <h2>{{ titel }}</h2>
+    {% if plus %}
+    <button type="button" class="btn btn-text invoer-plus" aria-expanded="false">+ {{ plus }}</button>
+    {% endif %}
   </div>
   {{ caller() }}
 </section>

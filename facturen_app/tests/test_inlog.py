@@ -1,4 +1,6 @@
 """Het account en de inlog op poort 8099."""
+import pytest
+
 from conftest import facturen, TEST_GEBRUIKER, TEST_WACHTWOORD
 
 # Zo doet een verzoek zich voor als komend uit de zijbalk van Home Assistant.
@@ -30,6 +32,7 @@ def test_inloggen_met_het_juiste_wachtwoord(uitgelogde_client):
         "csrf_token": "test-token", "naam": TEST_GEBRUIKER, "wachtwoord": TEST_WACHTWOORD,
     })
     assert antwoord.status_code == 302
+    assert antwoord.headers["Location"].endswith("/vandaag")
     assert uitgelogde_client.get("/").status_code == 200
 
 
@@ -86,14 +89,51 @@ def test_je_komt_terug_op_de_pagina_waar_je_heen_wilde(uitgelogde_client):
     assert antwoord.headers["Location"] == "/klanten"
 
 
-def test_doorsturen_naar_een_andere_website_wordt_genegeerd(uitgelogde_client):
-    """Anders kan een link je na het inloggen zomaar ergens anders naartoe sturen."""
-    for adres in ["//kwaadaardig.example.com", "https://kwaadaardig.example.com"]:
-        antwoord = uitgelogde_client.post("/inloggen", data={
-            "csrf_token": "test-token", "naam": TEST_GEBRUIKER,
-            "wachtwoord": TEST_WACHTWOORD, "verder": adres,
-        })
-        assert antwoord.headers["Location"] == "/"
+@pytest.mark.parametrize("adres", [
+    "//x",
+    "/\\x",
+    "/%09/x",
+    "%2F%2Fx",
+    "/%0d%0a",
+    "http://x",
+    "\\evil.example",
+    "javascript:alert(1)",
+    "/\t/evil.example",
+    "/\r\nLocation: http://evil.example",
+])
+def test_een_slinks_terugadres_blijft_op_vandaag(uitgelogde_client, adres):
+    """/%09/ en een regeleinde werden een andere site, of een 500."""
+    antwoord = uitgelogde_client.post("/inloggen", data={
+        "csrf_token": "test-token", "naam": TEST_GEBRUIKER,
+        "wachtwoord": TEST_WACHTWOORD, "verder": adres,
+    })
+    assert antwoord.status_code == 302
+    assert antwoord.headers["Location"] == "/vandaag"
+
+
+@pytest.mark.parametrize("adres", [
+    "/klanten?zoek=a%26b%3Dc",
+    "/klanten?q=100%25",
+    "/klussen%23taken",
+])
+def test_een_gecodeerde_link_blijft_heel(uitgelogde_client, adres):
+    """Valideren mag uitpakken, doorsturen niet: anders wordt %26 een
+    tweede parameter en %23 een anker."""
+    antwoord = uitgelogde_client.post("/inloggen", data={
+        "csrf_token": "test-token", "naam": TEST_GEBRUIKER,
+        "wachtwoord": TEST_WACHTWOORD, "verder": adres,
+    })
+    assert antwoord.status_code == 302
+    assert antwoord.headers["Location"] == adres
+
+
+def test_een_te_lang_terugadres_gaat_naar_vandaag(uitgelogde_client):
+    adres = "/" + ("a" * 2000)
+    antwoord = uitgelogde_client.post("/inloggen", data={
+        "csrf_token": "test-token", "naam": TEST_GEBRUIKER,
+        "wachtwoord": TEST_WACHTWOORD, "verder": adres,
+    })
+    assert antwoord.headers["Location"] == "/vandaag"
 
 
 def test_uitloggen(client):

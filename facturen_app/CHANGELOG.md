@@ -1,5 +1,35 @@
 # Changelog
 
+## 2.0.0
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **De app ziet eruit als een rustig overzicht.** Vandaag toont wat openstaat,
+  wat te laat is, en waar je mee bezig bent. Op een Mac zit het menu links,
+  op de iPhone onderin. Knoppen zijn zwart of wit; kleur is alleen voor een
+  status, zoals te laat of betaald.
+- Alles wat er al was blijft bereikbaar: rekeningen, offertes, klussen, scans,
+  klanten en instellingen. Op de iPhone zitten offertes, klanten en
+  instellingen onder Meer, naast de tabbladen. De tabbladen houden hun naam.
+- Lijsten, filters en formulieren volgen hetzelfde rustige kaartpatroon.
+  Op een rekening die je bewerkt zie je eerst de regels; Wijzigen opent het
+  formulier. Definitief maken en Mailen blijven onderaan staan.
+- Op een klus voeg je een dag, notitie of bon toe met de plus in de kop.
+  Een tik op de regel opent het invulveld.
+- Het openstaande bedrag op Vandaag blijft wit, ook in de lichte stand.
+  Bij Klussen staat hoeveel uur er nog openstaat, niet alleen een getal.
+- Een tik op het nummer of de status opent de rekening. De naam van de klant
+  is apart te raken en pakt de regel eronder niet mee. Op een klus pakt die
+  naam ook de tegels erboven niet meer mee. Een webadres in de notitie
+  pakt de status erboven niet mee. Zonder klant blijft die extra ruimte weg.
+- Op de telefoon blijft + Regel vrij van Definitief maken en Mailen.
+  De pagina schuift gewoon door; een veld dat je aanwijst verdwijnt niet
+  onder die balk.
+- Het vinkje bij «Hoe ver staat het» is met een duim te raken en blijft
+  in lijn met de andere stappen.
+- Een lange rekening drukt weer over meer dan één pagina af.
+
 ## 1.44.3
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet

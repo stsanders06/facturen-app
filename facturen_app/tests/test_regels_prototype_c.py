@@ -171,6 +171,8 @@ def test_de_regelkaarten_liggen_strak_op_een_smal_scherm(client, db):
         for breedte in (390, 320):
             pagina.set_viewport_size({"width": breedte, "height": 844})
             pagina.set_content(html)
+            # De leesweergave staat eerst open. Deze test meet het formulier.
+            pagina.evaluate("() => { const d = document.querySelector('details.wijzig'); if (d) d.open = true; }")
             gemeten = _meet_kaarten(pagina)
             assert gemeten["scroll"] <= 1
             kaarten = gemeten["kaarten"]
