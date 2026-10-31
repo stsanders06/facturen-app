@@ -8,8 +8,10 @@ Geen pytest: er hoort een draaiende app bij. Voorbeeld:
 
 WebKit én Chromium, licht en donker. Een pagina faalt als ze horizontaal
 schuift, de tabbalk de laatste regel dekt, een telefoonknop lager is dan
-44 px, of de console een fout geeft.
+44 px, of de console een fout geeft. De lijsten met een filter staan erin
+omdat het segment daar op een telefoon zijwaarts schuift.
 """
+import shutil
 import sys
 
 from playwright.sync_api import sync_playwright
@@ -20,6 +22,7 @@ PAGINAS = [
     "/instellingen", "/nieuw", "/offertes/nieuw", "/klussen/nieuw",
     "/klanten/nieuw", "/klus/2", "/factuur/2/bewerk", "/factuur/2/betalingen",
     "/factuur/2/mail", "/offerte/1/bewerk",
+    "/?status=betaald", "/offertes?status=verlopen",
 ]
 BREEDTES = [320, 390, 430, 1024, 1280, 1440]
 
@@ -61,9 +64,12 @@ def main():
     fouten = []
     with sync_playwright() as p:
         browsers = [("webkit", p.webkit.launch())]
+        # Chrome staat niet op elke machine op dezelfde plek; zonder pad
+        # sloeg de matrix Chromium stil over.
+        chrome = shutil.which("google-chrome") or shutil.which("google-chrome-stable")
         try:
             browsers.append(("chromium", p.chromium.launch(
-                executable_path="/usr/local/bin/google-chrome",
+                executable_path=chrome,
                 args=["--no-sandbox", "--disable-dev-shm-usage"],
             )))
         except Exception as exc:
@@ -81,7 +87,9 @@ def main():
                     page.set_default_timeout(12000)
                     js = []
                     page.on("pageerror", lambda e: js.append(str(e)))
-                    paden = PAGINAS if breedte in (390, 1280) else ["/vandaag", "/nieuw", "/instellingen"]
+                    page.on("console", lambda m: m.type == "error" and js.append(m.text))
+                    paden = PAGINAS if breedte in (390, 1280) else [
+                        "/vandaag", "/", "/offertes", "/klanten", "/nieuw", "/instellingen"]
                     for pad in paden:
                         page.goto(BASIS + pad, wait_until="domcontentloaded")
                         uit = meet(page, breedte)

@@ -13,12 +13,14 @@ def test_vandaag_is_leeg_te_openen(client):
     assert "Instellingen" in tekst
     assert 'aria-label="Nieuw"' in tekst
     # De zijbalk is op een telefoon weg. Zonder dit menu zijn offertes,
-    # klanten en instellingen daar niet te bereiken.
+    # scans en instellingen daar niet te bereiken. Klanten staat los in de balk.
     menu = tekst.split('class="meer-vel"', 1)
     assert len(menu) == 2
-    assert 'href="/offertes"' in menu[1]
-    assert 'href="/klanten"' in menu[1]
-    assert 'href="/instellingen"' in menu[1]
+    vel = menu[1].split("</div>", 1)[0]
+    assert 'href="/offertes"' in vel
+    assert 'href="/scans"' in vel
+    assert 'href="/instellingen"' in vel
+    assert 'href="/klanten"' not in vel
     assert "min-height: 44px" in tekst.split(".tabbar .meer-vel a", 1)[1].split("}", 1)[0]
 
 

@@ -41,22 +41,37 @@
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
-  .factuur .meta {
-    grid-column: 1;
-    font-size: 13px;
-    color: var(--text-secondary);
-  }
-  .factuur .chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  /* De nummerregel, de status en de knoppen staan op één regel: links wat het
+     is, rechts wat je ermee kunt. Eerder stonden status en knoppen eronder op
+     een eigen rij met een streep ertussen; dat maakte elke kaart een stuk hoger
+     dan nodig. Past het niet naast elkaar (een telefoon), dan zakken de status
+     en de knoppen samen één regel door, zonder streep of extra ruimte. */
   .factuur .onderkant {
     grid-column: 1 / -1;
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 12px;
     flex-wrap: wrap;
-    margin-top: 12px;
-    padding-top: 12px;
-    border-top: 1px solid var(--divider);
+    gap: 0 12px;
+  }
+  .factuur .meta {
+    flex: 1 1 14em;
+    min-width: 0;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+  .factuur .chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .factuur .acties { margin-left: auto; }
+  /* Op een telefoon past het niet naast elkaar. Dan staat het nummer bovenaan
+     en de status met de knoppen samen op de regel eronder: altijd zo, zodat
+     de puntjes per kaart op dezelfde plek staan. Een knop is daar 44 px hoog,
+     terwijl je de tekst erin maar 20 px ziet. Het tikvlak blijft 44 px, maar
+     steekt boven en onder in de lucht van de kaart uit in plaats van de regel
+     hoger te maken. */
+  @media (max-width: 620px) {
+    .factuur .meta { flex-basis: 100%; }
+  }
+  @media (pointer: coarse), (max-width: 620px) {
+    .factuur .onderkant .acties { margin-block: -8px; }
   }
 </style>
 {% endblock %}
@@ -126,11 +141,11 @@
     {%- if f.kenmerk %}
     <div class="kenmerk">{{ f.kenmerk }}</div>
     {%- endif %}
-    <div class="meta">
-      {{ f.nummer or 'nog geen nummer' }} · {{ f.datum|datum_nl }}
-      {%- if f.status != 'betaald' and f.vervalt %} · vóór {{ f.vervalt|datum_nl }}{% endif %}
-    </div>
     <div class="onderkant">
+      <div class="meta">
+        {{ f.nummer or 'nog geen nummer' }} · {{ f.datum|datum_nl }}
+        {%- if f.status != 'betaald' and f.vervalt %} · vóór {{ f.vervalt|datum_nl }}{% endif %}
+      </div>
       <span class="chips">
         {% if f.status == 'betaald' %}
         <span class="chip chip-betaald">Betaald</span>

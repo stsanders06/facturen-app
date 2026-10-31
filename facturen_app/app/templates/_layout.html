@@ -819,17 +819,32 @@
   .overzicht .waarschuwing b { color: var(--warn-text); }
 
   /* ---------- Filterknoppen ---------- */
+  /* Eén rij, ook op een smalle telefoon. Brak hij af, dan werd het segment
+     een blok van twee rijen met een gat erin. Past hij niet, dan schuift hij
+     zijwaarts met de duim, zonder zichtbare schuifbalk. Op een Mac past hij en
+     ziet hij er hetzelfde uit als eerst. */
   .filters {
     display: flex;
     gap: 2px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     width: fit-content;
     max-width: 100%;
     padding: 3px;
     border-radius: 999px;
     background: rgba(120, 120, 128, .12);
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
   }
+  .filters::-webkit-scrollbar { display: none; }
+  /* Een zachte rand aan de kant waar nog knoppen achter liggen, zodat je ziet
+     dat er meer is. Het script zet deze klassen alleen als de rij schuift. */
+  .filters.meer-rechts { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
+  .filters.meer-links { -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent); }
+  .filters.meer-links.meer-rechts { -webkit-mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent); }
   .filters a {
+    flex: none;
     padding: 7px 14px;
     border-radius: 999px;
     font-size: 13.5px;
@@ -1005,7 +1020,7 @@
     }
     /* «Rekeningen» is op 390 px net 60 px. Meer blijft een icoon van 44 px,
        dan passen de vier namen ernaast. Op 320 px niet meer: daar alleen het icoon. */
-    .tabbar .meer > summary > span {
+    .tabbar .meer > summary > span:not(.tab-tel) {
       position: absolute;
       width: 1px; height: 1px;
       margin: -1px; padding: 0;
@@ -1051,6 +1066,12 @@
       font-weight: 600;
     }
     .tabbar .meer-vel a.aan { background: rgba(120, 120, 128, .16); }
+    .tabbar .meer-vel .meer-tel {
+      margin-left: auto;
+      background: var(--danger); color: #fff;
+      font-size: 12px; font-weight: 700; line-height: 20px;
+      min-width: 20px; padding: 0 6px; border-radius: 10px; text-align: center;
+    }
     .tabbar .tab-tel,
     .tabbar .bol {
       position: absolute; top: 2px; right: 8px;
@@ -1306,21 +1327,24 @@
       <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M14 4l6 6-3 3-6-6zM11 7L3 15l3 3 8-8"/></svg>
       <span>Klussen</span>
     </a>
-    <a href="{{ url_for('scans') }}" {% if actief == 'scans' %}class="aan" aria-current="page"{% endif %}>
-      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4M7 12h10"/></svg>
-      <span>Scans</span>{% if scan_aantal %}<span class="tab-tel">{{ scan_aantal }}</span>{% endif %}
+    <a href="{{ url_for('klanten') }}" {% if actief == 'klanten' %}class="aan" aria-current="page"{% endif %}>
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20c.8-3.8 3.8-6 7.5-6s6.7 2.2 7.5 6"/></svg>
+      <span>Klanten</span>
     </a>
-    {# Offertes, klanten en instellingen staan op een Mac in de zijbalk. Die
+    {# Offertes, scans en instellingen staan op een Mac in de zijbalk. Die
        balk is op een telefoon weg; zonder dit menu zijn die pagina's daar
-       niet meer te vinden. #}
-    <details class="meer{% if actief in ['offertes', 'klanten', 'instellingen'] %} aan{% endif %}">
-      <summary{% if actief in ['offertes', 'klanten', 'instellingen'] %} aria-current="page"{% endif %}>
+       niet meer te vinden. Klanten zoek je vaker op dan scans, daarom staat
+       Klanten los in de balk en Scans hierachter. Het rode getal van de scans
+       komt mee op de puntjes, anders zie je niet dat er iets wacht. #}
+    {% set meer_actief = actief in ['offertes', 'scans', 'instellingen'] %}
+    <details class="meer{% if meer_actief %} aan{% endif %}">
+      <summary{% if meer_actief %} aria-current="page"{% endif %}>
         <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><circle cx="6" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="18" cy="12" r="1.6"/></svg>
-        <span>Meer</span>
+        <span>Meer</span>{% if scan_aantal %}<span class="tab-tel">{{ scan_aantal }}</span>{% endif %}
       </summary>
       <div class="meer-vel">
         <a href="{{ url_for('offertes') }}" {% if actief == 'offertes' %}class="aan" aria-current="page"{% endif %}>Offertes</a>
-        <a href="{{ url_for('klanten') }}" {% if actief == 'klanten' %}class="aan" aria-current="page"{% endif %}>Klanten</a>
+        <a href="{{ url_for('scans') }}" {% if actief == 'scans' %}class="aan" aria-current="page"{% endif %}>Scans{% if scan_aantal %}<span class="meer-tel">{{ scan_aantal }}</span>{% endif %}</a>
         <a href="{{ url_for('instellingen') }}" {% if actief == 'instellingen' %}class="aan" aria-current="page"{% endif %}>Instellingen</a>
       </div>
     </details>
@@ -1473,6 +1497,33 @@
       else if (y < vorige - 6 || y < 24) document.body.classList.remove('tab-klein');
       vorige = y;
     }, {passive: true});
+  })();
+
+  // Het filtersegment schuift op een smalle telefoon zijwaarts. De gekozen
+  // knop moet dan in beeld staan, anders zie je niet welk filter aan staat.
+  // Geen scrollIntoView: dat schuift ook de pagina zelf omhoog of omlaag.
+  // De randen vervagen alleen aan de kant waar nog knoppen achter liggen.
+  (function () {
+    document.querySelectorAll('.filters').forEach(function (rij) {
+      function randen() {
+        var rest = rij.scrollWidth - rij.clientWidth;
+        rij.classList.toggle('meer-links', rest > 1 && rij.scrollLeft > 1);
+        rij.classList.toggle('meer-rechts', rest > 1 && rij.scrollLeft < rest - 1);
+      }
+      var aan = rij.querySelector('a.aan');
+      if (aan && rij.scrollWidth > rij.clientWidth + 1) {
+        var links = aan.getBoundingClientRect().left - rij.getBoundingClientRect().left + rij.scrollLeft;
+        var marge = 24;
+        if (links + aan.offsetWidth > rij.scrollLeft + rij.clientWidth - marge) {
+          rij.scrollLeft = links + aan.offsetWidth - rij.clientWidth + marge;
+        } else if (links < rij.scrollLeft + marge) {
+          rij.scrollLeft = Math.max(0, links - marge);
+        }
+      }
+      randen();
+      rij.addEventListener('scroll', randen, {passive: true});
+      window.addEventListener('resize', randen);
+    });
   })();
 
   function verdwijnMelding(melding) {
