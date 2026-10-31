@@ -41,38 +41,23 @@
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
-  /* De nummerregel, de status en de knoppen staan op één regel: links wat het
-     is, rechts wat je ermee kunt. Eerder stonden status en knoppen eronder op
-     een eigen rij met een streep ertussen; dat maakte elke kaart een stuk hoger
-     dan nodig. Past het niet naast elkaar (een telefoon), dan zakken de status
-     en de knoppen samen één regel door, zonder streep of extra ruimte. */
+  .offerte .meta {
+    grid-column: 1;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
   .offerte .onderkant {
     grid-column: 1 / -1;
     display: flex;
     align-items: center;
+    justify-content: space-between;
+    gap: 12px;
     flex-wrap: wrap;
-    gap: 0 12px;
-  }
-  .offerte .meta {
-    flex: 1 1 14em;
-    min-width: 0;
-    font-size: 13px;
-    color: var(--text-secondary);
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--divider);
   }
   .offerte .chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-  .offerte .acties { margin-left: auto; }
-  /* Op een telefoon past het niet naast elkaar. Dan staat het nummer bovenaan
-     en de status met de knoppen samen op de regel eronder: altijd zo, zodat
-     de puntjes per kaart op dezelfde plek staan. Een knop is daar 44 px hoog,
-     terwijl je de tekst erin maar 20 px ziet. Het tikvlak blijft 44 px, maar
-     steekt boven en onder in de lucht van de kaart uit in plaats van de regel
-     hoger te maken. */
-  @media (max-width: 620px) {
-    .offerte .meta { flex-basis: 100%; }
-  }
-  @media (pointer: coarse), (max-width: 620px) {
-    .offerte .onderkant .acties { margin-block: -8px; }
-  }
 </style>
 {% endblock %}
 {% block content %}
@@ -139,13 +124,13 @@
     {%- if o.kenmerk %}
     <div class="kenmerk">{{ o.kenmerk }}</div>
     {%- endif %}
+    <div class="meta">
+      {#- Een concept heeft nog geen nummer; zonder deze terugval begint de regel
+          met een losse punt. Bij de rekeningen staat het er net zo. -#}
+      {{ o.nummer or 'nog geen nummer' }} · {{ o.datum|datum_nl }}
+      {%- if o.geldig_tot %} · geldig tot {{ o.geldig_tot|datum_nl }}{% endif %}
+    </div>
     <div class="onderkant">
-      <div class="meta">
-        {#- Een concept heeft nog geen nummer; zonder deze terugval begint de regel
-            met een losse punt. Bij de rekeningen staat het er net zo. -#}
-        {{ o.nummer or 'nog geen nummer' }} · {{ o.datum|datum_nl }}
-        {%- if o.geldig_tot %} · geldig tot {{ o.geldig_tot|datum_nl }}{% endif %}
-      </div>
       <span class="chips">
         <span class="chip chip-{{ o.status }}">{{ offerte_status[o.status] }}</span>
         {% if verlopen %}<span class="chip chip-verlopen">Verlopen</span>{% endif %}

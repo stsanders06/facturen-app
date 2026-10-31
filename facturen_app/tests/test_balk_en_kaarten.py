@@ -238,7 +238,7 @@ def test_op_een_mac_schuift_het_filtersegment_niet(client, db, maak_factuur, maa
             browser.close()
 
 
-# ---------- Lage kaarten ----------
+# ---------- Kaarten ----------
 
 def _kaart_script():
     return """() => {
@@ -289,6 +289,7 @@ def _kaart_script():
           zelf, over,
           metaOpen: kaartlink(meta), chipOpen: kaartlink(chip),
           puntjes: beneden - boven + 1,
+          metaInOnder: onder.contains(meta),
           binnen: r(puntjes).right <= r(kaart).right + 0.5 && pb.bottom <= r(kaart).bottom,
         });
       });
@@ -305,20 +306,21 @@ def _lijst(db, maak_factuur, maak_offerte):
 
 
 def _te_laat(maak_factuur, maak_offerte):
-    """Twee chips naast een knop: op een telefoon zakken de knoppen door."""
+    """Twee chips op één kaart: Verzonden en Te laat of Verlopen."""
     maak_factuur(nummer="2026-002", status="verzonden", vervalt_op="2026-01-01")
     maak_offerte(nummer="O2026-002", status="verzonden", geldig="2026-01-01")
 
 
-def test_de_kaarten_zijn_lager_en_de_tikvlakken_raken_elkaar_niet(client, db, maak_factuur, maak_offerte):
-    """Eerder stond de status met de knoppen op een eigen rij met een streep
-    erboven: 176 px op een iPhone en 144 px op een Mac voor een gewone kaart.
-    Nu hooguit 140 (ook als het nummer over twee regels gaat) en 110. Op
-    320 px was het 221, nu hooguit 165."""
+def test_de_kaarten_houden_hun_onderregel_en_de_tikvlakken_raken_elkaar_niet(client, db, maak_factuur, maak_offerte):
+    """De kaarten blijven zoals in 2.0.0: nummer en datums bovenaan, en daaronder
+    een eigen regel met een streep erboven voor de status en de knoppen. Een
+    compactere kaart (alles op één regel) vond Stone te druk. Wel moet elk
+    tikvlak zichzelf raken en geen ander overlappen."""
     from browser import meetbrowser, playwright_verplicht
 
     sync_playwright = playwright_verplicht()
     _lijst(db, maak_factuur, maak_offerte)
+    _te_laat(maak_factuur, maak_offerte)
     with sync_playwright() as p:
         browser = meetbrowser(p)
         try:
@@ -326,57 +328,24 @@ def test_de_kaarten_zijn_lager_en_de_tikvlakken_raken_elkaar_niet(client, db, ma
                 html = client.get(pad).data.decode()
                 for breedte in (320, 390, 430, 1280):
                     telefoon = breedte < 900
-                    pagina = browser.new_page(viewport={"width": breedte, "height": 1400},
+                    pagina = browser.new_page(viewport={"width": breedte, "height": 1600},
                                               has_touch=telefoon)
-                    pagina.set_content(html)
-                    kaarten = pagina.evaluate(_kaart_script())
-                    pagina.close()
-                    assert len(kaarten) == 2, (pad, breedte)
-                    for uit in kaarten:
-                        plek = (pad, breedte, uit)
-                        assert uit["rand"] == "0px", plek
-                        assert uit["ruimte"] == 0, plek
-                        assert uit["zelf"], plek
-                        assert not uit["over"], plek
-                        assert uit["metaOpen"], plek
-                        assert uit["chipOpen"], plek
-                        assert uit["binnen"], plek
-                        if breedte == 320:
-                            # Twee chips en een knop passen daar niet naast
-                            # elkaar; de knoppen zakken dan een regel door.
-                            # Eerder was zo'n kaart 221 px.
-                            assert uit["hoog"] <= 165, plek
-                            assert uit["puntjes"] >= 43.5, plek
-                        elif telefoon:
-                            assert uit["hoog"] <= 140, plek
-                            assert uit["puntjes"] >= 43.5, plek
-                            assert uit["chipPuntjes"] <= 4, plek
-                            assert uit["gat"] <= 10, plek
-                        else:
-                            assert uit["hoog"] <= 110, plek
-                            # Nummer, status en puntjes op één regel.
-                            assert uit["metaChip"] <= 4, plek
-                            assert uit["chipPuntjes"] <= 4, plek
-
-            # Met een tweede chip mag de regel doorzakken, maar de tikvlakken
-            # blijven los van elkaar en de kaart opent nog met een tik.
-            _te_laat(maak_factuur, maak_offerte)
-            for pad in ("/", "/offertes"):
-                html = client.get(pad).data.decode()
-                for breedte in (320, 390, 430, 1280):
-                    pagina = browser.new_page(viewport={"width": breedte, "height": 1400},
-                                              has_touch=breedte < 900)
                     pagina.set_content(html)
                     kaarten = pagina.evaluate(_kaart_script())
                     pagina.close()
                     assert len(kaarten) == 3, (pad, breedte)
                     for uit in kaarten:
                         plek = (pad, breedte, uit)
-                        assert uit["zelf"] and not uit["over"], plek
-                        assert uit["metaOpen"] and uit["chipOpen"], plek
+                        # De onderregel: streep erboven, 12 px lucht ervoor en erna.
+                        assert uit["rand"] == "1px", plek
+                        assert uit["ruimte"] == 24, plek
+                        assert not uit["metaInOnder"], plek
+                        assert uit["gat"] >= 24, plek
+                        assert uit["zelf"], plek
+                        assert not uit["over"], plek
+                        assert uit["metaOpen"], plek
                         assert uit["binnen"], plek
-                        assert uit["hoog"] <= 170, plek
-                        if breedte < 900:
+                        if telefoon:
                             assert uit["puntjes"] >= 43.5, plek
         finally:
             browser.close()

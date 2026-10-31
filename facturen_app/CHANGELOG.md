@@ -13,10 +13,6 @@ genoeg; anders blijft de vorige versie draaien.
 - De filterknoppen bij Offertes en Rekeningen blijven op één regel. Past het
   niet op een smalle telefoon, dan veeg je de rij opzij. Het filter dat aan
   staat is altijd in beeld.
-- De kaarten in de lijsten zijn lager. Het nummer en de datum staan op
-  dezelfde regel als de status en de knoppen; de losse onderste rij met de
-  streep is weg. Een tik op de kaart opent hem nog steeds, en de knoppen en
-  de drie puntjes zijn met een duim te raken.
 
 ## 2.0.0
 
