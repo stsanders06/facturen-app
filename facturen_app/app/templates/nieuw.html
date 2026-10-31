@@ -547,7 +547,7 @@
       <h2>Regels</h2>
     </div>
 
-    <div id="regels">
+    <div id="regels" role="group" aria-label="Regels">
       {% for r in regels or [none] %}
       {#- Een sqlite-rij heeft geen .get. Alleen een teruggezet formulier zet open. -#}
       {% set regel_open = r.get('open') if r and r.get is defined else false %}
@@ -570,8 +570,8 @@
         </div>
         <div class="regel-detail" {% if not regel_open %}hidden{% endif %}>
           <div class="field">
-            <label>Soort</label>
-            <select name="type" class="soort">
+            <label for="soort-{{ loop.index }}">Soort</label>
+            <select id="soort-{{ loop.index }}" name="type" class="soort" aria-label="Soort">
               <option value="materiaal" {% if r and r.type == 'materiaal' %}selected{% endif %}>Materiaal</option>
               <option value="arbeid_uur" {% if r and r.type == 'arbeid_uur' %}selected{% endif %}>Arbeid per uur</option>
               <option value="arbeid_dag" {% if r and r.type == 'arbeid_dag' %}selected{% endif %}>Arbeid per dag</option>
@@ -585,10 +585,11 @@
                    value="{{ r.omschrijving if r else '' }}">
           </div>
           <div class="field aantal-veld">
-            <label class="aantal-label">Aantal</label>
+            <label class="aantal-label" for="aantal-{{ loop.index }}">Aantal</label>
             {#- Een dagregel volgt de gewerkte dag. Een lager aantal hier zou
                 uren stil van de rekening halen; een korting is een aparte regel. -#}
             <input type="number" step="any" inputmode="decimal" name="aantal"
+                   id="aantal-{{ loop.index }}" aria-label="Aantal"
                    {% if r and r.uur_id %}readonly
                    title="Het aantal volgt de dag. Een korting zet je op een aparte regel."
                    {% endif %}

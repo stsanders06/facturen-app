@@ -17,6 +17,7 @@ genoeg; anders blijft de vorige versie draaien.
   formulier. Definitief maken en Mailen blijven onderaan staan.
 - Op een klus voeg je een dag, notitie of bon toe met de plus in de kop.
   Een tik op de regel opent het invulveld.
+- Het openstaande bedrag op Vandaag blijft wit, ook in de lichte stand.
 
 ## 1.44.3
 

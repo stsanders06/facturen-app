@@ -827,6 +827,10 @@
     flex-wrap: nowrap;
   }
   main a:not(.btn) { color: inherit; text-decoration: none; }
+  /* De openstaande-kaart is zelf een link. Zonder deze zwaardere regel wint
+     «color: inherit» hierboven, en wordt het bedrag bijna zwart op zwart. */
+  main a.vandaag-kaart,
+  main a.vandaag-kaart b { color: #fff; }
   .appbar.zijbalk {
     position: fixed;
     top: 12px;
@@ -1030,6 +1034,24 @@
       background: var(--card);
     }
   }
+  @media (prefers-contrast: more) {
+    :root {
+      --border: rgba(0, 0, 0, .72);
+      --divider: rgba(0, 0, 0, .45);
+    }
+    .appbar.zijbalk, .tabbar .tab-pil, .tabbar .plus, .card, .vandaag-rij a {
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+      background-color: var(--card);
+      border: 1px solid var(--border);
+    }
+  }
+  @media (prefers-contrast: more) and (prefers-color-scheme: dark) {
+    :root {
+      --border: rgba(255, 255, 255, .78);
+      --divider: rgba(255, 255, 255, .55);
+    }
+  }
   @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
     .appbar.zijbalk, .tabbar .tab-pil, .tabbar .plus {
       -webkit-backdrop-filter: none;
@@ -1194,39 +1216,39 @@
       <span>{{ _naam }}</span>
     </a>
     <nav class="zijlinks">
-      <a href="{{ url_for('vandaag_pagina') }}" {% if actief == 'vandaag' %}class="aan"{% endif %}>Vandaag</a>
+      <a href="{{ url_for('vandaag_pagina') }}" {% if actief == 'vandaag' %}class="aan" aria-current="page"{% endif %}>Vandaag</a>
     </nav>
     <div class="zijgroep">Geld</div>
     <nav class="zijlinks">
-      <a href="{{ url_for('index') }}" {% if actief in ['index', 'nieuw'] %}class="aan"{% endif %}>Rekeningen{% if menu_rekeningen %}<span class="tel">{{ menu_rekeningen }}</span>{% endif %}</a>
-      <a href="{{ url_for('offertes') }}" {% if actief == 'offertes' %}class="aan"{% endif %}>Offertes{% if menu_offertes %}<span class="tel">{{ menu_offertes }}</span>{% endif %}</a>
+      <a href="{{ url_for('index') }}" {% if actief in ['index', 'nieuw'] %}class="aan" aria-current="page"{% endif %}>Rekeningen{% if menu_rekeningen %}<span class="tel">{{ menu_rekeningen }}</span>{% endif %}</a>
+      <a href="{{ url_for('offertes') }}" {% if actief == 'offertes' %}class="aan" aria-current="page"{% endif %}>Offertes{% if menu_offertes %}<span class="tel">{{ menu_offertes }}</span>{% endif %}</a>
     </nav>
     <div class="zijgroep">Werk</div>
     <nav class="zijlinks">
-      <a href="{{ url_for('klussen') }}" {% if actief == 'klussen' %}class="aan"{% endif %}>Klussen{% if menu_klussen %}<span class="tel">{{ menu_klussen }}</span>{% endif %}</a>
-      <a href="{{ url_for('scans') }}" {% if actief == 'scans' %}class="aan"{% endif %}>Scans{% if scan_aantal %}<span class="tel">{{ scan_aantal }}</span>{% endif %}</a>
-      <a href="{{ url_for('klanten') }}" {% if actief == 'klanten' %}class="aan"{% endif %}>Klanten{% if menu_klanten %}<span class="tel">{{ menu_klanten }}</span>{% endif %}</a>
+      <a href="{{ url_for('klussen') }}" {% if actief == 'klussen' %}class="aan" aria-current="page"{% endif %}>Klussen{% if menu_klussen %}<span class="tel">{{ menu_klussen }}</span>{% endif %}</a>
+      <a href="{{ url_for('scans') }}" {% if actief == 'scans' %}class="aan" aria-current="page"{% endif %}>Scans{% if scan_aantal %}<span class="tel">{{ scan_aantal }}</span>{% endif %}</a>
+      <a href="{{ url_for('klanten') }}" {% if actief == 'klanten' %}class="aan" aria-current="page"{% endif %}>Klanten{% if menu_klanten %}<span class="tel">{{ menu_klanten }}</span>{% endif %}</a>
     </nav>
     <nav class="zijlinks zijvoet">
-      <a href="{{ url_for('instellingen') }}" {% if actief == 'instellingen' %}class="aan"{% endif %}>Instellingen</a>
+      <a href="{{ url_for('instellingen') }}" {% if actief == 'instellingen' %}class="aan" aria-current="page"{% endif %}>Instellingen</a>
     </nav>
   </div>
 </aside>
 <nav class="tabbar" aria-label="Hoofdmenu">
   <div class="tab-pil">
-    <a href="{{ url_for('vandaag_pagina') }}" {% if actief == 'vandaag' %}class="aan"{% endif %}>
+    <a href="{{ url_for('vandaag_pagina') }}" {% if actief == 'vandaag' %}class="aan" aria-current="page"{% endif %}>
       <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M4 11l8-6.5L20 11v8.5a1 1 0 0 1-1 1h-4.5V15h-5v5.5H5a1 1 0 0 1-1-1z"/></svg>
       <span>Vandaag</span>
     </a>
-    <a href="{{ url_for('index') }}" {% if actief in ['index', 'nieuw'] %}class="aan"{% endif %}>
+    <a href="{{ url_for('index') }}" {% if actief in ['index', 'nieuw'] %}class="aan" aria-current="page"{% endif %}>
       <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>
       <span>Rekeningen</span>{% if menu_te_laat %}<span class="bol">{{ menu_te_laat }}</span>{% endif %}
     </a>
-    <a href="{{ url_for('klussen') }}" {% if actief == 'klussen' %}class="aan"{% endif %}>
+    <a href="{{ url_for('klussen') }}" {% if actief == 'klussen' %}class="aan" aria-current="page"{% endif %}>
       <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M14 4l6 6-3 3-6-6zM11 7L3 15l3 3 8-8"/></svg>
       <span>Klussen</span>
     </a>
-    <a href="{{ url_for('scans') }}" {% if actief == 'scans' %}class="aan"{% endif %}>
+    <a href="{{ url_for('scans') }}" {% if actief == 'scans' %}class="aan" aria-current="page"{% endif %}>
       <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4M7 12h10"/></svg>
       <span>Scans</span>{% if scan_aantal %}<span class="tab-tel">{{ scan_aantal }}</span>{% endif %}
     </a>
@@ -1239,9 +1261,9 @@
         <span>Meer</span>
       </summary>
       <div class="meer-vel">
-        <a href="{{ url_for('offertes') }}" {% if actief == 'offertes' %}class="aan"{% endif %}>Offertes</a>
-        <a href="{{ url_for('klanten') }}" {% if actief == 'klanten' %}class="aan"{% endif %}>Klanten</a>
-        <a href="{{ url_for('instellingen') }}" {% if actief == 'instellingen' %}class="aan"{% endif %}>Instellingen</a>
+        <a href="{{ url_for('offertes') }}" {% if actief == 'offertes' %}class="aan" aria-current="page"{% endif %}>Offertes</a>
+        <a href="{{ url_for('klanten') }}" {% if actief == 'klanten' %}class="aan" aria-current="page"{% endif %}>Klanten</a>
+        <a href="{{ url_for('instellingen') }}" {% if actief == 'instellingen' %}class="aan" aria-current="page"{% endif %}>Instellingen</a>
       </div>
     </details>
   </div>
@@ -1624,7 +1646,12 @@
   });
 
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') { sluitMenus(null); }
+    if (e.key === 'Escape') {
+      sluitMenus(null);
+      document.querySelectorAll('details.meer[open]').forEach(function (menu) {
+        menu.removeAttribute('open');
+      });
+    }
   });
 
   // Een tekstvak dat meegroeit met wat je typt. Het begint als één regel — anders

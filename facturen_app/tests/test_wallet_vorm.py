@@ -22,6 +22,58 @@ def test_een_knop_is_hoog_genoeg_voor_een_muis_en_een_vinger(client):
     assert "min-height: 44px" in regel_met(smal, ".btn")
 
 
+def test_het_openstaande_bedrag_blijft_wit(client):
+    """color: inherit op links won van het wit van de kaart, waardoor het
+    bedrag bijna zwart op de donkere kaart stond."""
+    from browser import meetbrowser, playwright_verplicht
+
+    sync_playwright = playwright_verplicht()
+    html = client.get("/vandaag").data.decode()
+    with sync_playwright() as p:
+        browser = meetbrowser(p)
+        pagina = browser.new_page(color_scheme="light")
+        try:
+            pagina.set_content(html)
+            kleur = pagina.evaluate(
+                """() => getComputedStyle(document.querySelector('.vandaag-kaart b')).color"""
+            )
+        finally:
+            browser.close()
+    assert kleur == "rgb(255, 255, 255)", kleur
+
+
+def test_escape_sluit_het_menu_meer(client):
+    from browser import meetbrowser, playwright_verplicht
+
+    sync_playwright = playwright_verplicht()
+    html = client.get("/vandaag").data.decode()
+    with sync_playwright() as p:
+        browser = meetbrowser(p)
+        pagina = browser.new_page(viewport={"width": 390, "height": 844})
+        try:
+            pagina.set_content(html)
+            pagina.locator("details.meer > summary").click()
+            assert pagina.locator("details.meer").get_attribute("open") is not None
+            pagina.keyboard.press("Escape")
+            assert pagina.locator("details.meer").get_attribute("open") is None
+        finally:
+            browser.close()
+
+
+def test_de_actieve_pagina_staat_in_het_menu(client):
+    tekst = client.get("/vandaag").data.decode()
+    assert 'href="/vandaag" class="aan" aria-current="page"' in tekst
+
+
+def test_meer_contrast_maakt_het_menu_dicht(client):
+    from test_smalle_weergave import css_van
+    css = css_van(client.get("/").data.decode())
+    deel = css.split("@media (prefers-contrast: more) {", 1)[1]
+    deel = deel.split("@media", 1)[0]
+    assert "backdrop-filter: none" in deel
+    assert "--border: rgba(0, 0, 0, .72)" in deel
+
+
 def test_een_bewerkte_rekening_biedt_definitief_en_mailen(client, maak_factuur):
     """Die twee horen bij de rekening, niet alleen in het menu van de lijst."""
     factuur_id = maak_factuur(nummer="", status="concept", email="klant@example.org")

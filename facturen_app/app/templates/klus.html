@@ -183,9 +183,9 @@
     margin-top: 8px;
   }
   .invoerrij-acties form { margin: 0; }
-  .invoerrij-acties .btn-text { padding: 2px 8px; min-height: 0; font-size: 13px; }
+  .invoerrij-acties .btn-text { padding: 2px 8px; min-height: 32px; font-size: 13px; }
   .invoerrij .bijlagen { margin-top: 12px; }
-  .invoerrij .erbij-form .btn-text { padding: 4px 10px; min-height: 0; font-size: 13px; }
+  .invoerrij .erbij-form .btn-text { padding: 4px 10px; min-height: 32px; font-size: 13px; }
 
   /* Zelfde vak als het kruisje bij een materiaalregel: grijze rand, witte
      vulling, zodat het een knop is en geen los teken. */
@@ -693,7 +693,7 @@
     .invoerrij-acties .btn-text,
     .invoerrij .erbij-form .btn-text,
     .invoerrij .mat-toevoegen .btn-text {
-      min-height: 40px;
+      min-height: 44px;
       display: inline-flex;
       align-items: center;
       padding-left: 12px;
@@ -1276,12 +1276,14 @@
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <div class="fields-rij">
             <div class="field">
-              <label>Omschrijving</label>
-              <input type="text" name="omschrijving" value="{{ i.omschrijving }}">
+              <label for="inkoop-oms-{{ i.id }}">Omschrijving</label>
+              <input type="text" id="inkoop-oms-{{ i.id }}" name="omschrijving"
+                     value="{{ i.omschrijving }}" aria-label="Omschrijving">
             </div>
             <div class="field">
-              <label>Totaalbedrag</label>
-              <input type="number" step="any" name="bedrag"
+              <label for="inkoop-bedrag-{{ i.id }}">Totaalbedrag</label>
+              <input type="number" step="any" id="inkoop-bedrag-{{ i.id }}" name="bedrag"
+                     aria-label="Totaalbedrag"
                      value="{{ '%.2f'|format(i.bedrag or 0) }}">
             </div>
           </div>

@@ -46,6 +46,15 @@ def test_de_echte_zijbalk_komt_er_nog_gewoon_in(uitgelogde_client):
     assert uitgelogde_client.get("/", environ_overrides=ECHTE_ZIJBALK).status_code == 200
 
 
+def test_een_post_zonder_inlog_gaat_naar_het_inlogscherm(uitgelogde_client, db):
+    """Zonder sessie gaf een post een kale 400. Je hoort het inlogscherm te zien,
+    en er mag intussen niets worden opgeslagen."""
+    antwoord = uitgelogde_client.post("/klanten/nieuw", data={"naam": "Ingebroken"})
+    assert antwoord.status_code == 302
+    assert "/inloggen" in antwoord.headers["Location"]
+    assert db.execute("SELECT COUNT(*) FROM klanten").fetchone()[0] == 0
+
+
 def test_een_nagemaakte_header_mag_ook_niets_veranderen(uitgelogde_client, db):
     antwoord = uitgelogde_client.post("/klanten/nieuw",
                                       data={"csrf_token": "test-token", "naam": "Ingebroken"},

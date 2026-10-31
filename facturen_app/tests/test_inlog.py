@@ -30,6 +30,7 @@ def test_inloggen_met_het_juiste_wachtwoord(uitgelogde_client):
         "csrf_token": "test-token", "naam": TEST_GEBRUIKER, "wachtwoord": TEST_WACHTWOORD,
     })
     assert antwoord.status_code == 302
+    assert antwoord.headers["Location"].endswith("/vandaag")
     assert uitgelogde_client.get("/").status_code == 200
 
 
@@ -93,7 +94,7 @@ def test_doorsturen_naar_een_andere_website_wordt_genegeerd(uitgelogde_client):
             "csrf_token": "test-token", "naam": TEST_GEBRUIKER,
             "wachtwoord": TEST_WACHTWOORD, "verder": adres,
         })
-        assert antwoord.headers["Location"] == "/"
+        assert antwoord.headers["Location"] == "/vandaag"
 
 
 def test_uitloggen(client):

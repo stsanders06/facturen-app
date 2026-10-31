@@ -609,6 +609,11 @@ def controleer_csrf():
     # er zelf bij zet.
     if request.endpoint == "scans_ontvangen":
         return None
+    # Zonder inlog hoort de opdracht niet binnen te komen. De inlogcontrole
+    # stuurt je naar het scherm; een kale 400 zegt niet wat je moet doen.
+    if (not via_ingress() and request.endpoint not in OPEN_PAGINAS
+            and not session.get("gebruiker")):
+        return None
     verwacht = session.get("csrf_token")
     gekregen = request.form.get("csrf_token", "")
     if not verwacht or not secrets.compare_digest(verwacht, gekregen):
@@ -888,7 +893,7 @@ def account_instellen():
 
         session["gebruiker"] = naam
         melding("Je account staat klaar. Vanaf nu log je hiermee in op poort 8099.")
-        return redirect(url_for("index"))
+        return redirect(url_for("vandaag_pagina"))
 
     return render_template("instellen.html", minimum=WACHTWOORD_MINIMUM)
 
@@ -898,7 +903,7 @@ def inloggen():
     if not heeft_account():
         return redirect(url_for("account_instellen"))
     if session.get("gebruiker"):
-        return redirect(url_for("index"))
+        return redirect(url_for("vandaag_pagina"))
 
     if request.method == "POST":
         wacht = wachttijd_over()
@@ -926,7 +931,7 @@ def inloggen():
             # zou je na het inloggen zomaar ergens anders naartoe kunnen sturen.
             if verder.startswith("/") and not verder.startswith("//"):
                 return redirect(verder)
-            return redirect(url_for("index"))
+            return redirect(url_for("vandaag_pagina"))
 
         pogingen, _ = MISLUKTE_POGINGEN.get(_afzender(), (0, None))
         MISLUKTE_POGINGEN[_afzender()] = (pogingen + 1, nu())
