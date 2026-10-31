@@ -225,7 +225,8 @@
   .card {
     background: var(--card);
     border-radius: var(--radius);
-    box-shadow: var(--shadow-card);
+    box-shadow: none;
+    border: 1px solid var(--divider);
     padding: 18px 20px;
   }
   .cards { display: flex; flex-direction: column; gap: 12px; }
@@ -311,6 +312,9 @@
     cursor: pointer;
     text-decoration: none;
     white-space: nowrap;
+    /* Op een Mac met een muis minstens een comfortabele hoogte. Op een
+       telefoon zet de regel hieronder er 44 px van. */
+    min-height: 32px;
   }
   .btn:hover { background: var(--primary-hover); }
   .btn:focus-visible, .tabs a:focus-visible, .link:focus-visible {
@@ -323,6 +327,8 @@
     padding: 7px 12px;
     border-radius: var(--radius-sm);
     font-size: 13px;
+    min-height: 32px;
+    min-width: 32px;
   }
   /* Op een aanraakscherm moet elke knop met een duim te raken zijn: 44px is de
      richtlijn van zowel Apple als Google. */
@@ -738,7 +744,8 @@
     align-items: baseline;
     background: var(--card);
     border-radius: var(--radius);
-    box-shadow: var(--shadow-card);
+    box-shadow: none;
+    border: 1px solid var(--divider);
     padding: 14px 20px;
     margin-bottom: 12px;
   }
@@ -765,26 +772,39 @@
   .overzicht .waarschuwing b { color: var(--warn-text); }
 
   /* ---------- Filterknoppen ---------- */
-  .filters { display: flex; gap: 6px; flex-wrap: wrap; }
+  .filters {
+    display: flex;
+    gap: 2px;
+    flex-wrap: wrap;
+    width: fit-content;
+    max-width: 100%;
+    padding: 3px;
+    border-radius: 999px;
+    background: rgba(120, 120, 128, .12);
+  }
   .filters a {
     padding: 7px 14px;
-    border-radius: 20px;
+    border-radius: 999px;
     font-size: 13.5px;
     text-decoration: none;
     color: var(--text-secondary);
-    background: var(--card);
-    border: 1px solid var(--border);
+    background: transparent;
+    border: 0;
     white-space: nowrap;
+    min-height: 32px;
+    display: inline-flex;
+    align-items: center;
   }
   .filters a:hover { color: var(--text); }
   .filters a.aan {
-    background: var(--primary-soft);
-    border-color: var(--primary);
-    color: var(--primary);
-    font-weight: 500;
+    background: var(--card);
+    border-color: transparent;
+    color: var(--text);
+    font-weight: 650;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, .08);
   }
   @media (pointer: coarse), (max-width: 620px) {
-    .filters a { padding: 11px 16px; }
+    .filters a { padding: 11px 16px; min-height: 44px; }
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -927,12 +947,19 @@
       .tabbar .meer.aan > summary,
       .tabbar .meer[open] > summary { background: rgba(255, 255, 255, .14); }
     }
-    /* Vijf woorden passen niet naast de plusknop op een iPhone. De pagina zelf
-       heeft de grote titel; in de balk blijft het icoon, de naam zit er voor
-       de schermlezer nog bij. Vanaf een kleine tablet is er weer ruimte. */
-    @media (max-width: 480px) {
-      .tabbar .tab-pil > a > span:not(.bol):not(.tab-tel),
-      .tabbar .meer > summary > span {
+    /* «Rekeningen» is op 390 px net 60 px. Meer blijft een icoon van 44 px,
+       dan passen de vier namen ernaast. Op 320 px niet meer: daar alleen het icoon. */
+    .tabbar .meer > summary > span {
+      position: absolute;
+      width: 1px; height: 1px;
+      margin: -1px; padding: 0;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+      border: 0;
+    }
+    @media (max-width: 389px) {
+      .tabbar .tab-pil > a > span:not(.bol):not(.tab-tel) {
         position: absolute;
         width: 1px; height: 1px;
         margin: -1px; padding: 0;
@@ -942,7 +969,7 @@
         border: 0;
       }
     }
-    .tabbar .meer { flex: 1; min-width: 0; position: relative; display: flex; }
+    .tabbar .meer { flex: 0 0 44px; min-width: 44px; position: relative; display: flex; }
     .tabbar .meer-vel {
       position: absolute;
       right: 0;
@@ -1069,6 +1096,68 @@
     white-space: nowrap;
   }
   .rij-bedrag.laat { color: var(--danger); }
+
+  /* Formuliervelden in een kaart: het label erboven, het veld vlak, een
+     streep tussen de rijen. Zelfde opbouw op elk scherm. */
+  .card > .fields > .field,
+  .card > .row > .field {
+    padding-top: 12px;
+    border-top: 1px solid var(--divider);
+  }
+  .card > .fields > .field:first-child { border-top: 0; padding-top: 0; }
+  .card .field input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=hidden]),
+  .card .field select,
+  .card .field textarea {
+    background: rgba(120, 120, 128, .08);
+    border-color: transparent;
+  }
+  @media (pointer: coarse), (max-width: 620px) {
+    input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=hidden]),
+    select {
+      min-height: 44px;
+    }
+  }
+
+  /* Op de telefoon blijft de verzendknop boven de tabbalk plakken. De extra
+     acties (definitief, mailen) hangen daar vast boven. */
+  .fabs { display: none; }
+  @media (max-width: 900px) {
+    .indienen {
+      position: sticky;
+      bottom: calc(78px + env(safe-area-inset-bottom, 0px));
+      z-index: 15;
+      background: var(--card);
+      border: 1px solid var(--divider);
+      border-radius: 18px;
+      padding: 8px;
+      margin-top: 12px;
+    }
+    .fabs {
+      display: flex;
+      position: fixed;
+      left: 12px;
+      right: 12px;
+      bottom: calc(78px + env(safe-area-inset-bottom, 0px));
+      z-index: 25;
+      gap: 8px;
+    }
+    .fabs .btn, .fabs form { flex: 1; }
+    .fabs form .btn { width: 100%; }
+    body:has(.fabs) .container {
+      padding-bottom: calc(190px + env(safe-area-inset-bottom, 0px));
+    }
+    body:has(.fabs) .indienen {
+      bottom: calc(140px + env(safe-area-inset-bottom, 0px));
+    }
+  }
+  .lijstkop {
+    font-size: 13px;
+    font-weight: 650;
+    letter-spacing: .02em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    margin: 18px 4px 8px;
+  }
 </style>
 {% block head %}{% endblock %}
 </head>

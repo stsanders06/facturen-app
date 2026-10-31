@@ -11,7 +11,10 @@ genoeg; anders blijft de vorige versie draaien.
   status, zoals te laat of betaald.
 - Alles wat er al was blijft bereikbaar: rekeningen, offertes, klussen, scans,
   klanten en instellingen. Op de iPhone zitten offertes, klanten en
-  instellingen onder Meer, naast de tabbladen.
+  instellingen onder Meer, naast de tabbladen. De tabbladen houden hun naam.
+- Lijsten, filters en formulieren volgen hetzelfde rustige kaartpatroon.
+  Op een rekening die je bewerkt blijven Definitief maken en Mailen onderaan
+  staan, boven het menu.
 
 ## 1.44.3
 

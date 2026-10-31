@@ -386,7 +386,7 @@
   </h1>
 </div>
 
-<form method="post" class="cards">
+<form method="post" class="cards" id="stuk-form">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   {% if dagwaarschuwing|default('') %}
   <div class="letop" role="status">{{ dagwaarschuwing }}</div>
@@ -679,6 +679,21 @@
   </section>
 
 </form>
+
+{% if factuur and ((not is_offerte and not factuur.nummer) or factuur.klant_email) %}
+<div class="fabs">
+  {% if not is_offerte and not factuur.nummer %}
+  <form method="post" action="{{ url_for('definitief', factuur_id=factuur.id) }}"
+        data-bevestig="Deze rekening definitief maken? Hij krijgt dan zijn nummer.">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn btn-outline">Definitief maken</button>
+  </form>
+  {% endif %}
+  {% if factuur.klant_email %}
+  <a class="btn" href="{{ url_for('offerte_mail', offerte_id=factuur.id) if is_offerte else url_for('mail_voorbeeld', factuur_id=factuur.id) }}">Mailen</a>
+  {% endif %}
+</div>
+{% endif %}
 
 <script>
   (function () {
