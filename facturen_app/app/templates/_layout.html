@@ -4,9 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
-<meta name="theme-color" content="#03a9f4">
+<meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
 <title>{% block title %}Rekeningen{% endblock %} · Facturen</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231f2329'/%3E%3Crect x='7' y='6' width='18' height='20' rx='2' fill='%23fff'/%3E%3Cg fill='%239aa0a8'%3E%3Crect x='10' y='10' width='12' height='2' rx='1'/%3E%3Crect x='10' y='14' width='12' height='2' rx='1'/%3E%3Crect x='10' y='18' width='7' height='2' rx='1'/%3E%3C/g%3E%3Crect x='10' y='22' width='12' height='2.5' rx='1.25' fill='%2303a9f4'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231f2329'/%3E%3Crect x='7' y='6' width='18' height='20' rx='2' fill='%23fff'/%3E%3Cg fill='%239aa0a8'%3E%3Crect x='10' y='10' width='12' height='2' rx='1'/%3E%3Crect x='10' y='14' width='12' height='2' rx='1'/%3E%3Crect x='10' y='18' width='7' height='2' rx='1'/%3E%3C/g%3E%3Crect x='10' y='22' width='12' height='2.5' rx='1.25' fill='%238e8e93'/%3E%3C/svg%3E">
 <style>
   /* ===================================================================
      Facturen App — visuele taal van Home Assistant, zodat de app zowel
@@ -328,6 +329,7 @@
   @media (pointer: coarse), (max-width: 620px) {
     .btn { padding: 12px 20px; min-height: 44px; }
     .btn-text { padding: 12px 14px; min-height: 44px; font-size: 14px; }
+    .menu-item { min-height: 44px; }
   }
   .btn-text:hover { background: var(--primary-soft); }
   .btn-text.danger { color: var(--danger); }
@@ -855,7 +857,7 @@
     display: flex; align-items: center; gap: 10px;
     padding: 8px 10px; border-radius: 12px;
     color: var(--text); text-decoration: none; font-weight: 550; font-size: 14px;
-    min-height: 40px;
+    min-height: 44px;
   }
   .zijlinks a .tel { margin-left: auto; color: var(--text-secondary); font-size: 12px; font-weight: 600; }
   .zijlinks a.aan, .zijlinks a.active {
@@ -885,7 +887,7 @@
       gap: 8px;
       transition: left .25s ease, right .25s ease, transform .25s ease;
     }
-    .tabbar .balk {
+    .tabbar .tab-pil {
       flex: 1;
       display: flex;
       height: 58px;
@@ -897,12 +899,13 @@
       box-shadow: inset 0 1px 0 rgba(255, 255, 255, .85), 0 8px 28px rgba(0, 0, 0, .12);
     }
     @media (prefers-color-scheme: dark) {
-      .tabbar .balk, .tabbar .plus {
+      .tabbar .tab-pil, .tabbar .plus {
         background: rgba(44, 44, 48, .78);
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16), 0 8px 28px rgba(0, 0, 0, .45);
       }
     }
-    .tabbar .balk a {
+    .tabbar .tab-pil > a,
+    .tabbar .meer > summary {
       flex: 1;
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       gap: 1px; min-width: 0; min-height: 44px;
@@ -910,11 +913,61 @@
       color: var(--text); text-decoration: none;
       font-size: 10px; font-weight: 650;
       position: relative;
+      list-style: none;
+      cursor: pointer;
     }
-    .tabbar .balk a.aan { background: rgba(255, 255, 255, .85); }
+    .tabbar .meer > summary::-webkit-details-marker { display: none; }
+    .tabbar .meer > summary::marker { content: ""; }
+    .tabbar .ico { width: 22px; height: 22px; display: block; flex: none; }
+    .tabbar .tab-pil > a.aan,
+    .tabbar .meer.aan > summary,
+    .tabbar .meer[open] > summary { background: rgba(255, 255, 255, .85); }
     @media (prefers-color-scheme: dark) {
-      .tabbar .balk a.aan { background: rgba(255, 255, 255, .14); }
+      .tabbar .tab-pil > a.aan,
+      .tabbar .meer.aan > summary,
+      .tabbar .meer[open] > summary { background: rgba(255, 255, 255, .14); }
     }
+    /* Vijf woorden passen niet naast de plusknop op een iPhone. De pagina zelf
+       heeft de grote titel; in de balk blijft het icoon, de naam zit er voor
+       de schermlezer nog bij. Vanaf een kleine tablet is er weer ruimte. */
+    @media (max-width: 480px) {
+      .tabbar .tab-pil > a > span:not(.bol):not(.tab-tel),
+      .tabbar .meer > summary > span {
+        position: absolute;
+        width: 1px; height: 1px;
+        margin: -1px; padding: 0;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+        border: 0;
+      }
+    }
+    .tabbar .meer { flex: 1; min-width: 0; position: relative; display: flex; }
+    .tabbar .meer-vel {
+      position: absolute;
+      right: 0;
+      bottom: calc(100% + 10px);
+      min-width: 210px;
+      padding: 6px;
+      border-radius: 18px;
+      background: var(--card);
+      box-shadow: var(--shadow-raised);
+      display: flex;
+      flex-direction: column;
+      z-index: 2;
+    }
+    .tabbar .meer-vel a {
+      display: flex;
+      align-items: center;
+      min-height: 44px;
+      padding: 0 14px;
+      border-radius: 12px;
+      color: var(--text);
+      text-decoration: none;
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .tabbar .meer-vel a.aan { background: rgba(120, 120, 128, .16); }
     .tabbar .tab-tel,
     .tabbar .bol {
       position: absolute; top: 2px; right: 8px;
@@ -932,19 +985,21 @@
       color: var(--text); text-decoration: none; font-size: 28px; line-height: 1;
     }
     body.tab-klein .tabbar { left: 50%; right: auto; transform: translateX(-50%); }
-    body.tab-klein .tabbar .balk { height: 48px; }
-    body.tab-klein .tabbar .balk a { font-size: 0; width: 48px; flex: none; }
+    body.tab-klein .tabbar .tab-pil { height: 48px; }
+    body.tab-klein .tabbar .tab-pil > a,
+    body.tab-klein .tabbar .meer { font-size: 0; width: 48px; flex: none; }
+    body.tab-klein .tabbar .meer > summary { width: 48px; }
     body.tab-klein .tabbar .plus { width: 48px; height: 48px; font-size: 24px; }
   }
   @media (prefers-reduced-transparency: reduce) {
-    .appbar.zijbalk, .tabbar .balk, .tabbar .plus {
+    .appbar.zijbalk, .tabbar .tab-pil, .tabbar .plus {
       -webkit-backdrop-filter: none;
       backdrop-filter: none;
       background: var(--card);
     }
   }
   @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    .appbar.zijbalk, .tabbar .balk, .tabbar .plus {
+    .appbar.zijbalk, .tabbar .tab-pil, .tabbar .plus {
       -webkit-backdrop-filter: none;
       backdrop-filter: none;
       background: var(--card);
@@ -960,7 +1015,7 @@
     text-decoration: none;
     margin-bottom: 14px;
   }
-  .vandaag-kaart small { display: block; opacity: .7; font-size: 13px; }
+  .vandaag-kaart small { display: block; color: rgba(255, 255, 255, .88); font-size: 13px; }
   .vandaag-kaart b {
     display: block; font-size: 34px; letter-spacing: -.03em; font-weight: 700;
     font-variant-numeric: tabular-nums; margin: 8px 0 4px;
@@ -983,6 +1038,37 @@
     .vandaag-rij a:first-child { grid-column: 1 / -1; }
     h1 { font-size: 28px; }
   }
+
+  /* Gegroepeerde rijen, zoals de lijsten op Vandaag. De kaart zelf houdt de
+     rand; de rij loopt tot de rand zodat de streep de volle breedte pakt. */
+  .card.lijst { padding: 4px 0 8px; }
+  .card.lijst .card-head { padding: 12px 16px 8px; margin: 0; }
+  .rij {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    min-height: 44px;
+    border-top: 1px solid var(--divider);
+    color: inherit;
+    text-decoration: none;
+  }
+  .card.lijst .card-head + .rij { border-top: 0; }
+  .rij-tekst { flex: 1; min-width: 0; }
+  .rij-tekst b {
+    display: block;
+    font-weight: 600;
+    letter-spacing: -.01em;
+    overflow-wrap: anywhere;
+  }
+  .rij-tekst small { display: block; color: var(--text-secondary); font-size: 13px; }
+  .rij-bedrag {
+    flex: none;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .rij-bedrag.laat { color: var(--danger); }
 </style>
 {% block head %}{% endblock %}
 </head>
@@ -1017,11 +1103,37 @@
   </div>
 </aside>
 <nav class="tabbar" aria-label="Hoofdmenu">
-  <div class="balk">
-    <a href="{{ url_for('vandaag_pagina') }}" {% if actief == 'vandaag' %}class="aan"{% endif %}>Vandaag</a>
-    <a href="{{ url_for('index') }}" {% if actief in ['index', 'nieuw'] %}class="aan"{% endif %}>Rekeningen{% if menu_te_laat %}<span class="bol">{{ menu_te_laat }}</span>{% endif %}</a>
-    <a href="{{ url_for('klussen') }}" {% if actief == 'klussen' %}class="aan"{% endif %}>Klussen</a>
-    <a href="{{ url_for('scans') }}" {% if actief == 'scans' %}class="aan"{% endif %}>Scans{% if scan_aantal %}<span class="tab-tel">{{ scan_aantal }}</span>{% endif %}</a>
+  <div class="tab-pil">
+    <a href="{{ url_for('vandaag_pagina') }}" {% if actief == 'vandaag' %}class="aan"{% endif %}>
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M4 11l8-6.5L20 11v8.5a1 1 0 0 1-1 1h-4.5V15h-5v5.5H5a1 1 0 0 1-1-1z"/></svg>
+      <span>Vandaag</span>
+    </a>
+    <a href="{{ url_for('index') }}" {% if actief in ['index', 'nieuw'] %}class="aan"{% endif %}>
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>
+      <span>Rekeningen</span>{% if menu_te_laat %}<span class="bol">{{ menu_te_laat }}</span>{% endif %}
+    </a>
+    <a href="{{ url_for('klussen') }}" {% if actief == 'klussen' %}class="aan"{% endif %}>
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M14 4l6 6-3 3-6-6zM11 7L3 15l3 3 8-8"/></svg>
+      <span>Klussen</span>
+    </a>
+    <a href="{{ url_for('scans') }}" {% if actief == 'scans' %}class="aan"{% endif %}>
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4M7 12h10"/></svg>
+      <span>Scans</span>{% if scan_aantal %}<span class="tab-tel">{{ scan_aantal }}</span>{% endif %}
+    </a>
+    {# Offertes, klanten en instellingen staan op een Mac in de zijbalk. Die
+       balk is op een telefoon weg; zonder dit menu zijn die pagina's daar
+       niet meer te vinden. #}
+    <details class="meer{% if actief in ['offertes', 'klanten', 'instellingen'] %} aan{% endif %}">
+      <summary>
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><circle cx="6" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="18" cy="12" r="1.6"/></svg>
+        <span>Meer</span>
+      </summary>
+      <div class="meer-vel">
+        <a href="{{ url_for('offertes') }}" {% if actief == 'offertes' %}class="aan"{% endif %}>Offertes</a>
+        <a href="{{ url_for('klanten') }}" {% if actief == 'klanten' %}class="aan"{% endif %}>Klanten</a>
+        <a href="{{ url_for('instellingen') }}" {% if actief == 'instellingen' %}class="aan"{% endif %}>Instellingen</a>
+      </div>
+    </details>
   </div>
   <a class="plus" href="{{ url_for('nieuw') }}" aria-label="Nieuw">+</a>
 </nav>

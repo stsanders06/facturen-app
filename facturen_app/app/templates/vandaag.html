@@ -35,43 +35,53 @@
   </a>
 </div>
 
-{% if te_laat or concepten %}
-<section class="card">
+{% if te_laat or concepten or scan_aantal %}
+<section class="card lijst">
   <div class="card-head"><h2>Te doen</h2></div>
   {% for f in te_laat %}
-  <p style="margin:8px 0">
-    <a href="{{ url_for('bewerk', factuur_id=f.id) }}">{{ f.klant_naam or 'Zonder klant' }}</a>
-    <span class="hint">{{ f.nummer or 'concept' }} · te laat</span>
-    <span style="float:right">&euro; {{ f.openstaand|bedrag }}</span>
-  </p>
+  <a class="rij" href="{{ url_for('bewerk', factuur_id=f.id) }}">
+    <span class="rij-tekst">
+      <b>{{ f.klant_naam or 'Zonder klant' }}</b>
+      <small>{{ f.nummer or 'concept' }} · te laat</small>
+    </span>
+    <span class="rij-bedrag laat">&euro; {{ f.openstaand|bedrag }}</span>
+  </a>
   {% endfor %}
   {% for f in concepten %}
-  <p style="margin:8px 0">
-    <a href="{{ url_for('bewerk', factuur_id=f.id) }}">Concept afmaken</a>
-    <span class="hint">{{ f.klant_naam or 'Zonder klant' }}</span>
-    <span style="float:right">&euro; {{ f.totaal|bedrag }}</span>
-  </p>
+  <a class="rij" href="{{ url_for('bewerk', factuur_id=f.id) }}">
+    <span class="rij-tekst">
+      <b>Concept afmaken</b>
+      <small>{{ f.klant_naam or 'Zonder klant' }}</small>
+    </span>
+    <span class="rij-bedrag">&euro; {{ f.totaal|bedrag }}</span>
+  </a>
   {% endfor %}
   {% if scan_aantal %}
-  <p style="margin:8px 0"><a href="{{ url_for('scans') }}">{{ scan_aantal }} scan{{ 's' if scan_aantal != 1 else '' }} koppelen</a></p>
+  <a class="rij" href="{{ url_for('scans') }}">
+    <span class="rij-tekst">
+      <b>{{ scan_aantal }} scan{{ 's' if scan_aantal != 1 else '' }} koppelen</b>
+    </span>
+  </a>
   {% endif %}
 </section>
 {% endif %}
 
-<section class="card" style="margin-top:12px">
+<section class="card lijst" style="margin-top:12px">
   <div class="card-head" style="display:flex;justify-content:space-between;align-items:baseline">
     <h2>Klussen</h2>
     <a href="{{ url_for('klussen') }}">Alles</a>
   </div>
   {% if not klussen %}
-  <p class="hint">Nog geen klussen. <a href="{{ url_for('klus_nieuw') }}">Maak de eerste.</a></p>
+  <p class="hint" style="padding:0 16px 8px">Nog geen klussen. <a href="{{ url_for('klus_nieuw') }}">Maak de eerste.</a></p>
   {% else %}
   {% for k in klussen %}
-  <p style="margin:8px 0">
-    <a href="{{ url_for('klus', klus_id=k.id) }}">{{ k.naam }}</a>
-    <span class="hint">{{ k.klant_naam or 'Zonder klant' }} · {{ k.uren|uren }}</span>
-    <span class="chip chip-{{ k.status }}" style="float:right">{{ fases[k.status].label }}</span>
-  </p>
+  <a class="rij" href="{{ url_for('klus', klus_id=k.id) }}">
+    <span class="rij-tekst">
+      <b>{{ k.naam }}</b>
+      <small>{{ k.klant_naam or 'Zonder klant' }} · {{ k.uren|uren }}</small>
+    </span>
+    <span class="chip chip-{{ k.status }}">{{ fases[k.status].label }}</span>
+  </a>
   {% endfor %}
   {% endif %}
 </section>

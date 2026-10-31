@@ -8,15 +8,15 @@
 <title>{% block title %}{% endblock %} · Facturen App</title>
 <style>
   :root {
-    --primary: #03a9f4;
-    --primary-hover: #0288d1;
-    --primary-soft: #e7f5fd;
+    --primary: #1c1c1c;
+    --primary-hover: #000000;
+    --primary-soft: #ececef;
     --on-primary: #ffffff;
-    --bg: #f2f4f7;
+    --bg: #f2f2f7;
     --card: #ffffff;
-    --text: #1f2329;
-    --text-secondary: #6b7280;
-    --border: #dde1e6;
+    --text: #1c1c1e;
+    --text-secondary: rgba(60, 60, 67, .72);
+    --border: rgba(60, 60, 67, .18);
     --input-bg: #ffffff;
     --warn-bg: #fff8e1;
     --warn-border: #ffd54f;
@@ -24,22 +24,22 @@
     --ok: #2e7d43;
     --danger: #c62828;
     --shadow-card: 0 1px 3px rgba(0, 0, 0, .11);
-    --radius: 12px;
-    --radius-sm: 8px;
-    --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    --radius: 22px;
+    --radius-sm: 12px;
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --primary: #33b1f0;
-      --primary-hover: #4fc0f7;
-      --primary-soft: #16232c;
-      --on-primary: #06222f;
-      --bg: #111417;
-      --card: #1c1f26;
-      --text: #e6e8eb;
-      --text-secondary: #9aa1ab;
-      --border: #333844;
-      --input-bg: #14171c;
+      --primary: #f2f2f2;
+      --primary-hover: #ffffff;
+      --primary-soft: #2c2c2e;
+      --on-primary: #111113;
+      --bg: #000000;
+      --card: #1c1c1e;
+      --text: #f2f2f7;
+      --text-secondary: rgba(235, 235, 245, .6);
+      --border: rgba(255, 255, 255, .16);
+      --input-bg: #2c2c2e;
       --warn-bg: #2a2311;
       --warn-border: #7a6420;
       --warn-text: #e8cf88;
@@ -69,7 +69,7 @@
     margin-bottom: 20px;
     font-size: 17px;
     font-weight: 500;
-    color: var(--primary);
+    color: var(--text);
   }
   .card {
     background: var(--card);
@@ -113,6 +113,7 @@
   .onthoud label { margin: 0; font-size: 14px; font-weight: 400; color: var(--text); }
   .btn {
     width: 100%;
+    min-height: 44px;
     padding: 12px 20px;
     border: none;
     border-radius: 22px;

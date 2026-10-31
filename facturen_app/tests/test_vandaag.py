@@ -12,6 +12,14 @@ def test_vandaag_is_leeg_te_openen(client):
     assert "Scans" in tekst
     assert "Instellingen" in tekst
     assert 'aria-label="Nieuw"' in tekst
+    # De zijbalk is op een telefoon weg. Zonder dit menu zijn offertes,
+    # klanten en instellingen daar niet te bereiken.
+    menu = tekst.split('class="meer-vel"', 1)
+    assert len(menu) == 2
+    assert 'href="/offertes"' in menu[1]
+    assert 'href="/klanten"' in menu[1]
+    assert 'href="/instellingen"' in menu[1]
+    assert "min-height: 44px" in tekst.split(".tabbar .meer-vel a", 1)[1].split("}", 1)[0]
 
 
 def test_vandaag_noemt_een_open_rekening(client, maak_factuur):

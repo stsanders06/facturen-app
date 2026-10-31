@@ -10,7 +10,8 @@ genoeg; anders blijft de vorige versie draaien.
   op de iPhone onderin. Knoppen zijn zwart of wit; kleur is alleen voor een
   status, zoals te laat of betaald.
 - Alles wat er al was blijft bereikbaar: rekeningen, offertes, klussen, scans,
-  klanten en instellingen.
+  klanten en instellingen. Op de iPhone zitten offertes, klanten en
+  instellingen onder Meer, naast de tabbladen.
 
 ## 1.44.3
 
