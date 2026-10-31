@@ -82,14 +82,14 @@
 </div>
 
 <div class="filters" style="margin-bottom:12px">
-  <a href="{{ url_for('offertes') }}" {% if keuze == 'alles' %}class="aan"{% endif %}>Alles</a>
+  <a href="{{ url_for('offertes') }}" {% if keuze == 'alles' %}class="aan" aria-current="page"{% endif %}>Alles</a>
   {% for sleutel, naam in offerte_status.items() %}
   <a href="{{ url_for('offertes') }}?status={{ sleutel }}"
-     {% if keuze == sleutel %}class="aan"{% endif %}>{{ naam }}</a>
+     {% if keuze == sleutel %}class="aan" aria-current="page"{% endif %}>{{ naam }}</a>
   {% endfor %}
   {% if overzicht.verlopen %}
   <a href="{{ url_for('offertes') }}?status=verlopen"
-     {% if keuze == 'verlopen' %}class="aan"{% endif %}>Verlopen</a>
+     {% if keuze == 'verlopen' %}class="aan" aria-current="page"{% endif %}>Verlopen</a>
   {% endif %}
 </div>
 

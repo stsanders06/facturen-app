@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.0.1
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **Klanten staat nu los in de balk onderin op de iPhone.** De volgorde is
+  Vandaag, Rekeningen, Klussen, Klanten en Meer. Scans zit onder Meer, samen
+  met Offertes en Instellingen. Wachten er scans, dan staat het rode getal op
+  de puntjes en naast Scans in het menu. Op een Mac staat alles nog in de
+  zijbalk links.
+- De filterknoppen bij Offertes en Rekeningen blijven op één regel. Past het
+  niet op een smalle telefoon, dan veeg je de rij opzij. Het filter dat aan
+  staat is altijd in beeld. Ga je er met Tab langs, dan schuift de knop met
+  focus mee in beeld. Een schermlezer leest voor welk filter aan staat.
+
 ## 2.0.0
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
