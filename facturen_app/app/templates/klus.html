@@ -784,6 +784,13 @@
     font-size: 14px;
     overflow-wrap: anywhere;
   }
+  /* Het tikvlak van de klantnaam is 44 px en hangt boven de tekst. Bij 14 px
+     marge viel dat over «nog geen bonnen» en «terug te krijgen». De extra
+     ruimte is het verschil tussen 44 px en één regel, plus een paar px speling
+     zodat een lager lettertype de tegels nog steeds niet raakt. */
+  @media (pointer: coarse), (max-width: 620px) {
+    .opsomming { margin-top: calc(44px - 1lh + 10px); }
+  }
   /* De notitie bij de klus is een tekstvak met Enter. pre-line op de hele
      opsomming zou ook de lege regels uit de template meetellen. */
   .klus-notitie { white-space: pre-line; overflow-wrap: anywhere; }

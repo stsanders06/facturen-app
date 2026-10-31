@@ -357,22 +357,24 @@
        niet mee in de rij, anders wordt elke kaart hoger. */
     .factuur .klant a,
     .offerte .klant a,
-    .opsomming a {
+    .opsomming a:not(.externe-link) {
       position: relative;
       display: inline-block;
       vertical-align: baseline;
       margin: 0;
       padding: 0 2px;
     }
+    /* Alleen boven de eigen tekst, niet breder: een minimumbreedte liep
+       over het adres ernaast. De klusregel krijgt er ruimte boven, anders
+       vallen de tegels in dit vlak. */
     .factuur .klant a::after,
     .offerte .klant a::after,
-    .opsomming a::after {
+    .opsomming a:not(.externe-link)::after {
       content: "";
       position: absolute;
       left: 0;
       bottom: 0;
       width: 100%;
-      min-width: 44px;
       height: 44px;
     }
     .checkregel { min-height: 44px; align-items: center; }

@@ -256,6 +256,7 @@ def test_een_tik_naast_de_klantnaam_opent_de_rekening(client, db, maak_factuur, 
         hoog: vlak.hoog,
         breed: Math.max(vlak.breed, link.getBoundingClientRect().width),
         rij: link.getBoundingClientRect().height,
+        lh: parseFloat(getComputedStyle(link).lineHeight),
         meta: raakt(meta, '.klant a'),
         chip: raakt(chip, '.klant a'),
       };
@@ -271,7 +272,7 @@ def test_een_tik_naast_de_klantnaam_opent_de_rekening(client, db, maak_factuur, 
                 pagina.close()
                 assert uit["hoog"] >= 43, (pad, uit)
                 assert uit["breed"] >= 44, (pad, uit)
-                assert uit["rij"] <= 28, (pad, uit)
+                assert uit["rij"] <= uit["lh"] + 8, (pad, uit)
                 assert not uit["meta"], (pad, uit)
                 assert not uit["chip"], (pad, uit)
         finally:
@@ -296,17 +297,26 @@ def test_op_een_mac_blijft_de_rij_zo_hoog_als_eerder(client, db, maak_factuur, m
     script_lijst = """() => {
       const link = document.querySelector('.klant a');
       const stijl = getComputedStyle(link);
+      const lh = parseFloat(stijl.lineHeight);
+      const pad = parseFloat(stijl.paddingTop) + parseFloat(stijl.paddingBottom);
+      const marge = parseFloat(stijl.marginTop) + parseFloat(stijl.marginBottom);
+      const doos = link.getBoundingClientRect().height;
       return {
         toon: stijl.display,
-        marge: stijl.marginTop,
+        margeTop: stijl.marginTop,
         vulling: stijl.paddingTop,
-        link: link.getBoundingClientRect().height,
+        doos,
+        verwacht: lh + pad,
         rij: link.parentElement.getBoundingClientRect().height,
+        marge,
       };
     }"""
     script_klus = """() => {
       const p = document.querySelector('.opsomming');
       const link = p.querySelector('a');
+      const stijl = getComputedStyle(link);
+      const lh = parseFloat(stijl.lineHeight);
+      const pad = parseFloat(stijl.paddingTop) + parseFloat(stijl.paddingBottom);
       function doos(node) {
         const r = document.createRange();
         r.selectNodeContents(node);
@@ -315,10 +325,12 @@ def test_op_een_mac_blijft_de_rij_zo_hoog_als_eerder(client, db, maak_factuur, m
       const label = doos(p.firstChild);
       const naam = doos(link.firstChild);
       return {
-        toon: getComputedStyle(link).display,
+        toon: stijl.display,
         regel: label.height,
+        lh,
         verschil: Math.abs(label.bottom - naam.bottom),
-        link: link.getBoundingClientRect().height,
+        doos: link.getBoundingClientRect().height,
+        verwacht: lh + pad,
       };
     }"""
 
@@ -331,22 +343,22 @@ def test_op_een_mac_blijft_de_rij_zo_hoog_als_eerder(client, db, maak_factuur, m
                 uit = pagina.evaluate(script_lijst)
                 pagina.close()
                 assert uit["toon"] == "inline-block", (pad, uit)
-                assert uit["marge"] == "-6px", (pad, uit)
+                assert uit["margeTop"] == "-6px", (pad, uit)
                 assert uit["vulling"] == "6px", (pad, uit)
-                assert 34 <= uit["link"] <= 40, (pad, uit)
-                # De regel zelf, niet de hele kaart: die hangt van de inhoud af.
-                # 32 px was de te hoge flex-rij van de vorige ronde.
-                assert 18 <= uit["rij"] <= 28, (pad, uit)
+                # De doos is de regelhoogte plus de vulling, niet een vaste
+                # 36 px: dat getal verschuift met het lettertype.
+                assert abs(uit["doos"] - uit["verwacht"]) <= 4, (pad, uit)
+                assert abs(uit["rij"] - (uit["doos"] + uit["marge"])) <= 6, (pad, uit)
             pagina = browser.new_page(viewport={"width": 1280, "height": 800})
             pagina.set_content(client.get(f"/klus/{klus_id}").data.decode())
             uit = pagina.evaluate(script_klus)
             pagina.close()
             assert uit["toon"] == "inline-block", uit
-            assert uit["regel"] <= 24, uit
             assert uit["verschil"] < 1, uit
-            # Vulling van 6 px om de tekst. Geen rij van 44 px. De exacte
-            # hoogte hangt van het lettertype af; in CI is de regel lager.
-            assert 28 <= uit["link"] <= 40, uit
+            assert abs(uit["doos"] - uit["verwacht"]) <= 4, uit
+            # De tekstregel zelf, vergeleken met de regelhoogte van de link.
+            # Niet met een vaste px: in CI is het lettertype lager.
+            assert uit["regel"] <= uit["lh"] + 4, uit
         finally:
             browser.close()
 
@@ -420,6 +432,90 @@ def test_de_klantnaam_op_een_klus_raakt_de_buren_niet(client, db):
             assert not uit["knopMidden"], uit
             assert uit["tik"] >= 43, uit
             assert uit["verschil"] < 1, uit
+        finally:
+            browser.close()
+
+
+def test_een_vergroot_tikvlak_pakt_de_buren_niet(client, db, maak_factuur, maak_offerte):
+    """Elk punt in een buur — tegel, knop, nummer, label — blijft van die
+    buur. Het tikvlak van de klantnaam hing over «nog geen bonnen»."""
+    from browser import meetbrowser, playwright_verplicht
+
+    sync_playwright = playwright_verplicht()
+    klant_id = _met_klant(db, maak_factuur, maak_offerte)
+    db.execute(
+        """INSERT INTO klussen (naam, klant_id, uurtarief, status, gestart)
+           VALUES ('Badkamer Voorbeeldstraat', ?, 50, 'open', '2026-10-01')""",
+        (klant_id,),
+    )
+    leeg = db.execute("SELECT id FROM klussen ORDER BY id DESC").fetchone()[0]
+    db.execute(
+        """INSERT INTO klussen (naam, klant_id, uurtarief, status, gestart)
+           VALUES ('Keuken Voorbeeldstraat', ?, 50, 'open', '2026-10-02')""",
+        (klant_id,),
+    )
+    met_bon = db.execute("SELECT id FROM klussen ORDER BY id DESC").fetchone()[0]
+    db.execute(
+        """INSERT INTO inkopen (klus_id, omschrijving, bedrag, toegevoegd)
+           VALUES (?, 'Verf', 12.5, '2026-10-02')""",
+        (met_bon,),
+    )
+    db.commit()
+
+    script = """() => {
+      const links = [...document.querySelectorAll(
+        '.factuur .klant a, .offerte .klant a, .opsomming a:not(.externe-link)')];
+      const fouten = [];
+      const keuze = 'a, button, input, select, textarea, small, b, .meta, .chip, .bedrag, .kenmerk, .tegel';
+      for (const link of links) {
+        const r = link.getBoundingClientRect();
+        if (r.bottom < 0 || r.top > innerHeight) continue;
+        const buren = [...document.querySelectorAll(keuze)].filter(el => {
+          if (el === link || link.contains(el) || el.contains(link)) return false;
+          if (el.classList && el.classList.contains('kaartlink')) return false;
+          const st = getComputedStyle(el);
+          if (st.display === 'none' || st.visibility === 'hidden') return false;
+          const er = el.getBoundingClientRect();
+          return er.width >= 2 && er.height >= 2 && er.bottom > 0 && er.top < innerHeight;
+        });
+        for (const el of buren) {
+          const er = el.getBoundingClientRect();
+          let tiks = 0;
+          const y0 = Math.max(er.top + 1, 1);
+          const y1 = Math.min(er.bottom - 1, innerHeight - 2);
+          const x0 = Math.max(er.left + 1, 1);
+          const x1 = Math.min(er.right - 1, innerWidth - 2);
+          for (let y = y0; y <= y1; y += 4) {
+            for (let x = x0; x <= x1; x += 6) {
+              if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) continue;
+              const n = document.elementFromPoint(x, y);
+              if (n && (n === link || link.contains(n))) tiks++;
+            }
+          }
+          if (tiks) {
+            fouten.push({
+              link: (link.textContent || '').trim().slice(0, 24),
+              buur: (el.innerText || el.getAttribute('aria-label') || el.tagName)
+                .toString().trim().replace(/\\s+/g, ' ').slice(0, 40),
+              tiks,
+            });
+          }
+        }
+      }
+      return fouten;
+    }"""
+
+    paden = ["/", "/offertes", f"/klus/{leeg}", f"/klus/{met_bon}"]
+    with sync_playwright() as p:
+        browser = meetbrowser(p)
+        try:
+            for breedte in (320, 390, 430):
+                for pad in paden:
+                    pagina = browser.new_page(viewport={"width": breedte, "height": 1200})
+                    pagina.set_content(client.get(pad).data.decode())
+                    fouten = pagina.evaluate(script)
+                    pagina.close()
+                    assert not fouten, (breedte, pad, fouten)
         finally:
             browser.close()
 

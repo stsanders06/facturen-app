@@ -20,7 +20,8 @@ genoeg; anders blijft de vorige versie draaien.
 - Het openstaande bedrag op Vandaag blijft wit, ook in de lichte stand.
   Bij Klussen staat hoeveel uur er nog openstaat, niet alleen een getal.
 - Een tik op het nummer of de status opent de rekening. De naam van de klant
-  is apart te raken en pakt de regel eronder niet mee.
+  is apart te raken en pakt de regel eronder niet mee. Op een klus pakt die
+  naam ook de tegels erboven niet meer mee.
 - Op de telefoon blijft + Regel vrij van Definitief maken en Mailen.
   De pagina schuift gewoon door; een veld dat je aanwijst verdwijnt niet
   onder die balk.
