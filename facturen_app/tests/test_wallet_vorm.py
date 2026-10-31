@@ -309,11 +309,13 @@ def test_op_een_mac_blijft_de_rij_zo_hoog_als_eerder(client, db, maak_factuur, m
         verwacht: lh + pad,
         rij: link.parentElement.getBoundingClientRect().height,
         marge,
+        lh,
+        lhOuder: parseFloat(getComputedStyle(link.parentElement).lineHeight),
       };
     }"""
     script_klus = """() => {
       const p = document.querySelector('.opsomming');
-      const link = p.querySelector('a');
+      const link = p.querySelector('a:not(.externe-link)');
       const stijl = getComputedStyle(link);
       const lh = parseFloat(stijl.lineHeight);
       const pad = parseFloat(stijl.paddingTop) + parseFloat(stijl.paddingBottom);
@@ -331,6 +333,8 @@ def test_op_een_mac_blijft_de_rij_zo_hoog_als_eerder(client, db, maak_factuur, m
         verschil: Math.abs(label.bottom - naam.bottom),
         doos: link.getBoundingClientRect().height,
         verwacht: lh + pad,
+        vulling: stijl.paddingTop,
+        lhOuder: parseFloat(getComputedStyle(p).lineHeight),
       };
     }"""
 
@@ -347,7 +351,8 @@ def test_op_een_mac_blijft_de_rij_zo_hoog_als_eerder(client, db, maak_factuur, m
                 assert uit["vulling"] == "6px", (pad, uit)
                 # De doos is de regelhoogte plus de vulling, niet een vaste
                 # 36 px: dat getal verschuift met het lettertype.
-                assert abs(uit["doos"] - uit["verwacht"]) <= 4, (pad, uit)
+                assert abs(uit["doos"] - uit["verwacht"]) <= 1, (pad, uit)
+                assert uit["lh"] == uit["lhOuder"], (pad, uit)
                 assert abs(uit["rij"] - (uit["doos"] + uit["marge"])) <= 6, (pad, uit)
             pagina = browser.new_page(viewport={"width": 1280, "height": 800})
             pagina.set_content(client.get(f"/klus/{klus_id}").data.decode())
@@ -355,7 +360,9 @@ def test_op_een_mac_blijft_de_rij_zo_hoog_als_eerder(client, db, maak_factuur, m
             pagina.close()
             assert uit["toon"] == "inline-block", uit
             assert uit["verschil"] < 1, uit
-            assert abs(uit["doos"] - uit["verwacht"]) <= 4, uit
+            assert uit["vulling"] == "6px", uit
+            assert abs(uit["doos"] - uit["verwacht"]) <= 1, uit
+            assert uit["lh"] == uit["lhOuder"], uit
             # De tekstregel zelf, vergeleken met de regelhoogte van de link.
             # Niet met een vaste px: in CI is het lettertype lager.
             assert uit["regel"] <= uit["lh"] + 4, uit
@@ -460,11 +467,31 @@ def test_een_vergroot_tikvlak_pakt_de_buren_niet(client, db, maak_factuur, maak_
            VALUES (?, 'Verf', 12.5, '2026-10-02')""",
         (met_bon,),
     )
+    bo = db.execute(
+        "INSERT INTO klanten (naam, email) VALUES ('Bo', 'klant@example.org')"
+    ).lastrowid
+    factuur_bo = maak_factuur(nummer="2026-009", klant="Bo", email="klant@example.org")
+    db.execute("UPDATE facturen SET klant_id=? WHERE id=?", (bo, factuur_bo))
+    offerte_bo = maak_offerte(nummer="OFF-2026-009", klant="Bo")
+    db.execute("UPDATE offertes SET klant_id=? WHERE id=?", (bo, offerte_bo))
+    db.execute(
+        """INSERT INTO klussen (naam, klant_id, uurtarief, status, gestart, notitie)
+           VALUES ('Schuur Voorbeeldstraat', ?, 40, 'open', '2026-10-03',
+                   'Zie https://example.org/uitleg')""",
+        (bo,),
+    )
+    kort = db.execute("SELECT id FROM klussen ORDER BY id DESC").fetchone()[0]
+    db.execute(
+        """INSERT INTO klussen (naam, uurtarief, status, gestart, notitie)
+           VALUES ('Zonder klant', 40, 'open', '2026-10-04',
+                   'Zie https://example.org/uitleg')"""
+    )
+    zonder = db.execute("SELECT id FROM klussen ORDER BY id DESC").fetchone()[0]
     db.commit()
 
     script = """() => {
       const links = [...document.querySelectorAll(
-        '.factuur .klant a, .offerte .klant a, .opsomming a:not(.externe-link)')];
+        '.factuur .klant a, .offerte .klant a, .opsomming a')];
       const fouten = [];
       const keuze = 'a, button, input, select, textarea, small, b, .meta, .chip, .bedrag, .kenmerk, .tegel';
       for (const link of links) {
@@ -487,7 +514,6 @@ def test_een_vergroot_tikvlak_pakt_de_buren_niet(client, db, maak_factuur, maak_
           const x1 = Math.min(er.right - 1, innerWidth - 2);
           for (let y = y0; y <= y1; y += 4) {
             for (let x = x0; x <= x1; x += 6) {
-              if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) continue;
               const n = document.elementFromPoint(x, y);
               if (n && (n === link || link.contains(n))) tiks++;
             }
@@ -505,15 +531,35 @@ def test_een_vergroot_tikvlak_pakt_de_buren_niet(client, db, maak_factuur, maak_
       return fouten;
     }"""
 
-    paden = ["/", "/offertes", f"/klus/{leeg}", f"/klus/{met_bon}"]
+    bron = client.get(f"/klus/{kort}").data.decode()
+    assert bron.index("margin-top: 33px") < bron.index("calc(44px - 1lh + 10px)")
+    assert 'class="opsomming met-klant"' in bron
+    assert "https://example.org/uitleg" in bron
+    assert 'class="externe-link"' in bron
+    zonder_bron = client.get(f"/klus/{zonder}").data.decode()
+    assert 'class="opsomming met-klant"' not in zonder_bron
+    assert 'class="externe-link"' in zonder_bron
+
+    paden = [
+        "/", "/offertes", f"/klus/{leeg}", f"/klus/{met_bon}",
+        f"/klus/{kort}", f"/klus/{zonder}",
+    ]
     with sync_playwright() as p:
         browser = meetbrowser(p)
         try:
             for breedte in (320, 390, 430):
                 for pad in paden:
-                    pagina = browser.new_page(viewport={"width": breedte, "height": 1200})
+                    pagina = browser.new_page(viewport={"width": breedte, "height": 1600})
                     pagina.set_content(client.get(pad).data.decode())
                     fouten = pagina.evaluate(script)
+                    if "/klus/" in pad:
+                        marge = pagina.evaluate(
+                            "() => getComputedStyle(document.querySelector('.opsomming')).marginTop"
+                        )
+                        if pad.endswith(f"/{zonder}"):
+                            assert marge == "14px", (breedte, pad, marge)
+                        else:
+                            assert float(marge[:-2]) >= 30, (breedte, pad, marge)
                     pagina.close()
                     assert not fouten, (breedte, pad, fouten)
         finally:

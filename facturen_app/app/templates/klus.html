@@ -785,11 +785,15 @@
     overflow-wrap: anywhere;
   }
   /* Het tikvlak van de klantnaam is 44 px en hangt boven de tekst. Bij 14 px
-     marge viel dat over «nog geen bonnen» en «terug te krijgen». De extra
-     ruimte is het verschil tussen 44 px en één regel, plus een paar px speling
-     zodat een lager lettertype de tegels nog steeds niet raakt. */
+     marge viel dat over «nog geen bonnen» en «terug te krijgen». Zonder
+     klantlink is die ruimte nergens voor nodig. Safari vóór 16.4 kent 1lh
+     niet en zou anders terugvallen op 14 px; de vaste 33 px komt daarom
+     eerst. :has ontbreekt op nog oudere Safari, de klasse met-klant niet. */
   @media (pointer: coarse), (max-width: 620px) {
-    .opsomming { margin-top: calc(44px - 1lh + 10px); }
+    .opsomming.met-klant { margin-top: 33px; }
+    .opsomming:has(a:not(.externe-link)) { margin-top: 33px; }
+    .opsomming.met-klant { margin-top: calc(44px - 1lh + 10px); }
+    .opsomming:has(a:not(.externe-link)) { margin-top: calc(44px - 1lh + 10px); }
   }
   /* De notitie bij de klus is een tekstvak met Enter. pre-line op de hele
      opsomming zou ook de lege regels uit de template meetellen. */
@@ -866,7 +870,7 @@
         <small>{% if inkopen %}terug te krijgen{% else %}nog geen bonnen{% endif %}</small>
       </div>
     </div>
-    <p class="opsomming">
+    <p class="opsomming{% if klus.klant_naam %} met-klant{% endif %}">
       {% if klus.klant_naam %}Klant: <a href="{{ url_for('klant', klant_id=klus.klant_id) }}">{{ klus.klant_naam }}</a>
       {%- if klus.klant_adres %} · {{ klus.klant_adres|replace('\n', ', ') }}{% endif %} ·
       {% endif %}

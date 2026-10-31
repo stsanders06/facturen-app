@@ -21,7 +21,8 @@ genoeg; anders blijft de vorige versie draaien.
   Bij Klussen staat hoeveel uur er nog openstaat, niet alleen een getal.
 - Een tik op het nummer of de status opent de rekening. De naam van de klant
   is apart te raken en pakt de regel eronder niet mee. Op een klus pakt die
-  naam ook de tegels erboven niet meer mee.
+  naam ook de tegels erboven niet meer mee. Een webadres in de notitie
+  pakt de status erboven niet mee. Zonder klant blijft die extra ruimte weg.
 - Op de telefoon blijft + Regel vrij van Definitief maken en Mailen.
   De pagina schuift gewoon door; een veld dat je aanwijst verdwijnt niet
   onder die balk.

@@ -338,9 +338,11 @@
     min-width: 32px;
     padding: 4px 8px;
   }
+  /* Een webadres in de notitie valt buiten deze vulling. Die hing over
+     de statuschip op de regel erboven. */
   .factuur .klant a,
   .offerte .klant a,
-  .opsomming a {
+  .opsomming a:not(.externe-link) {
     display: inline-block;
     padding: 6px 2px;
     margin: -6px -2px;
