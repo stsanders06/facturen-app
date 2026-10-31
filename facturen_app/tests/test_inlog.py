@@ -1,4 +1,6 @@
 """Het account en de inlog op poort 8099."""
+import pytest
+
 from conftest import facturen, TEST_GEBRUIKER, TEST_WACHTWOORD
 
 # Zo doet een verzoek zich voor als komend uit de zijbalk van Home Assistant.
@@ -87,14 +89,26 @@ def test_je_komt_terug_op_de_pagina_waar_je_heen_wilde(uitgelogde_client):
     assert antwoord.headers["Location"] == "/klanten"
 
 
-def test_doorsturen_naar_een_andere_website_wordt_genegeerd(uitgelogde_client):
-    """Anders kan een link je na het inloggen zomaar ergens anders naartoe sturen."""
-    for adres in ["//kwaadaardig.example.com", "https://kwaadaardig.example.com"]:
-        antwoord = uitgelogde_client.post("/inloggen", data={
-            "csrf_token": "test-token", "naam": TEST_GEBRUIKER,
-            "wachtwoord": TEST_WACHTWOORD, "verder": adres,
-        })
-        assert antwoord.headers["Location"] == "/vandaag"
+@pytest.mark.parametrize("adres", [
+    "//x",
+    "/\\x",
+    "/%09/x",
+    "%2F%2Fx",
+    "/%0d%0a",
+    "http://x",
+    "\\evil.example",
+    "javascript:alert(1)",
+    "/\t/evil.example",
+    "/\r\nLocation: http://evil.example",
+])
+def test_een_slinks_terugadres_blijft_op_vandaag(uitgelogde_client, adres):
+    """/%09/ en een regeleinde werden een andere site, of een 500."""
+    antwoord = uitgelogde_client.post("/inloggen", data={
+        "csrf_token": "test-token", "naam": TEST_GEBRUIKER,
+        "wachtwoord": TEST_WACHTWOORD, "verder": adres,
+    })
+    assert antwoord.status_code == 302
+    assert antwoord.headers["Location"] == "/vandaag"
 
 
 def test_uitloggen(client):

@@ -18,6 +18,7 @@ genoeg; anders blijft de vorige versie draaien.
 - Op een klus voeg je een dag, notitie of bon toe met de plus in de kop.
   Een tik op de regel opent het invulveld.
 - Het openstaande bedrag op Vandaag blijft wit, ook in de lichte stand.
+  Bij Klussen staat hoeveel uur er nog openstaat, niet alleen een getal.
 
 ## 1.44.3
 

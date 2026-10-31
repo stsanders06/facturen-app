@@ -24,25 +24,101 @@ def test_een_knop_is_hoog_genoeg_voor_een_muis_en_een_vinger(client):
 
 def test_het_openstaande_bedrag_blijft_wit(client):
     """color: inherit op links won van het wit van de kaart, waardoor het
-    bedrag bijna zwart op de donkere kaart stond."""
+    bedrag bijna zwart op de donkere kaart stond. Licht en donker, en op
+    een telefoonbreedte."""
     from browser import meetbrowser, playwright_verplicht
 
     sync_playwright = playwright_verplicht()
     html = client.get("/vandaag").data.decode()
     with sync_playwright() as p:
         browser = meetbrowser(p)
-        pagina = browser.new_page(color_scheme="light")
         try:
-            pagina.set_content(html)
-            kleur = pagina.evaluate(
-                """() => getComputedStyle(document.querySelector('.vandaag-kaart b')).color"""
-            )
+            for schema, breedte in (("light", 1280), ("dark", 1280), ("light", 390), ("dark", 390)):
+                pagina = browser.new_page(
+                    color_scheme=schema,
+                    viewport={"width": breedte, "height": 844},
+                )
+                pagina.set_content(html)
+                kleur = pagina.evaluate(
+                    """() => getComputedStyle(document.querySelector('.vandaag-kaart b')).color"""
+                )
+                pagina.close()
+                assert kleur == "rgb(255, 255, 255)", (schema, breedte, kleur)
         finally:
             browser.close()
-    assert kleur == "rgb(255, 255, 255)", kleur
 
 
-def test_escape_sluit_het_menu_meer(client):
+def test_escape_zet_de_focus_terug_op_meer(client):
+    """Enter opent Meer, Tab gaat het menu in, Escape moet terug naar de knop."""
+    from browser import meetbrowser, playwright_verplicht
+
+    sync_playwright = playwright_verplicht()
+    html = client.get("/offertes").data.decode()
+    with sync_playwright() as p:
+        browser = meetbrowser(p)
+        pagina = browser.new_page(viewport={"width": 390, "height": 844})
+        try:
+            pagina.set_content(html)
+            knop = pagina.locator("details.meer > summary")
+            knop.focus()
+            pagina.keyboard.press("Enter")
+            assert pagina.locator("details.meer").get_attribute("open") is not None
+            pagina.keyboard.press("Tab")
+            binnen = pagina.evaluate(
+                "() => !!document.activeElement.closest('.meer-vel')"
+            )
+            assert binnen
+            pagina.keyboard.press("Escape")
+            assert pagina.locator("details.meer").get_attribute("open") is None
+            zelfde = pagina.evaluate(
+                "() => document.activeElement === document.querySelector('details.meer > summary')"
+            )
+            assert zelfde
+        finally:
+            browser.close()
+
+
+def test_een_nieuwe_regel_krijgt_een_eigen_id(client, maak_factuur):
+    """Een kloon van de eerste regel hield soort-1 en aantal-1, zodat elk
+    label naar de eerste regel wees."""
+    from browser import meetbrowser, playwright_verplicht
+
+    sync_playwright = playwright_verplicht()
+    factuur_id = maak_factuur()
+    with sync_playwright() as p:
+        browser = meetbrowser(p)
+        try:
+            for pad in ("/nieuw", f"/factuur/{factuur_id}/bewerk"):
+                pagina = browser.new_page()
+                pagina.set_content(client.get(pad).data.decode())
+                pagina.evaluate(
+                    "() => { const d = document.querySelector('details.wijzig'); if (d) d.open = true; }"
+                )
+                pagina.locator("#regel-erbij").click()
+                pagina.locator("#regel-erbij").click()
+                ids = pagina.evaluate(
+                    """() => [...document.querySelectorAll('#regels .regel')].map(rij => {
+                      const sel = rij.querySelector('select.soort');
+                      const aantal = rij.querySelector('[name="aantal"]');
+                      const oms = rij.querySelector('[name="omschrijving"]');
+                      return {
+                        sel: sel.id,
+                        aantal: aantal.id,
+                        oms: oms.id,
+                        selLabel: !!rij.querySelector('label[for="' + sel.id + '"]'),
+                        aantalLabel: !!rij.querySelector('label[for="' + aantal.id + '"]'),
+                        omsLabel: !!rij.querySelector('label[for="' + oms.id + '"]'),
+                      };
+                    })"""
+                )
+                pagina.close()
+                assert len(ids) == 3, pad
+                assert len({rij["sel"] for rij in ids}) == 3, ids
+                assert len({rij["aantal"] for rij in ids}) == 3, ids
+                assert len({rij["oms"] for rij in ids}) == 3, ids
+                assert all(rij["selLabel"] and rij["aantalLabel"] and rij["omsLabel"] for rij in ids)
+        finally:
+            browser.close()
     from browser import meetbrowser, playwright_verplicht
 
     sync_playwright = playwright_verplicht()

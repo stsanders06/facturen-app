@@ -334,8 +334,14 @@
      richtlijn van zowel Apple als Google. */
   @media (pointer: coarse), (max-width: 620px) {
     .btn { padding: 12px 20px; min-height: 44px; }
-    .btn-text { padding: 12px 14px; min-height: 44px; font-size: 14px; }
+    .btn-text { padding: 12px 14px; min-height: 44px; min-width: 44px; font-size: 14px; }
+    .menu > summary { min-width: 44px; min-height: 44px; }
     .menu-item { min-height: 44px; }
+    .factuur .klant a { display: inline-flex; align-items: center; min-height: 44px; }
+    .checkregel { min-height: 44px; align-items: center; }
+    .checkregel label { display: flex; align-items: center; min-height: 44px; flex: 1; }
+    .checkregel input[type=checkbox] { width: 22px; height: 22px; margin-top: 0; }
+    .card.lijst .card-head a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; }
   }
   .btn-text:hover { background: var(--primary-soft); }
   .btn-text.danger { color: var(--danger); }
@@ -949,8 +955,8 @@
     .tabbar .meer > summary::marker { content: ""; }
     .tabbar .ico { width: 22px; height: 22px; display: block; flex: none; }
     .tabbar .tab-pil > a.aan,
-    .tabbar .meer.aan > summary,
     .tabbar .meer[open] > summary { background: rgba(255, 255, 255, .85); }
+    .tabbar .meer.aan > summary { background: rgba(120, 120, 128, .22); }
     @media (prefers-color-scheme: dark) {
       .tabbar .tab-pil > a.aan,
       .tabbar .meer.aan > summary,
@@ -1256,7 +1262,7 @@
        balk is op een telefoon weg; zonder dit menu zijn die pagina's daar
        niet meer te vinden. #}
     <details class="meer{% if actief in ['offertes', 'klanten', 'instellingen'] %} aan{% endif %}">
-      <summary>
+      <summary{% if actief in ['offertes', 'klanten', 'instellingen'] %} aria-current="page"{% endif %}>
         <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><circle cx="6" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="18" cy="12" r="1.6"/></svg>
         <span>Meer</span>
       </summary>
@@ -1646,12 +1652,17 @@
   });
 
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') {
-      sluitMenus(null);
-      document.querySelectorAll('details.meer[open]').forEach(function (menu) {
-        menu.removeAttribute('open');
-      });
-    }
+    if (e.key !== 'Escape') return;
+    document.querySelectorAll('details.menu[open], details.meer[open]').forEach(function (menu) {
+      var binnen = menu.contains(document.activeElement);
+      menu.removeAttribute('open');
+      // Zonder dit belandt de focus op de pagina zodra het menu dichtgaat,
+      // terwijl je met het toetsenbord in het menu stond.
+      if (binnen) {
+        var knop = menu.querySelector('summary');
+        if (knop) knop.focus();
+      }
+    });
   });
 
   // Een tekstvak dat meegroeit met wat je typt. Het begint als één regel — anders

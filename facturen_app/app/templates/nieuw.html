@@ -580,8 +580,9 @@
             </select>
           </div>
           <div class="field omschrijving-veld">
-            <label>Omschrijving</label>
-            <input type="text" name="omschrijving" placeholder="Bijv. buis 32 mm"
+            <label for="omschrijving-{{ loop.index }}">Omschrijving</label>
+            <input type="text" name="omschrijving" id="omschrijving-{{ loop.index }}"
+                   placeholder="Bijv. buis 32 mm"
                    value="{{ r.omschrijving if r else '' }}">
           </div>
           <div class="field aantal-veld">
@@ -589,7 +590,7 @@
             {#- Een dagregel volgt de gewerkte dag. Een lager aantal hier zou
                 uren stil van de rekening halen; een korting is een aparte regel. -#}
             <input type="number" step="any" inputmode="decimal" name="aantal"
-                   id="aantal-{{ loop.index }}" aria-label="Aantal"
+                   id="aantal-{{ loop.index }}"
                    {% if r and r.uur_id %}readonly
                    title="Het aantal volgt de dag. Een korting zet je op een aparte regel."
                    {% endif %}
@@ -920,6 +921,10 @@
       var keuze = SOORTEN[regel.querySelector('.soort').value] || SOORTEN.materiaal;
       var aantalVeld = regel.querySelector('.aantal-veld');
       regel.querySelector('.aantal-label').textContent = keuze.aantal;
+      var aantalVeldNaam = regel.querySelector('[name="aantal"]');
+      // aria-label wint van het zichtbare label. Zonder deze zet blijft
+      // een urenregel «Aantal» heten terwijl er «Uren» staat.
+      if (aantalVeldNaam) aantalVeldNaam.setAttribute('aria-label', keuze.aantal);
       regel.querySelector('.prijs-label').textContent = keuze.prijs;
       aantalVeld.hidden = !keuze.metAantal;
       regel.classList.toggle('vaste-prijs', !keuze.metAantal);
@@ -1021,6 +1026,21 @@
       totaalveld.textContent = euro(halfUpDelen(micro, 10000) / 100);
     }
 
+    function verseIds(regel, nummer) {
+      regel.querySelectorAll('[id]').forEach(function (el) {
+        var oud = el.id;
+        if (!oud) return;
+        var nieuwId = oud.replace(/-\d+$/, '') + '-' + nummer;
+        regel.querySelectorAll('[for="' + oud + '"]').forEach(function (label) {
+          label.htmlFor = nieuwId;
+        });
+        regel.querySelectorAll('[aria-labelledby="' + oud + '"]').forEach(function (node) {
+          node.setAttribute('aria-labelledby', nieuwId);
+        });
+        el.id = nieuwId;
+      });
+    }
+
     function regelErbij() {
       var nieuw = container.children[0].cloneNode(true);
       nieuw.hidden = false;
@@ -1039,6 +1059,7 @@
       // een nieuwe regel dat bedrag tonen zodra hij als bewaard geldt.
       var totaal = nieuw.querySelector('.regel-totaal');
       if (totaal) delete totaal.dataset.pdf;
+      verseIds(nieuw, container.querySelectorAll('.regel').length + 1);
       zetOpen(nieuw, false);
       container.appendChild(nieuw);
       pasRegelAan(nieuw);

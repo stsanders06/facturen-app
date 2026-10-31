@@ -26,7 +26,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from email.message import EmailMessage
 from email.utils import getaddresses
 from itertools import zip_longest
-from urllib.parse import quote, urlencode, urlsplit
+from urllib.parse import quote, unquote, urlencode, urlsplit
 from urllib.request import Request, urlopen
 from urllib.error import URLError
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -898,6 +898,25 @@ def account_instellen():
     return render_template("instellen.html", minimum=WACHTWOORD_MINIMUM)
 
 
+# Een terugkeer na het inloggen mag alleen een pad in deze app zijn.
+# %09, %0d%0a en %2F%2F worden eerst uitgepakt: anders maakt de browser
+# van /%09/evil.example alsnog //evil.example, of crasht de redirect op een
+# regeleinde.
+_LOKAAL_PAD = re.compile(r"/(?![/\\])[^\x00-\x1f\x7f\\]*")
+
+
+def lokale_bestemming(verder):
+    tekst = verder or ""
+    for _ in range(5):
+        uitgepakt = unquote(tekst)
+        if uitgepakt == tekst:
+            break
+        tekst = uitgepakt
+    if _LOKAAL_PAD.fullmatch(tekst):
+        return tekst
+    return url_for("vandaag_pagina")
+
+
 @app.route("/inloggen", methods=["GET", "POST"])
 def inloggen():
     if not heeft_account():
@@ -927,11 +946,10 @@ def inloggen():
             session.permanent = request.form.get("onthoud") == "ja"
 
             verder = request.form.get("verder", "")
-            # Alleen terug naar een pagina binnen de app zelf; een adres van buiten
-            # zou je na het inloggen zomaar ergens anders naartoe kunnen sturen.
-            if verder.startswith("/") and not verder.startswith("//"):
-                return redirect(verder)
-            return redirect(url_for("vandaag_pagina"))
+            # Alleen een pad in de app zelf. Een adres van buiten, of een
+            # schijnbaar lokaal pad met een tab of regeleinde, stuurt je
+            # anders na het inloggen naar een andere site.
+            return redirect(lokale_bestemming(verder))
 
         pogingen, _ = MISLUKTE_POGINGEN.get(_afzender(), (0, None))
         MISLUKTE_POGINGEN[_afzender()] = (pogingen + 1, nu())
