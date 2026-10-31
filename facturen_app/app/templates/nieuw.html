@@ -381,10 +381,47 @@
 
 <div class="page-head">
   <h1>
-    {%- if factuur %}{{ 'Offerte' if is_offerte else 'Rekening' }} {{ factuur.nummer }} bewerken
+    {%- if factuur %}{{ 'Offerte' if is_offerte else 'Rekening' }} {{ factuur.nummer or 'concept' }}
     {%- else %}{{ 'Nieuwe offerte' if is_offerte else 'Nieuwe rekening' }}{% endif -%}
   </h1>
 </div>
+
+{% if factuur %}
+<section class="card lees">
+  <div class="card-head" style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+    <h2>{{ factuur.klant_naam or 'Zonder klant' }}</h2>
+    {% if is_offerte %}
+    <span class="chip">{{ factuur.status }}</span>
+    {% elif factuur.status == 'betaald' %}
+    <span class="chip chip-betaald">Betaald</span>
+    {% elif factuur.status == 'verzonden' %}
+    <span class="chip chip-verzonden">Verzonden</span>
+    {% elif factuur.nummer %}
+    <span class="chip chip-definitief">Definitief</span>
+    {% else %}
+    <span class="chip chip-concept">Concept</span>
+    {% endif %}
+  </div>
+  {% if factuur.klant_adres %}<p class="hint">{{ factuur.klant_adres|replace('\n', ', ') }}</p>{% endif %}
+  {% for r in regels or [] %}
+  {% if r and r.omschrijving %}
+  <button type="button" class="rij" data-open-wijzig>
+    <span class="rij-tekst">
+      <b>{{ r.omschrijving }}</b>
+      <small>{{ r.aantal }} × € {{ r.prijs|bedrag }}</small>
+    </span>
+    <span class="rij-bedrag">€ {{ r.subtotaal|bedrag }}</span>
+  </button>
+  {% endif %}
+  {% endfor %}
+  <p class="rij" style="font-weight:700">
+    <span class="rij-tekst"><b>Totaal</b></span>
+    <span class="rij-bedrag">€ {{ factuur.totaal|bedrag }}</span>
+  </p>
+</section>
+<details class="wijzig"{% if formulier_open %} open{% endif %}>
+  <summary class="btn btn-outline">Wijzigen</summary>
+{% endif %}
 
 <form method="post" class="cards" id="stuk-form">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -679,6 +716,9 @@
   </section>
 
 </form>
+{% if factuur %}
+</details>
+{% endif %}
 
 {% if factuur and ((not is_offerte and not factuur.nummer) or factuur.klant_email) %}
 <div class="fabs">
@@ -696,6 +736,14 @@
 {% endif %}
 
 <script>
+  document.querySelectorAll('[data-open-wijzig]').forEach(function (rij) {
+    rij.addEventListener('click', function () {
+      var details = document.querySelector('details.wijzig');
+      if (!details) return;
+      details.open = true;
+      details.scrollIntoView({block: 'start'});
+    });
+  });
   (function () {
     var container = document.getElementById('regels');
     var totaalveld = document.getElementById('totaal');

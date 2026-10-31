@@ -13,8 +13,10 @@ genoeg; anders blijft de vorige versie draaien.
   klanten en instellingen. Op de iPhone zitten offertes, klanten en
   instellingen onder Meer, naast de tabbladen. De tabbladen houden hun naam.
 - Lijsten, filters en formulieren volgen hetzelfde rustige kaartpatroon.
-  Op een rekening die je bewerkt blijven Definitief maken en Mailen onderaan
-  staan, boven het menu.
+  Op een rekening die je bewerkt zie je eerst de regels; Wijzigen opent het
+  formulier. Definitief maken en Mailen blijven onderaan staan.
+- Op een klus voeg je een dag, notitie of bon toe met de plus in de kop.
+  Een tik op de regel opent het invulveld.
 
 ## 1.44.3
 

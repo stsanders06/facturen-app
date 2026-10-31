@@ -201,6 +201,9 @@ def _meet_taakrij(pagina, breedte):
     pagina.set_viewport_size({"width": breedte, "height": 800})
     return pagina.evaluate(
         """(breedte) => {
+          document.querySelectorAll('.invoerkaart').forEach(function (kaart) {
+            kaart.classList.add('is-toevoegen');
+          });
           const doc = document.documentElement;
           const rij = document.querySelector('.taak');
           const vink = rij.querySelector('.vink');

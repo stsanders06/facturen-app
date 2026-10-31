@@ -218,6 +218,13 @@
   /* Met JavaScript is een gewerkte dag een samenvatting tot je op Bewerken
      klikt. Zonder JavaScript blijft het formulier zelf de rij: anders kun
      je de tijden niet aanpassen. */
+  .invoer-kop { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .invoer-plus { min-height: 44px; }
+  /* Het toevoegformulier is dicht tot je op + tikt. Zonder JavaScript blijft
+     het open, anders kun je niets toevoegen. */
+  html.js .invoerkaart:not(.is-toevoegen) > .invoerform { display: none; }
+  html.js .dag-samenvatting,
+  html.js [id$="-tekst"] { cursor: pointer; }
   html.js .dag-formulier { display: none; }
   html.js .invoerrij.aanpassen .dag-formulier { display: block; }
   html.js .invoerrij.aanpassen .dag-samenvatting { display: none; }
@@ -850,7 +857,8 @@
       </div>
     </div>
     <p class="opsomming">
-      {% if klus.klant_naam %}Klant: <a href="{{ url_for('klant', klant_id=klus.klant_id) }}">{{ klus.klant_naam }}</a> ·
+      {% if klus.klant_naam %}Klant: <a href="{{ url_for('klant', klant_id=klus.klant_id) }}">{{ klus.klant_naam }}</a>
+      {%- if klus.klant_adres %} · {{ klus.klant_adres|replace('\n', ', ') }}{% endif %} ·
       {% endif %}
       <span class="chip chip-{{ klus.status }}">{{ fases[klus.status].label }}</span>
       {% if klus.notitie %}<br><span class="klus-notitie">{{ klus.notitie|met_links }}</span>{% endif %}
@@ -927,7 +935,7 @@
   {% endif %}
 
   {% if klus.status != 'aangevraagd' %}
-  {% call invoerkaart('Gewerkte dagen', id='gewerkte-dagen', attributen={'tarief': klus.uurtarief or 0}) %}
+  {% call invoerkaart('Gewerkte dagen', id='gewerkte-dagen', attributen={'tarief': klus.uurtarief or 0}, plus='Dag') %}
     <form method="post" class="invoerform" action="{{ url_for('dag_erbij', klus_id=klus.id) }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="dagvelden" id="nieuwe-dag">
@@ -1086,7 +1094,7 @@
   {% endcall %}
   {% endif %}
 
-  {% call invoerkaart('Notities', id='notities') %}
+  {% call invoerkaart('Notities', id='notities', plus='Notitie') %}
     <p class="hint taken-klus" id="taken-klus"{% if not taken_totaal %} hidden{% endif %}>{{ taken_voortgang }}</p>
     {#- Twee regels: eerst wat je opschrijft, dan wat je erbij wilt zetten. Alles op
         één regel werd een rij van vier dingen waarvan er twee half afgekapt waren.
@@ -1212,7 +1220,7 @@
     {% endif %}
   {% endcall %}
 
-  {% call invoerkaart('Inkopen') %}
+  {% call invoerkaart('Inkopen', plus='Bon') %}
     <form method="post" enctype="multipart/form-data" class="inkoop-form invoerform"
           action="{{ url_for('inkoop_erbij', klus_id=klus.id) }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -1389,6 +1397,17 @@
 
 <script>
   document.documentElement.className += ' js';
+
+  document.querySelectorAll('.invoer-plus').forEach(function (knop) {
+    knop.addEventListener('click', function () {
+      var kaart = knop.closest('.invoerkaart');
+      var open = kaart.classList.toggle('is-toevoegen');
+      knop.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (!open) return;
+      var veld = kaart.querySelector('.invoerform input:not([type=hidden]), .invoerform textarea');
+      if (veld) veld.focus();
+    });
+  });
 
   (function () {
     var blok = document.getElementById('gewerkte-dagen');
@@ -1618,7 +1637,9 @@
       lijst.addEventListener('click', function (e) {
         var rij = e.target.closest('.invoerrij');
         if (!rij) return;
-        if (e.target.closest('[data-dag-bewerk]')) {
+        if (e.target.closest('a, input, textarea, select, label')) return;
+        var tikOpRij = e.target.closest('.dag-samenvatting') && !e.target.closest('button, form');
+        if (e.target.closest('[data-dag-bewerk]') || tikOpRij) {
           rij.classList.add('aanpassen');
           // Niet het datumveld: op een telefoon opent dat meteen de kiezer.
           var veld = rij.querySelector('[name="notitie"]');

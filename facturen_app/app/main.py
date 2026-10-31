@@ -3628,7 +3628,7 @@ def klant_verwijder(klant_id):
 def klus_met_uren(conn, klus_id):
     """De klus, zijn dagen en de opgetelde uren. Geeft None als de klus niet bestaat."""
     klus = conn.execute(
-        """SELECT kl.*, k.naam AS klant_naam FROM klussen kl
+        """SELECT kl.*, k.naam AS klant_naam, k.adres AS klant_adres FROM klussen kl
            LEFT JOIN klanten k ON k.id = kl.klant_id WHERE kl.id=?""",
         (klus_id,),
     ).fetchone()
@@ -7993,6 +7993,7 @@ def _render_bewerk_ingevuld(factuur, ingevuld):
         kenmerk=ingevuld["kenmerk"],
         betaalmethode=ingevuld["betaalmethode"],
         termijn_aan=ingevuld["termijn_aan"],
+        formulier_open=True,
     )
 
 

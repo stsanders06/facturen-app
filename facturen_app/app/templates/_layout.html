@@ -895,7 +895,12 @@
     .container {
       margin-left: auto;
       max-width: 720px;
-      padding: 16px 16px calc(118px + env(safe-area-inset-bottom, 0px));
+      padding: 16px 16px calc(96px + env(safe-area-inset-bottom, 0px));
+    }
+    /* De tabbalk is 58 px hoog en hangt 10 px boven de rand. De laatste
+       regel moet daar voorbij kunnen schuiven, ook als een veld focus krijgt. */
+    html {
+      scroll-padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
     }
     .tabbar {
       display: flex;
@@ -1121,6 +1126,22 @@
   /* Op de telefoon blijft de verzendknop boven de tabbalk plakken. De extra
      acties (definitief, mailen) hangen daar vast boven. */
   .fabs { display: none; }
+  .wijzig { margin-top: 12px; }
+  .wijzig > summary { margin-bottom: 12px; list-style: none; cursor: pointer; }
+  .wijzig > summary::-webkit-details-marker { display: none; }
+  /* .cards zet display:flex. Dat wint van de browserregel die een dicht
+     details-blok verbergt, waardoor het formulier altijd open bleef. */
+  .wijzig:not([open]) > :not(summary) { display: none; }
+  .lees button.rij {
+    width: 100%;
+    border: 0;
+    border-top: 1px solid var(--divider);
+    background: none;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
   @media (max-width: 900px) {
     .indienen {
       position: sticky;
@@ -1639,6 +1660,13 @@
 
   document.querySelectorAll('[data-bewerkt]').forEach(function (knop) {
     knop.addEventListener('click', function () { wisselBewerken(knop.dataset.bewerkt, true); });
+  });
+  // Een tik op de gelezen regel opent hetzelfde veld als Bewerken.
+  document.querySelectorAll('[id$="-tekst"]').forEach(function (tekst) {
+    tekst.addEventListener('click', function (e) {
+      if (e.target.closest('a, button, input, textarea, form')) return;
+      wisselBewerken(tekst.id.replace(/-tekst$/, ''), true);
+    });
   });
   document.querySelectorAll('[data-stopt]').forEach(function (knop) {
     knop.addEventListener('click', function () { wisselBewerken(knop.dataset.stopt, false); });
