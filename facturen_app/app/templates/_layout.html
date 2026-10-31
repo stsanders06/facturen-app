@@ -1501,26 +1501,44 @@
 
   // Het filtersegment schuift op een smalle telefoon zijwaarts. De gekozen
   // knop moet dan in beeld staan, anders zie je niet welk filter aan staat.
-  // Geen scrollIntoView: dat schuift ook de pagina zelf omhoog of omlaag.
-  // De randen vervagen alleen aan de kant waar nog knoppen achter liggen.
+  // Hetzelfde geldt voor een knop die met Tab de focus krijgt: half achter de
+  // rand zie je niet waar je bent. Geen scrollIntoView: dat schuift ook de
+  // pagina zelf omhoog of omlaag. De randen vervagen alleen aan de kant waar
+  // nog knoppen achter liggen; de marge is ruimer dan die vervaging (28 px),
+  // zodat de knop nooit half in de vervaging staat.
   (function () {
+    var MARGE = 32;
+    var rustig = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
+    function inBeeld(rij, knop, zacht) {
+      if (!knop || rij.scrollWidth <= rij.clientWidth + 1) return;
+      var links = knop.getBoundingClientRect().left - rij.getBoundingClientRect().left + rij.scrollLeft;
+      var doel = null;
+      if (links + knop.offsetWidth > rij.scrollLeft + rij.clientWidth - MARGE) {
+        doel = links + knop.offsetWidth - rij.clientWidth + MARGE;
+      } else if (links < rij.scrollLeft + MARGE) {
+        doel = Math.max(0, links - MARGE);
+      }
+      if (doel === null) return;
+      var max = rij.scrollWidth - rij.clientWidth;
+      doel = Math.min(max, Math.max(0, doel));
+      if (zacht && !(rustig && rustig.matches) && rij.scrollTo) {
+        rij.scrollTo({left: doel, behavior: 'smooth'});
+      } else {
+        rij.scrollLeft = doel;
+      }
+    }
     document.querySelectorAll('.filters').forEach(function (rij) {
       function randen() {
         var rest = rij.scrollWidth - rij.clientWidth;
         rij.classList.toggle('meer-links', rest > 1 && rij.scrollLeft > 1);
         rij.classList.toggle('meer-rechts', rest > 1 && rij.scrollLeft < rest - 1);
       }
-      var aan = rij.querySelector('a.aan');
-      if (aan && rij.scrollWidth > rij.clientWidth + 1) {
-        var links = aan.getBoundingClientRect().left - rij.getBoundingClientRect().left + rij.scrollLeft;
-        var marge = 24;
-        if (links + aan.offsetWidth > rij.scrollLeft + rij.clientWidth - marge) {
-          rij.scrollLeft = links + aan.offsetWidth - rij.clientWidth + marge;
-        } else if (links < rij.scrollLeft + marge) {
-          rij.scrollLeft = Math.max(0, links - marge);
-        }
-      }
+      inBeeld(rij, rij.querySelector('a.aan'), false);
       randen();
+      rij.addEventListener('focusin', function (e) {
+        var knop = e.target && e.target.closest ? e.target.closest('a') : null;
+        if (knop && rij.contains(knop)) inBeeld(rij, knop, true);
+      });
       rij.addEventListener('scroll', randen, {passive: true});
       window.addEventListener('resize', randen);
     });

@@ -1,9 +1,8 @@
-"""De tabbalk, het filtersegment en de lage kaarten van 2.0.1.
+"""De tabbalk, het filtersegment en de kaarten van 2.0.1.
 
 Op de iPhone staat Klanten los in de balk en zit Scans achter Meer. Het
 filtersegment blijft op een smalle telefoon één rij die zijwaarts schuift.
-De kaarten in de lijsten hebben geen losse onderste rij meer: nummer, status
-en knoppen staan op één regel (Mac) of op twee lage regels (telefoon).
+De kaarten in de lijsten blijven zoals in 2.0.0, met hun eigen onderregel.
 """
 import re
 
@@ -177,6 +176,9 @@ def _filter_script():
         hoog: fr.height,
         laagste: Math.min(...knoppen.map(a => a.getBoundingClientRect().height)),
         aanInBeeld: aan.left >= fr.left - 0.5 && aan.right <= fr.right + 0.5,
+        // Niet half in de vervaging (28 px) aan een kant waar nog meer ligt.
+        aanVrij: aan.left >= fr.left + (f.classList.contains('meer-links') ? 28 : 0) - 0.5
+          && aan.right <= fr.right - (f.classList.contains('meer-rechts') ? 28 : 0) + 0.5,
         schuift: f.scrollWidth > f.clientWidth + 1,
         balk: f.offsetHeight - f.clientHeight,
         pagina: doc.scrollWidth > doc.clientWidth + 1,
@@ -207,11 +209,135 @@ def test_het_filtersegment_is_een_rij_op_een_telefoon(client, db, maak_factuur, 
                 assert uit["hoog"] <= 52, (pad, breedte, uit)
                 assert uit["laagste"] >= 43.5, (pad, breedte, uit)
                 assert uit["aanInBeeld"], (pad, breedte, uit)
+                assert uit["aanVrij"], (pad, breedte, uit)
                 assert uit["balk"] == 0, (pad, breedte, uit)
                 assert not uit["pagina"], (pad, breedte, uit)
                 assert uit["y"] == 0, (pad, breedte, uit)
         finally:
             browser.close()
+
+
+def test_het_gekozen_filter_heeft_aria_current(client, db, maak_factuur, maak_offerte):
+    """Een schermlezer hoort welk filter aan staat, niet alleen een kleur."""
+    _lijst(db, maak_factuur, maak_offerte)
+    _te_laat(maak_factuur, maak_offerte)
+    for pad, gekozen in [("/", "Alles"), ("/?status=betaald", "Betaald"),
+                         ("/?status=verlopen", "Te laat"), ("/offertes", "Alles"),
+                         ("/offertes?status=geaccepteerd", "Geaccepteerd"),
+                         ("/offertes?status=verlopen", "Verlopen")]:
+        html = client.get(pad).data.decode()
+        rij = html.split('<div class="filters"', 1)[1].split("</div>", 1)[0]
+        knoppen = re.findall(r"<a [^>]*>[^<]*</a>", rij)
+        aan = [k for k in knoppen if 'class="aan"' in k]
+        assert len(aan) == 1, (pad, knoppen)
+        assert 'aria-current="page"' in aan[0], (pad, aan)
+        assert aan[0].endswith(f">{gekozen}</a>"), (pad, aan)
+        assert sum('aria-current' in k for k in knoppen) == 1, (pad, knoppen)
+
+
+def _focus_browser(p, naam):
+    """WebKit (zoals op de iPhone) of Chromium. Zonder Chromium: overslaan."""
+    if naam == "webkit":
+        return p.webkit.launch()
+    from browser import meetbrowser
+    browser = meetbrowser(p)
+    if browser.browser_type.name != "chromium":
+        browser.close()
+        pytest.skip("Chromium is niet geïnstalleerd")
+    return browser
+
+
+_FOCUS_STAND = """(i) => {
+  const f = document.querySelector('.filters');
+  const knop = f.querySelectorAll('a')[i];
+  const fr = f.getBoundingClientRect(), r = knop.getBoundingClientRect();
+  return {
+    naam: knop.textContent.trim(),
+    focus: document.activeElement === knop,
+    links: r.left - fr.left, rechts: fr.right - r.right,
+    vaagLinks: f.classList.contains('meer-links'),
+    vaagRechts: f.classList.contains('meer-rechts'),
+    y: scrollY,
+  };
+}"""
+
+
+def _vrij(uit):
+    return (uit["links"] >= (28 if uit["vaagLinks"] else 0) - 0.5
+            and uit["rechts"] >= (28 if uit["vaagRechts"] else 0) - 0.5)
+
+
+@pytest.mark.parametrize("naam", ["webkit", "chromium"])
+@pytest.mark.parametrize("pad", ["/offertes", "/"])
+def test_een_filterknop_met_focus_schuift_in_beeld(client, db, maak_factuur, maak_offerte, naam, pad):
+    """Met Tab door het segment: elke knop die de focus krijgt, staat helemaal
+    in beeld en niet in de vervaging. De focus zetten we zonder dat de browser
+    zelf schuift (preventScroll), zodat het onze focusin-code is die het doet.
+    Met minder beweging (prefers-reduced-motion) springt hij er meteen heen."""
+    from browser import playwright_verplicht
+
+    if naam == "webkit":
+        # Zelfde regel als de andere WebKit-tests: in CI staat die er niet.
+        from browser import webkit_of_overslaan
+
+        sync_playwright = webkit_of_overslaan()
+    else:
+        sync_playwright = playwright_verplicht()
+    _lijst(db, maak_factuur, maak_offerte)
+    _te_laat(maak_factuur, maak_offerte)
+    html = client.get(pad).data.decode()
+    with sync_playwright() as p:
+        browser = _focus_browser(p, naam)
+        try:
+            for beweging in ("reduce", "no-preference"):
+                ctx = browser.new_context(viewport={"width": 320, "height": 700},
+                                          has_touch=True, reduced_motion=beweging)
+                pagina = ctx.new_page()
+                pagina.set_content(html)
+                aantal = pagina.evaluate("() => document.querySelectorAll('.filters a').length")
+                assert pagina.evaluate("() => { const f = document.querySelector('.filters');"
+                                       " return f.scrollWidth > f.clientWidth + 1; }"), (naam, pad)
+                volgorde = list(range(aantal)) + list(range(aantal - 2, -1, -1))
+                for i in volgorde:
+                    pagina.evaluate("(i) => document.querySelectorAll('.filters a')[i]"
+                                    ".focus({preventScroll: true})", i)
+                    if beweging == "reduce":
+                        # Geen animatie: direct na het volgende beeld staat hij er.
+                        pagina.evaluate("() => new Promise(r => requestAnimationFrame(() => r()))")
+                    else:
+                        pagina.wait_for_timeout(700)
+                    uit = pagina.evaluate(_FOCUS_STAND, i)
+                    plek = (naam, pad, beweging, i, uit)
+                    assert uit["focus"], plek
+                    assert _vrij(uit), plek
+                    assert uit["y"] == 0, plek
+                ctx.close()
+
+            # En met een echte Tab vanaf de eerste knop.
+            ctx = browser.new_context(viewport={"width": 320, "height": 700}, reduced_motion="reduce")
+            pagina = ctx.new_page()
+            pagina.set_content(html)
+            pagina.locator(".filters a").first.focus()
+            for i in range(1, aantal):
+                pagina.keyboard.press("Tab")
+                pagina.evaluate("() => new Promise(r => requestAnimationFrame(() => r()))")
+                if not pagina.evaluate("() => !!document.activeElement.closest('.filters')"):
+                    # WebKit springt met Tab standaard niet langs links.
+                    assert naam == "webkit", (pad, i)
+                    break
+                uit = pagina.evaluate(_FOCUS_STAND, i)
+                assert uit["focus"] and _vrij(uit), (naam, pad, "tab", i, uit)
+            ctx.close()
+        finally:
+            browser.close()
+
+
+def test_de_marge_is_ruimer_dan_de_vervaging(client):
+    """De vervaging aan de rand is 28 px; de knop moet daar buiten blijven."""
+    html = client.get("/offertes").data.decode()
+    assert "28px" in regel_met(css_van(html), ".filters.meer-rechts")
+    marge = int(re.search(r"var MARGE = (\d+);", html).group(1))
+    assert marge >= 28
 
 
 def test_op_een_mac_schuift_het_filtersegment_niet(client, db, maak_factuur, maak_offerte):

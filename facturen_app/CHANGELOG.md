@@ -12,7 +12,8 @@ genoeg; anders blijft de vorige versie draaien.
   zijbalk links.
 - De filterknoppen bij Offertes en Rekeningen blijven op één regel. Past het
   niet op een smalle telefoon, dan veeg je de rij opzij. Het filter dat aan
-  staat is altijd in beeld.
+  staat is altijd in beeld. Ga je er met Tab langs, dan schuift de knop met
+  focus mee in beeld. Een schermlezer leest voor welk filter aan staat.
 
 ## 2.0.0
 

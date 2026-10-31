@@ -89,12 +89,12 @@
 </div>
 
 <div class="filters" style="margin-bottom:12px">
-  <a href="{{ url_for('index') }}" {% if keuze == 'alles' %}class="aan"{% endif %}>Alles</a>
-  <a href="{{ url_for('index') }}?status=openstaand" {% if keuze == 'openstaand' %}class="aan"{% endif %}>Openstaand</a>
+  <a href="{{ url_for('index') }}" {% if keuze == 'alles' %}class="aan" aria-current="page"{% endif %}>Alles</a>
+  <a href="{{ url_for('index') }}?status=openstaand" {% if keuze == 'openstaand' %}class="aan" aria-current="page"{% endif %}>Openstaand</a>
   {% if overzicht.verlopen_aantal %}
-  <a href="{{ url_for('index') }}?status=verlopen" {% if keuze == 'verlopen' %}class="aan"{% endif %}>Te laat</a>
+  <a href="{{ url_for('index') }}?status=verlopen" {% if keuze == 'verlopen' %}class="aan" aria-current="page"{% endif %}>Te laat</a>
   {% endif %}
-  <a href="{{ url_for('index') }}?status=betaald" {% if keuze == 'betaald' %}class="aan"{% endif %}>Betaald</a>
+  <a href="{{ url_for('index') }}?status=betaald" {% if keuze == 'betaald' %}class="aan" aria-current="page"{% endif %}>Betaald</a>
 </div>
 
 {{ zoekbalk(url_for('index'), zoek, 'Zoek op nummer, klant of kenmerk', keuze) }}
