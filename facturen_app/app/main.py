@@ -49,7 +49,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "1.44.3"
+VERSIE = os.environ.get("ADDON_VERSION") or "2.0.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -768,6 +768,40 @@ def aantal_scans():
 def _scans_in_het_menu():
     """Het aantal op het tabblad, op elke pagina hetzelfde."""
     return {"scan_aantal": aantal_scans()}
+
+
+@app.context_processor
+def _wallet_menu():
+    """Tellingen en de bedrijfsnaam voor de zijbalk. Faalt de database even,
+    dan blijft het menu leeg in plaats van de pagina te breken."""
+    leeg = {
+        "bedrijfsnaam": "Facturen",
+        "menu_rekeningen": 0,
+        "menu_offertes": 0,
+        "menu_klussen": 0,
+        "menu_klanten": 0,
+        "menu_te_laat": 0,
+    }
+    try:
+        s = get_settings()
+        leeg["bedrijfsnaam"] = (s.get("naam") or "Facturen").strip() or "Facturen"
+        conn = get_db()
+        try:
+            leeg["menu_rekeningen"] = conn.execute("SELECT COUNT(*) FROM facturen").fetchone()[0]
+            leeg["menu_offertes"] = conn.execute("SELECT COUNT(*) FROM offertes").fetchone()[0]
+            leeg["menu_klussen"] = conn.execute("SELECT COUNT(*) FROM klussen").fetchone()[0]
+            leeg["menu_klanten"] = conn.execute("SELECT COUNT(*) FROM klanten").fetchone()[0]
+            vandaag_iso = nu().date().isoformat()
+            leeg["menu_te_laat"] = conn.execute(
+                """SELECT COUNT(*) FROM facturen
+                   WHERE status != 'betaald' AND vervalt_op != '' AND vervalt_op < ?""",
+                (vandaag_iso,),
+            ).fetchone()[0]
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        pass
+    return leeg
 
 
 @app.context_processor
@@ -3109,6 +3143,31 @@ def factuurlijst(conn, klant_id=None):
         )
         lijst.append(factuur)
     return lijst
+
+
+@app.route("/vandaag")
+def vandaag_pagina():
+    """Het startscherm: wat openstaat, wat te laat is, en de klussen."""
+    conn = get_db()
+    facturen = factuurlijst(conn)
+    klussen = klussenlijst()
+    conn.close()
+    openstaand = [f for f in facturen if f["status"] != "betaald"]
+    te_laat = [f for f in openstaand if f["verlopen"]]
+    concepten = [f for f in facturen if not (f["nummer"] or "").strip()]
+    return render_template(
+        "vandaag.html",
+        actief="vandaag",
+        wanneer=nu().date(),
+        openstaand=sum(f["openstaand"] for f in openstaand),
+        open_aantal=len(openstaand),
+        te_laat_bedrag=sum(f["openstaand"] for f in te_laat),
+        te_laat=te_laat[:6],
+        concepten=concepten[:4],
+        klussen=klussen[:6],
+        fases=KLUS_FASES,
+        open_uren=round(sum(k["uren_open"] for k in klussen if k["status"] != "aangevraagd"), 2),
+    )
 
 
 @app.route("/")

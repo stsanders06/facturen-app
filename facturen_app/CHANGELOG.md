@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.0.0
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **De app ziet eruit als een rustig overzicht.** Vandaag toont wat openstaat,
+  wat te laat is, en waar je mee bezig bent. Op een Mac zit het menu links,
+  op de iPhone onderin. Knoppen zijn zwart of wit; kleur is alleen voor een
+  status, zoals te laat of betaald.
+- Alles wat er al was blijft bereikbaar: rekeningen, offertes, klussen, scans,
+  klanten en instellingen.
+
 ## 1.44.3
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet

@@ -1,0 +1,79 @@
+{% extends "_layout.html" %}
+{% block title %}Vandaag{% endblock %}
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Vandaag</h1>
+    <p class="hint">{{ wanneer|datum_nl }}{% if bedrijfsnaam %} · {{ bedrijfsnaam }}{% endif %}</p>
+  </div>
+  <a class="btn" href="{{ url_for('nieuw') }}">Nieuwe rekening</a>
+</div>
+
+<a class="vandaag-kaart" href="{{ url_for('index', status='openstaand') }}">
+  <small>Openstaand</small>
+  <b>&euro; {{ openstaand|bedrag }}</b>
+  <small>{{ open_aantal }} rekening{{ 'en' if open_aantal != 1 else '' }}
+    {% if te_laat_bedrag %} · &euro; {{ te_laat_bedrag|bedrag }} te laat{% endif %}</small>
+</a>
+
+<div class="vandaag-rij">
+  <a class="laat" href="{{ url_for('index', status='verlopen') }}">
+    <small>Te laat</small>
+    <strong>&euro; {{ te_laat_bedrag|bedrag }}</strong>
+    <small>{{ te_laat|length }} rekening{{ 'en' if te_laat|length != 1 else '' }}</small>
+  </a>
+  <a href="{{ url_for('klussen') }}">
+    <small>Klussen</small>
+    <strong>{{ menu_klussen }}</strong>
+    <small>{{ open_uren|uren }} open</small>
+  </a>
+  <a href="{{ url_for('scans') }}">
+    <small>Scans</small>
+    <strong>{{ scan_aantal }}</strong>
+    <small>{% if scan_aantal %}nog koppelen{% else %}inbox leeg{% endif %}</small>
+  </a>
+</div>
+
+{% if te_laat or concepten %}
+<section class="card">
+  <div class="card-head"><h2>Te doen</h2></div>
+  {% for f in te_laat %}
+  <p style="margin:8px 0">
+    <a href="{{ url_for('bewerk', factuur_id=f.id) }}">{{ f.klant_naam or 'Zonder klant' }}</a>
+    <span class="hint">{{ f.nummer or 'concept' }} · te laat</span>
+    <span style="float:right">&euro; {{ f.openstaand|bedrag }}</span>
+  </p>
+  {% endfor %}
+  {% for f in concepten %}
+  <p style="margin:8px 0">
+    <a href="{{ url_for('bewerk', factuur_id=f.id) }}">Concept afmaken</a>
+    <span class="hint">{{ f.klant_naam or 'Zonder klant' }}</span>
+    <span style="float:right">&euro; {{ f.totaal|bedrag }}</span>
+  </p>
+  {% endfor %}
+  {% if scan_aantal %}
+  <p style="margin:8px 0"><a href="{{ url_for('scans') }}">{{ scan_aantal }} scan{{ 's' if scan_aantal != 1 else '' }} koppelen</a></p>
+  {% endif %}
+</section>
+{% endif %}
+
+<section class="card" style="margin-top:12px">
+  <div class="card-head" style="display:flex;justify-content:space-between;align-items:baseline">
+    <h2>Klussen</h2>
+    <a href="{{ url_for('klussen') }}">Alles</a>
+  </div>
+  {% if not klussen %}
+  <p class="hint">Nog geen klussen. <a href="{{ url_for('klus_nieuw') }}">Maak de eerste.</a></p>
+  {% else %}
+  {% for k in klussen %}
+  <p style="margin:8px 0">
+    <a href="{{ url_for('klus', klus_id=k.id) }}">{{ k.naam }}</a>
+    <span class="hint">{{ k.klant_naam or 'Zonder klant' }} · {{ k.uren|uren }}</span>
+    <span class="chip chip-{{ k.status }}" style="float:right">{{ fases[k.status].label }}</span>
+  </p>
+  {% endfor %}
+  {% endif %}
+</section>
+
+{% endblock %}
