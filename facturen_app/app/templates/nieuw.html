@@ -597,8 +597,9 @@
                    value="{{ tekst_van_getal(r.aantal) if r else '1' }}">
           </div>
           <div class="field prijs-veld">
-            <label class="prijs-label">Prijs</label>
-            <input type="number" step="any" inputmode="decimal" name="prijs" placeholder="0,00"
+            <label class="prijs-label" for="prijs-{{ loop.index }}">Prijs</label>
+            <input type="number" step="any" inputmode="decimal" name="prijs"
+                   id="prijs-{{ loop.index }}" placeholder="0,00"
                    value="{{ tekst_van_getal(r.prijs) if r else '' }}">
           </div>
           <input type="hidden" name="regel_klus" value="{{ r.klus_id if r and r.klus_id else '' }}">
@@ -1026,6 +1027,17 @@
       totaalveld.textContent = euro(halfUpDelen(micro, 10000) / 100);
     }
 
+    function volgendRegelnummer() {
+      // Niet «aantal + 1»: na het weghalen van regel 2 is 5 er nog, en een
+      // nieuwe regel zou soort-5 nog een keer krijgen.
+      var hoogste = 0;
+      container.querySelectorAll('[id]').forEach(function (el) {
+        var gevonden = /-(\d+)$/.exec(el.id || '');
+        if (gevonden) hoogste = Math.max(hoogste, parseInt(gevonden[1], 10));
+      });
+      return hoogste + 1;
+    }
+
     function verseIds(regel, nummer) {
       regel.querySelectorAll('[id]').forEach(function (el) {
         var oud = el.id;
@@ -1059,7 +1071,7 @@
       // een nieuwe regel dat bedrag tonen zodra hij als bewaard geldt.
       var totaal = nieuw.querySelector('.regel-totaal');
       if (totaal) delete totaal.dataset.pdf;
-      verseIds(nieuw, container.querySelectorAll('.regel').length + 1);
+      verseIds(nieuw, volgendRegelnummer());
       zetOpen(nieuw, false);
       container.appendChild(nieuw);
       pasRegelAan(nieuw);

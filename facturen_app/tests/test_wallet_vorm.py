@@ -119,6 +119,50 @@ def test_een_nieuwe_regel_krijgt_een_eigen_id(client, maak_factuur):
                 assert all(rij["selLabel"] and rij["aantalLabel"] and rij["omsLabel"] for rij in ids)
         finally:
             browser.close()
+
+
+def test_na_verwijderen_krijgt_een_nieuwe_regel_een_vers_id(client, maak_factuur):
+    """Vijf regels, regel 2 weg, en dan een nieuwe: soort-5 mag er niet
+    twee keer zijn."""
+    from browser import meetbrowser, playwright_verplicht
+
+    sync_playwright = playwright_verplicht()
+    factuur_id = maak_factuur()
+
+    def ids_van(pagina):
+        return pagina.evaluate(
+            """() => [...document.querySelectorAll('#regels .regel')].map(rij => ({
+              sel: rij.querySelector('select.soort').id,
+              aantal: rij.querySelector('[name="aantal"]').id,
+              oms: rij.querySelector('[name="omschrijving"]').id,
+            }))"""
+        )
+
+    with sync_playwright() as p:
+        browser = meetbrowser(p)
+        try:
+            for pad in ("/nieuw", f"/factuur/{factuur_id}/bewerk"):
+                pagina = browser.new_page()
+                pagina.set_content(client.get(pad).data.decode())
+                pagina.evaluate(
+                    "() => { const d = document.querySelector('details.wijzig'); if (d) d.open = true; }"
+                )
+                for _ in range(4):
+                    pagina.locator("#regel-erbij").click()
+                pagina.locator("#regels .regel").nth(1).locator(".weg").click()
+                pagina.locator("#regel-erbij").click()
+                ids = ids_van(pagina)
+                pagina.close()
+                assert len(ids) == 5, pad
+                for sleutel in ("sel", "aantal", "oms"):
+                    waarden = [rij[sleutel] for rij in ids]
+                    assert len(waarden) == len(set(waarden)), (pad, sleutel, waarden)
+        finally:
+            browser.close()
+
+
+def test_escape_sluit_het_menu_meer(client):
+    """Een tik op Meer en daarna Escape hoort het menu dicht te doen."""
     from browser import meetbrowser, playwright_verplicht
 
     sync_playwright = playwright_verplicht()

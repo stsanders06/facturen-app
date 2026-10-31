@@ -330,6 +330,21 @@
     min-height: 32px;
     min-width: 32px;
   }
+  .menu > summary { min-width: 32px; min-height: 32px; }
+  .card.lijst .card-head a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 32px;
+    min-width: 32px;
+    padding: 4px 8px;
+  }
+  .factuur .klant a,
+  .offerte .klant a,
+  .opsomming a {
+    display: inline-block;
+    padding: 6px 2px;
+    margin: -6px -2px;
+  }
   /* Op een aanraakscherm moet elke knop met een duim te raken zijn: 44px is de
      richtlijn van zowel Apple als Google. */
   @media (pointer: coarse), (max-width: 620px) {

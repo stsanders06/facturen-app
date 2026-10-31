@@ -902,18 +902,27 @@ def account_instellen():
 # %09, %0d%0a en %2F%2F worden eerst uitgepakt: anders maakt de browser
 # van /%09/evil.example alsnog //evil.example, of crasht de redirect op een
 # regeleinde.
+_MAX_VERDER = 2000
 _LOKAAL_PAD = re.compile(r"/(?![/\\])[^\x00-\x1f\x7f\\]*")
 
 
 def lokale_bestemming(verder):
-    tekst = verder or ""
+    """Het pad om na het inloggen heen te gaan.
+
+    Gevaarlijke vormen worden geweigerd op de uitgepakte tekst, zodat een
+    tab of %2F%2F geen andere site wordt. Een gewone link gaat terug zoals
+    hij binnenkwam: anders wordt zoek=a%26b een tweede parameter."""
+    origineel = verder or ""
+    if len(origineel) > _MAX_VERDER:
+        return url_for("vandaag_pagina")
+    tekst = origineel
     for _ in range(5):
         uitgepakt = unquote(tekst)
         if uitgepakt == tekst:
             break
         tekst = uitgepakt
     if _LOKAAL_PAD.fullmatch(tekst):
-        return tekst
+        return origineel
     return url_for("vandaag_pagina")
 
 

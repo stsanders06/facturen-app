@@ -111,6 +111,31 @@ def test_een_slinks_terugadres_blijft_op_vandaag(uitgelogde_client, adres):
     assert antwoord.headers["Location"] == "/vandaag"
 
 
+@pytest.mark.parametrize("adres", [
+    "/klanten?zoek=a%26b%3Dc",
+    "/klanten?q=100%25",
+    "/klussen%23taken",
+])
+def test_een_gecodeerde_link_blijft_heel(uitgelogde_client, adres):
+    """Valideren mag uitpakken, doorsturen niet: anders wordt %26 een
+    tweede parameter en %23 een anker."""
+    antwoord = uitgelogde_client.post("/inloggen", data={
+        "csrf_token": "test-token", "naam": TEST_GEBRUIKER,
+        "wachtwoord": TEST_WACHTWOORD, "verder": adres,
+    })
+    assert antwoord.status_code == 302
+    assert antwoord.headers["Location"] == adres
+
+
+def test_een_te_lang_terugadres_gaat_naar_vandaag(uitgelogde_client):
+    adres = "/" + ("a" * 2000)
+    antwoord = uitgelogde_client.post("/inloggen", data={
+        "csrf_token": "test-token", "naam": TEST_GEBRUIKER,
+        "wachtwoord": TEST_WACHTWOORD, "verder": adres,
+    })
+    assert antwoord.headers["Location"] == "/vandaag"
+
+
 def test_uitloggen(client):
     client.post("/uitloggen", data={"csrf_token": "test-token"})
     assert client.get("/").status_code == 302
