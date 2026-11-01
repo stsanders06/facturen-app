@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.1.0
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien.
+
+- **De app draait nu ook zonder Home Assistant**, als losse container met
+  Docker, bijvoorbeeld op een Raspberry Pi. Hoe je dat opzet en je administratie
+  uit Home Assistant meeneemt staat stap voor stap in
+  [DOCKER.md](https://github.com/stsanders06/facturen-app/blob/main/DOCKER.md).
+- Als losse container log je altijd in, ook als iemand de app probeert aan te
+  spreken alsof hij uit de zijbalk komt. Wachtwoord kwijt? Dan zet
+  `docker compose exec facturen wachtwoord-herstellen` op de Pi een nieuw.
+- Voor de add-on in Home Assistant verandert er niets.
+
 ## 2.0.1
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet

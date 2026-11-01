@@ -1,0 +1,58 @@
+# De Facturen App als losse container, zonder Home Assistant (docker compose).
+# De add-on zelf bouwt uit Dockerfile; dit bestand raakt die niet.
+#
+# Zelfde Python en Alpine als het basisimage van de add-on
+# (home-assistant/*-base-python:3.12-alpine3.20), zodat reportlab, poppler en
+# de PDF's hetzelfde uitpakken. Het officiële image is er voor arm64 (Raspberry
+# Pi 5) en amd64, en heeft geen bashio of s6 nodig.
+FROM python:3.12-alpine3.20
+
+ENV LANG=C.UTF-8 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    DATA_DIR=/data \
+    PORT=8099 \
+    TZ=Europe/Amsterdam \
+    LOG_LEVEL=info \
+    ZELFSTANDIG=1 \
+    PUID=1000 \
+    PGID=1000
+
+WORKDIR /opt/app
+
+COPY app/requirements.txt /opt/app/requirements.txt
+
+# Dezelfde pakketten als de add-on (zie het commentaar in Dockerfile), plus
+# su-exec: de container start als root om de datamap van de juiste eigenaar te
+# voorzien en draait de app daarna als gewone gebruiker.
+RUN \
+    apk add --no-cache \
+        ca-certificates \
+        freetype \
+        jpeg \
+        poppler-utils \
+        su-exec \
+        tzdata \
+        zlib \
+    && apk add --no-cache --virtual .build-deps \
+        build-base \
+        freetype-dev \
+        jpeg-dev \
+        zlib-dev \
+    && pip3 install --no-cache-dir -r requirements.txt \
+    && apk del --no-network .build-deps
+
+COPY app /opt/app
+COPY zelfstandig/start.sh /usr/local/bin/facturen-start
+COPY zelfstandig/wachtwoord-herstellen.sh /usr/local/bin/wachtwoord-herstellen
+
+RUN chmod a+x /usr/local/bin/facturen-start /usr/local/bin/wachtwoord-herstellen
+
+VOLUME ["/data"]
+EXPOSE 8099
+
+# /instellen of /inloggen antwoordt altijd, ook zonder account of sessie.
+HEALTHCHECK --interval=60s --timeout=5s --start-period=30s --retries=3 \
+    CMD python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8099/inloggen', timeout=4)" || exit 1
+
+CMD ["/usr/local/bin/facturen-start"]

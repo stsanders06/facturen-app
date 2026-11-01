@@ -3,8 +3,10 @@
 {% block content %}
 
 <h1>Inloggen</h1>
+{% if not zelfstandig %}
 <p class="uitleg">Open je de app via de zijbalk van Home Assistant, dan hoef je dit niet:
   daar ben je al ingelogd bij Home Assistant zelf.</p>
+{% endif %}
 
 {% if wacht %}
 <div class="flash">Te veel mislukte pogingen. Probeer het over {{ wacht }} minuten opnieuw.</div>

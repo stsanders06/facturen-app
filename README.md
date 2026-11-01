@@ -33,6 +33,12 @@ Zie [de documentatie](./facturen_app/DOCS.md) voor installatie en gebruik.
 Green, Yellow en x86-installaties. `armv7` wordt niet ondersteund: Home Assistant
 heeft die architectuur per 2025.12 uitgefaseerd.
 
+## Zonder Home Assistant (Docker)
+
+Draai je geen Home Assistant? De app werkt ook als gewone Docker-container,
+bijvoorbeeld op een Raspberry Pi. Zie [DOCKER.md](DOCKER.md) voor installeren,
+verhuizen vanuit de add-on, bijwerken en back-ups.
+
 ## Licentie
 
 [MIT](./LICENSE)

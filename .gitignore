@@ -5,3 +5,6 @@ venv/
 .DS_Store
 facturen_app/app/data/
 .pytest_cache/
+# Losse container (docker compose): je eigen instellingen en administratie.
+/.env
+/data/
