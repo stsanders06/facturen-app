@@ -64,7 +64,10 @@ def main():
     except ValueError as fout:
         print(f"{fout} Er is niets veranderd.")
         return 1
-    print(f"Gelukt. Log in als {naam} met je nieuwe wachtwoord.")
+    # De app koppelt elke sessie aan het wachtwoord; een nieuw wachtwoord
+    # maakt dus alle oude sessies ongeldig. Bij een gelekt wachtwoord is dat
+    # precies wat je wilt, en het is goed om te weten waarom je eruit ligt.
+    print(f"Gelukt. Alle apparaten zijn uitgelogd. Log in als {naam} met je nieuwe wachtwoord.")
     return 0
 
 

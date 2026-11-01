@@ -1,6 +1,7 @@
 import atexit
 import csv
 import glob
+import hmac
 import hashlib
 import io
 import ipaddress
@@ -49,7 +50,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "2.1.0"
+VERSIE = os.environ.get("ADDON_VERSION") or "2.1.1"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -127,9 +128,37 @@ def _secret_key():
     return sleutel
 
 
+# Schakelaars uit de omgeving (ZELFSTANDIG, SESSION_COOKIE_SECURE). Alleen deze
+# woorden tellen. Eerder gaf alles wat niet 1/ja/true was stil de add-on-modus,
+# ook "yes" of "on": dan stond Ingress aan en kon een andere container in
+# 172.30.32.0/23 met een zelfgemaakte header zonder wachtwoord binnenkomen.
+# Een tikfout hoort de app niet stil te openen; die stopt hem met een uitleg.
+SCHAKELAAR_AAN = frozenset({"1", "ja", "j", "true", "yes", "y", "on", "aan"})
+SCHAKELAAR_UIT = frozenset({"", "0", "nee", "n", "false", "no", "off", "uit"})
+
+
+class OngeldigeSchakelaar(SystemExit):
+    """Een omgevingsvariabele met een waarde die we niet kennen. Een SystemExit,
+    zodat de app niet start en de reden als laatste regel in de log staat."""
+
+
+def schakelaar(naam):
+    """True of False voor een aan/uit-variabele; weigert alles wat geen van
+    beide duidelijk is."""
+    waarde = os.environ.get(naam, "").strip().lower()
+    if waarde in SCHAKELAAR_AAN:
+        return True
+    if waarde in SCHAKELAAR_UIT:
+        return False
+    raise OngeldigeSchakelaar(
+        f"{naam}={os.environ.get(naam)!r} begrijp ik niet. Gebruik 1 (aan) of 0 (uit). "
+        "De app start niet, zodat een tikfout hem niet onbeveiligd openzet."
+    )
+
+
 # Losse container (docker compose, Dockerfile.standalone) in plaats van de add-on.
 # Wat er dan anders is staat bij IngressMiddleware en INGRESS_NETWERKEN.
-ZELFSTANDIG = os.environ.get("ZELFSTANDIG", "").strip().lower() in {"1", "ja", "true"}
+ZELFSTANDIG = schakelaar("ZELFSTANDIG")
 
 
 class IngressMiddleware:
@@ -167,6 +196,11 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 # overschreef deze sessie. Inloggen gaf dan "Deze opdracht kwam niet van de app
 # zelf": het CSRF-kenmerk hoorde bij de sessie van de andere app.
 app.config["SESSION_COOKIE_NAME"] = "facturen_app_session"
+# Alleen over https meesturen. Standaard uit: op het thuisnetwerk open je de app
+# over gewoon http (http://<pi>:8099), en dan zou de browser de cookie nooit
+# terugsturen en kom je niet meer binnen. Aanzetten als er https voor zit
+# (reverse proxy of Tailscale), zie DOCKER.md.
+app.config["SESSION_COOKIE_SECURE"] = schakelaar("SESSION_COOKIE_SECURE")
 
 # Wat je als bonnetje of werkfoto bij een klus mag zetten.
 BIJLAGE_TYPES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".heic", ".heif", ".pdf"}
@@ -619,7 +653,7 @@ def controleer_csrf():
     # Zonder inlog hoort de opdracht niet binnen te komen. De inlogcontrole
     # stuurt je naar het scherm; een kale 400 zegt niet wat je moet doen.
     if (not via_ingress() and request.endpoint not in OPEN_PAGINAS
-            and not session.get("gebruiker")):
+            and not ingelogde_gebruiker()):
         return None
     verwacht = session.get("csrf_token")
     gekregen = request.form.get("csrf_token", "")
@@ -669,6 +703,41 @@ INLOG_PLEK = "" if ZELFSTANDIG else " op poort 8099"
 
 # Pagina's die je zonder inloggen moet kunnen bereiken, anders kom je er nooit in.
 OPEN_PAGINAS = {"inloggen", "account_instellen", "static", "scans_ontvangen"}
+
+
+def wachtwoord_kenmerk(wachtwoord_hash):
+    """Korte vingerafdruk van de wachtwoordhash, voor in de sessie.
+
+    Een sessie onthoudt bij welk wachtwoord hij hoort. Na een nieuw wachtwoord
+    (in Instellingen of met wachtwoord-herstellen) past hij niet meer en is
+    elk ander apparaat uitgelogd, ook een gestolen "onthoud mij"-cookie. De
+    hash zelf komt niet in de cookie: die is ondertekend, niet versleuteld."""
+    return hmac.new(str(app.secret_key).encode(), wachtwoord_hash.encode(),
+                    hashlib.sha256).hexdigest()[:32]
+
+
+def log_in_als(gebruiker):
+    """Zet de sessie op deze gebruiker (een rij uit gebruikers)."""
+    session["gebruiker"] = gebruiker["naam"]
+    session["wachtwoord_kenmerk"] = wachtwoord_kenmerk(gebruiker["wachtwoord"])
+
+
+def ingelogde_gebruiker():
+    """De naam uit de sessie, maar alleen als die gebruiker nog bestaat en het
+    wachtwoord sindsdien niet is veranderd. Anders gaat de sessie eruit."""
+    naam = session.get("gebruiker")
+    if not naam:
+        return None
+    conn = get_db()
+    rij = conn.execute("SELECT naam, wachtwoord FROM gebruikers WHERE naam=? COLLATE NOCASE",
+                       (naam,)).fetchone()
+    conn.close()
+    kenmerk = session.get("wachtwoord_kenmerk") or ""
+    if rij is None or not hmac.compare_digest(kenmerk, wachtwoord_kenmerk(rij["wachtwoord"])):
+        session.pop("gebruiker", None)
+        session.pop("wachtwoord_kenmerk", None)
+        return None
+    return rij["naam"]
 
 
 def via_ingress():
@@ -871,7 +940,7 @@ def controleer_inlog():
 
     if not heeft_account():
         return redirect(url_for("account_instellen"))
-    if session.get("gebruiker"):
+    if ingelogde_gebruiker():
         return None
     # full_path plakt er een los vraagteken achter als er geen zoekterm in de URL zit.
     terug = request.full_path.rstrip("?") or request.path
@@ -907,9 +976,10 @@ def account_instellen():
             (naam, generate_password_hash(wachtwoord), vandaag().isoformat()),
         )
         conn.commit()
+        nieuwe = conn.execute("SELECT * FROM gebruikers WHERE naam=?", (naam,)).fetchone()
         conn.close()
 
-        session["gebruiker"] = naam
+        log_in_als(nieuwe)
         melding(f"Je account staat klaar. Vanaf nu log je hiermee in{INLOG_PLEK}.")
         return redirect(url_for("vandaag_pagina"))
 
@@ -948,7 +1018,7 @@ def lokale_bestemming(verder):
 def inloggen():
     if not heeft_account():
         return redirect(url_for("account_instellen"))
-    if session.get("gebruiker"):
+    if ingelogde_gebruiker():
         return redirect(url_for("vandaag_pagina"))
 
     if request.method == "POST":
@@ -968,7 +1038,7 @@ def inloggen():
 
         if gebruiker and check_password_hash(gebruiker["wachtwoord"], wachtwoord):
             MISLUKTE_POGINGEN.pop(_afzender(), None)
-            session["gebruiker"] = gebruiker["naam"]
+            log_in_als(gebruiker)
             # Zonder het vinkje ben je eruit zodra je de browser afsluit.
             session.permanent = request.form.get("onthoud") == "ja"
 
@@ -991,6 +1061,7 @@ def inloggen():
 @app.route("/uitloggen", methods=["POST"])
 def uitloggen():
     session.pop("gebruiker", None)
+    session.pop("wachtwoord_kenmerk", None)
     melding("Je bent uitgelogd.")
     return redirect(url_for("inloggen"))
 
@@ -1042,7 +1113,12 @@ def wachtwoord_wijzigen():
         conn.execute("UPDATE gebruikers SET wachtwoord=? WHERE id=?",
                      (generate_password_hash(nieuw), gebruiker["id"]))
     conn.commit()
+    bijgewerkt = conn.execute("SELECT * FROM gebruikers ORDER BY id LIMIT 1").fetchone()
     conn.close()
+    # Andere apparaten zijn nu uitgelogd (hun sessie hoort bij het oude
+    # wachtwoord). Dit apparaat blijft binnen: wie het net wijzigde is het zelf.
+    if (session.get("gebruiker") or "").lower() == bijgewerkt["naam"].lower():
+        log_in_als(bijgewerkt)
     melding("Je wachtwoord is gewijzigd. Vanaf nu log je hiermee in." if ZELFSTANDIG
             else "Je wachtwoord is gewijzigd. Op poort 8099 log je hiermee in.")
     return redirect(url_for("instellingen"))
@@ -10545,6 +10621,8 @@ if __name__ == "__main__":
         format="[%(asctime)s] %(levelname)s: %(message)s",
     )
     poort = int(os.environ.get("PORT", "8099"))
+    logging.info("Modus: %s", "losse container (docker compose), inloggen verplicht"
+                 if ZELFSTANDIG else "Home Assistant add-on")
     try:
         from waitress import serve
 

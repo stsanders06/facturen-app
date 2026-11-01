@@ -8,3 +8,4 @@ facturen_app/app/data/
 # Losse container (docker compose): je eigen instellingen en administratie.
 /.env
 /data/
+/docker-compose.override.yml

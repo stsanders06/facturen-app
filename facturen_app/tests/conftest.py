@@ -56,6 +56,10 @@ def app():
            VALUES (?, ?, '2026-01-01')""",
         (TEST_GEBRUIKER, TEST_HASH),
     )
+    # Precies deze hash: de client-sessie draagt een kenmerk ervan. Een test die
+    # het wachtwoord terugzet met een nieuwe hash (ander zout) zou anders elke
+    # volgende test uitloggen.
+    conn.execute("UPDATE gebruikers SET wachtwoord=? WHERE naam=?", (TEST_HASH, TEST_GEBRUIKER))
     conn.commit()
     conn.close()
     facturen.MISLUKTE_POGINGEN.clear()
@@ -99,6 +103,8 @@ def client(app):
         with c.session_transaction() as sessie:
             sessie["csrf_token"] = "test-token"
             sessie["gebruiker"] = TEST_GEBRUIKER
+            # Een sessie hoort bij een wachtwoord; zonder dit kenmerk telt hij niet.
+            sessie["wachtwoord_kenmerk"] = facturen.wachtwoord_kenmerk(TEST_HASH)
         yield c
 
 

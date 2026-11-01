@@ -1,5 +1,31 @@
 # Changelog
 
+## 2.1.1
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien. Op poort 8099 log je daarna
+één keer opnieuw in; via de zijbalk merk je niets.
+
+- **Na een nieuw wachtwoord ben je overal uitgelogd.** Wijzig je je wachtwoord
+  in Instellingen, dan moeten je andere apparaten opnieuw inloggen; het
+  apparaat waarop je het wijzigde blijft binnen. Na
+  `wachtwoord-herstellen` is elk apparaat uitgelogd, ook een telefoon met
+  "onthoud mij".
+- Als losse container (Docker) start de app niet meer bij een onduidelijke
+  instelling, zoals een tikfout in `ZELFSTANDIG` of `PUID=0`, en zegt hij wat
+  er mis is. Zo kan een vergissing de inlog nooit stilletjes uitzetten.
+- Losse container: `docker compose stop` stopt meteen in plaats van na tien
+  seconden. Met `LUISTER_ADRES` in `.env` luistert de app alleen op het adres
+  dat je kiest, en `SESSION_COOKIE_SECURE=1` is er voor wie de app via https
+  opent. [DOCKER.md](https://github.com/stsanders06/facturen-app/blob/main/DOCKER.md)
+  legt nu ook uit waarom de firewall (ufw) de poort niet dichtzet, hoe de
+  geheugengrens op een Raspberry Pi gaat werken, en begint het bijwerken met
+  een back-up.
+- Je administratie, `secret_key` en `.env` komen nooit meer in een image
+  terecht, ook niet als ze naast de broncode staan.
+- Alle onderdelen hebben nu een vaste versie, zodat een nieuwe bouw over een
+  maand hetzelfde oplevert.
+
 ## 2.1.0
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet

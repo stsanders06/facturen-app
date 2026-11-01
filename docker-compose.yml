@@ -11,19 +11,29 @@ services:
     image: facturen-app:zelfstandig
     container_name: facturen-app
     restart: unless-stopped
+    # Een klein init-proces als PID 1. Python negeert SIGTERM als eerste
+    # proces; docker compose stop wachtte dan 10 seconden en killde de app.
+    init: true
     ports:
-      # Links de poort op de Pi (POORT in .env), rechts die in de container.
-      - "${POORT:-8099}:8099"
+      # Optioneel een vast adres van de Pi (LUISTER_ADRES in .env), dan de
+      # poort. Zonder adres luistert de app op alle netwerken van de Pi.
+      - "${LUISTER_ADRES:+${LUISTER_ADRES}:}${POORT:-8099}:${POORT:-8099}"
     environment:
+      # Altijd de losse modus, ook als iemand het image anders bouwt: nooit
+      # via .env, zodat een tikfout de inlog niet kan uitzetten.
+      ZELFSTANDIG: "1"
+      PORT: ${POORT:-8099}
       TZ: ${TZ:-Europe/Amsterdam}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-0}
     volumes:
       # Database, PDF's, logo, bijlagen, scans en de sessiesleutel.
       - ./data:/data
-    # De app gebruikt rond de 60 MB. 512 MB laat ruimte voor een grote PDF
-    # of scan, en houdt een Pi met 4 GB vrij als er iets misgaat.
+    # De app gebruikt rond de 50 MB. 512 MB laat ruimte voor een grote PDF of
+    # scan. Op Raspberry Pi OS werkt deze grens pas met cgroup_enable=memory
+    # (zie DOCKER.md); zonder dat negeert Docker hem stil.
     mem_limit: 512m
     # Logs niet onbeperkt laten groeien op de SD-kaart.
     logging:

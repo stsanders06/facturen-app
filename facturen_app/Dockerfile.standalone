@@ -45,14 +45,20 @@ RUN \
 COPY app /opt/app
 COPY zelfstandig/start.sh /usr/local/bin/facturen-start
 COPY zelfstandig/wachtwoord-herstellen.sh /usr/local/bin/wachtwoord-herstellen
+COPY zelfstandig/gezond.sh /usr/local/bin/facturen-gezond
 
-RUN chmod a+x /usr/local/bin/facturen-start /usr/local/bin/wachtwoord-herstellen
+RUN chmod a+x /usr/local/bin/facturen-start /usr/local/bin/wachtwoord-herstellen \
+        /usr/local/bin/facturen-gezond
 
 VOLUME ["/data"]
 EXPOSE 8099
 
-# /instellen of /inloggen antwoordt altijd, ook zonder account of sessie.
+# Controle via zelfstandig/gezond.sh: /inloggen op de poort uit PORT, als nobody.
 HEALTHCHECK --interval=60s --timeout=5s --start-period=30s --retries=3 \
-    CMD python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8099/inloggen', timeout=4)" || exit 1
+    CMD ["/usr/local/bin/facturen-gezond"]
 
+# Geen USER-regel: de start moet als root de map /data aan PUID:PGID geven
+# (Docker maakt ./data als root aan) en zakt dan met su-exec naar die
+# gebruiker. Wie helemaal geen root wil, zet user: "1000:1000" in compose;
+# start.sh slaat het chown dan over (zie DOCKER.md).
 CMD ["/usr/local/bin/facturen-start"]
