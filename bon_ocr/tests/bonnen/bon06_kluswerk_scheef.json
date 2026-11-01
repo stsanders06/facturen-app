@@ -1,0 +1,41 @@
+{
+ "winkel": "KLUSWERK",
+ "datum": "2026-08-29",
+ "regels": [
+  {
+   "omschrijving": "Laminaat eiken 2,13m2",
+   "aantal": 4,
+   "stukprijs": 24.95,
+   "regelbedrag": 99.8
+  },
+  {
+   "omschrijving": "Ondervloer 15m2",
+   "aantal": 1,
+   "stukprijs": 18.99,
+   "regelbedrag": 18.99
+  },
+  {
+   "omschrijving": "Plinten wit 2,4m",
+   "aantal": 6,
+   "stukprijs": 4.99,
+   "regelbedrag": 29.94
+  },
+  {
+   "omschrijving": "Laminaatzaag",
+   "aantal": 1,
+   "stukprijs": 12.95,
+   "regelbedrag": 12.95
+  }
+ ],
+ "korting": null,
+ "btw": [
+  {
+   "tarief": 21,
+   "bedrag": 28.06
+  }
+ ],
+ "btw_totaal": 28.06,
+ "totaal": 161.68,
+ "betaalwijze": "pin",
+ "soort": "perspective_blur"
+}

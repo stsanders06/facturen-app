@@ -40,6 +40,15 @@ jobs:
           dockerfile: ./facturen_app/Dockerfile.standalone
           config: ./.hadolint.yaml
 
+      # Het image zelf bouwen we hier niet: het weegt met onnxruntime en de
+      # modellen rond een gigabyte en arm64 zou via QEMU moeten. De Pi bouwt
+      # hem met docker compose build; de parser staat los onder test.
+      - name: Hadolint (bonnenlezer)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: ./bon_ocr/Dockerfile
+          config: ./.hadolint.yaml
+
   lint-yaml:
     name: YAML
     runs-on: ubuntu-latest

@@ -1,0 +1,35 @@
+{
+ "winkel": "Verfspeciaalzaak De Kwast",
+ "datum": "2026-10-28",
+ "regels": [
+  {
+   "omschrijving": "Grondverf wit 750ml",
+   "aantal": 2,
+   "stukprijs": 22.95,
+   "regelbedrag": 45.9
+  },
+  {
+   "omschrijving": "Lakverf zijdeglans 750ml",
+   "aantal": 1,
+   "stukprijs": 31.95,
+   "regelbedrag": 31.95
+  },
+  {
+   "omschrijving": "Verfbak + roller set",
+   "aantal": 1,
+   "stukprijs": 12.5,
+   "regelbedrag": 12.5
+  }
+ ],
+ "korting": -9.04,
+ "btw": [
+  {
+   "tarief": 21,
+   "bedrag": 14.11
+  }
+ ],
+ "btw_totaal": 14.11,
+ "totaal": 81.31,
+ "betaalwijze": "creditcard",
+ "soort": "clean_pdf"
+}

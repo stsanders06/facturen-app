@@ -1,0 +1,41 @@
+{
+ "winkel": "BOUWMAX",
+ "datum": "2026-06-30",
+ "regels": [
+  {
+   "omschrijving": "Koevoet 60cm",
+   "aantal": 1,
+   "stukprijs": 14.99,
+   "regelbedrag": 14.99
+  },
+  {
+   "omschrijving": "Stofmasker FFP2 3st",
+   "aantal": 3,
+   "stukprijs": 6.99,
+   "regelbedrag": 20.97
+  },
+  {
+   "omschrijving": "Veiligheidsbril",
+   "aantal": 1,
+   "stukprijs": 5.49,
+   "regelbedrag": 5.49
+  },
+  {
+   "omschrijving": "Gipsplaat 260x60",
+   "aantal": 4,
+   "stukprijs": 8.99,
+   "regelbedrag": 35.96
+  }
+ ],
+ "korting": null,
+ "btw": [
+  {
+   "tarief": 21,
+   "bedrag": 13.43
+  }
+ ],
+ "btw_totaal": 13.43,
+ "totaal": 77.41,
+ "betaalwijze": "pin",
+ "soort": "faded_rot"
+}

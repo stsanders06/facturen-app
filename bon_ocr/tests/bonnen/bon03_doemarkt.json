@@ -1,0 +1,41 @@
+{
+ "winkel": "DOEMARKT",
+ "datum": "2026-10-17",
+ "regels": [
+  {
+   "omschrijving": "Bevestigingshoek verzinkt",
+   "aantal": 4,
+   "stukprijs": 1.29,
+   "regelbedrag": 5.16
+  },
+  {
+   "omschrijving": "Houtschroef 5x60 100st",
+   "aantal": 1,
+   "stukprijs": 11.49,
+   "regelbedrag": 11.49
+  },
+  {
+   "omschrijving": "Boorset HSS 13-dlg",
+   "aantal": 1,
+   "stukprijs": 19.99,
+   "regelbedrag": 19.99
+  },
+  {
+   "omschrijving": "Waterpas 60cm",
+   "aantal": 1,
+   "stukprijs": 14.99,
+   "regelbedrag": 14.99
+  }
+ ],
+ "korting": null,
+ "btw": [
+  {
+   "tarief": 21,
+   "bedrag": 8.96
+  }
+ ],
+ "btw_totaal": 8.96,
+ "totaal": 51.63,
+ "betaalwijze": "pin",
+ "soort": "rotated"
+}

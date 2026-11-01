@@ -1,0 +1,47 @@
+{
+ "winkel": "KLUSWERK",
+ "datum": "2026-10-12",
+ "regels": [
+  {
+   "omschrijving": "Schroeven spaanplaat 4x40 200st",
+   "aantal": 1,
+   "stukprijs": 7.99,
+   "regelbedrag": 7.99
+  },
+  {
+   "omschrijving": "Kitpistool basis",
+   "aantal": 2,
+   "stukprijs": 3.49,
+   "regelbedrag": 6.98
+  },
+  {
+   "omschrijving": "Acrylaatkit wit 310ml",
+   "aantal": 3,
+   "stukprijs": 4.29,
+   "regelbedrag": 12.87
+  },
+  {
+   "omschrijving": "Afdekfolie 4x5m",
+   "aantal": 1,
+   "stukprijs": 2.49,
+   "regelbedrag": 2.49
+  },
+  {
+   "omschrijving": "Kwast synthetisch 50mm",
+   "aantal": 1,
+   "stukprijs": 5.95,
+   "regelbedrag": 5.95
+  }
+ ],
+ "korting": null,
+ "btw": [
+  {
+   "tarief": 21,
+   "bedrag": 6.3
+  }
+ ],
+ "btw_totaal": 6.3,
+ "totaal": 36.28,
+ "betaalwijze": "pin",
+ "soort": "clean"
+}

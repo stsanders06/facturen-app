@@ -48,6 +48,9 @@ meegenomen (stap 2), dan log je in met het account dat je daar al had.
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warning` of `error`. |
 | `PUID` / `PGID` | `1000` | Eigenaar van de map `data`. Zet hier wat `id -u` en `id -g` zeggen. `0` (root) weigert de app. |
 | `SESSION_COOKIE_SECURE` | `0` | `1` als je de app alleen via https opent. Over gewoon `http://` moet dit `0` blijven, anders kom je niet meer binnen. |
+| `BON_OCR_URL` | `http://bon-ocr:8099/lees` | De bonnenlezer. **Leeg** = scans worden niet gelezen en je vult de bon zelf in. |
+| `BON_OCR_TIJD` | `30` | Hoe lang de app op de lezer wacht, in seconden. |
+| `OCR_DRADEN` | `4` | Hoeveel kernen de lezer mag gebruiken. De Pi 5 heeft er vier. |
 
 Pas `docker-compose.yml` zelf niet aan; zet alles in `.env`. Een aangepast
 `docker-compose.yml` laat `git pull` bij het bijwerken mislukken.
@@ -73,7 +76,7 @@ verhuizen vanzelf mee.
   gebruik Tailscale met https (`tailscale serve`), en zet
   `SESSION_COOKIE_SECURE=1`.
 - **Zet de poort nooit open in je router** (ook niet via UPnP). Voor onderweg:
-  zie stap 5, VPN.
+  zie stap 6, VPN.
 
 ### Geheugengrens op de Raspberry Pi
 
@@ -247,7 +250,48 @@ sudo tar -xzf ~/facturen-backup-JJJJ-MM-DD.tar.gz
 docker compose up -d
 ```
 
-## 5. Handig om te weten
+## 5. Bonnen laten lezen
+
+Sinds 2.2.0 draait er naast de app een tweede container, `bon-ocr`. Die leest een
+gescande bon en geeft de velden terug, zodat **Scan als bon** al is ingevuld: de
+winkel, de datum, het totaal en de regels. Jij keurt elke bon zelf goed.
+
+Het gebeurt **helemaal op de Pi**. Er gaat geen bon en geen bedrag naar internet,
+en de modellen zitten in het image, dus het werkt ook zonder internetverbinding.
+
+De container staat **niet** op je netwerk: in `docker-compose.yml` heeft hij
+expres geen `ports`, alleen `expose`. Zo kan alleen de facturen-app erbij, via
+het interne netwerk van compose. Zet daar nooit een poort op: de lezer heeft
+geen inlog.
+
+```bash
+docker compose up -d --build        # bouwt bon-ocr er de eerste keer bij
+docker compose logs -f bon-ocr      # 'Bon gelezen: ... artikelen, onzeker: -'
+docker stats bon-ocr                # geheugen tijdens het lezen
+```
+
+Het bouwen duurt de eerste keer een paar minuten: er komt een kleine 1 GB aan
+OCR-modellen en bibliotheken in het image. Daarna start hij in seconden.
+
+**Uitzetten** kan op twee manieren: de schakelaar in Instellingen (onder *Bonnen
+lezen*), of `BON_OCR_URL=` leeg in `.env`. In beide gevallen werkt de app verder
+precies zoals daarvoor. Hetzelfde geldt als de container stuk is of een bon niet
+te lezen valt: je vult de bon dan gewoon met de hand in.
+
+### Wat er wordt bijgehouden
+
+Bij elke bon die je goedkeurt schrijft de app één regel in
+`data/bon-correcties.jsonl`: wat de lezer van de bon maakte en wat jij ervan
+maakte. Dat bestand blijft op de Pi, gaat nergens heen, en je kunt het zonder
+gevolgen weggooien (`rm data/bon-correcties.jsonl`).
+
+Waarom het er is: de lezer werkt met regels per winkel, en dat onderhoud is nooit
+klaar. Met genoeg van die voorbeelden is later te meten waar het misgaat, of kan
+er een klein model getraind worden dat het beter doet. Die voorbeelden zijn
+alleen te verzamelen op het moment dat je ze maakt. Boven de 5 MB begint het
+bestand opnieuw; het vorige blijft als `.1` staan.
+
+## 6. Handig om te weten
 
 - **Logboek**: `docker compose logs -f` (stoppen met Ctrl+C).
 - **Wachtwoord kwijt**: `docker compose exec facturen wachtwoord-herstellen`.
@@ -264,7 +308,10 @@ docker compose up -d
   WireGuard) in plaats van de poort open te zetten in je router.
 - **Geheugen**: de app gebruikt rond de 50 MB; `mem_limit: 512m` in
   `docker-compose.yml` is de bovengrens (op de Pi alleen met
-  `cgroup_enable=memory`, zie stap 1).
+  `cgroup_enable=memory`, zie stap 1). De bonnenlezer komt daar bovenop: in rust
+  een paar honderd MB, tijdens het lezen van een bon piekte hij op ongeveer
+  550 MB, met `mem_limit: 768m` als bovengrens. Samen past dat ruim op een Pi
+  met 4 GB.
 - **Helemaal zonder root**: de container start als root om de map `data` aan
   PUID te geven en draait de app daarna als PUID. Wil je ook dat eerste stapje
   niet, maak `data` dan zelf van je gebruiker (`sudo chown -R 1000:1000 data`)

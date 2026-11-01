@@ -1,0 +1,47 @@
+{
+ "winkel": "BOUWMAX",
+ "datum": "2026-10-20",
+ "regels": [
+  {
+   "omschrijving": "Tegellijm 25kg",
+   "aantal": 2,
+   "stukprijs": 16.99,
+   "regelbedrag": 33.98
+  },
+  {
+   "omschrijving": "Voegmiddel grijs 5kg",
+   "aantal": 1,
+   "stukprijs": 11.49,
+   "regelbedrag": 11.49
+  },
+  {
+   "omschrijving": "Tegelkruisjes 3mm",
+   "aantal": 2,
+   "stukprijs": 2.49,
+   "regelbedrag": 4.98
+  },
+  {
+   "omschrijving": "Lijmkam 8mm",
+   "aantal": 1,
+   "stukprijs": 6.99,
+   "regelbedrag": 6.99
+  },
+  {
+   "omschrijving": "Emmer 12L",
+   "aantal": 1,
+   "stukprijs": 2.99,
+   "regelbedrag": 2.99
+  }
+ ],
+ "korting": null,
+ "btw": [
+  {
+   "tarief": 21,
+   "bedrag": 10.49
+  }
+ ],
+ "btw_totaal": 10.49,
+ "totaal": 60.43,
+ "betaalwijze": "pin",
+ "soort": "crumpled"
+}

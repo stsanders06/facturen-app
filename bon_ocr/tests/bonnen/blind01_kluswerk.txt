@@ -1,0 +1,27 @@
+KLUSWERK
+Bouwmarkt Voorbeeldstad
+Fictieflaan 12, 1234 AB Voorbeeldstad
+Tel 012-3456789
+KvK 00000000   BTW NL000000000B01
+Omschrijving   Bedrag
+8763274680169
+2 x 2,99
+Tuinaarde 20L   5,98
+8792463696126
+Bloempot terracotta 30cm   12,99
+8740832721213
+Hogedrukreiniger slang 8m   34,95
+8728246873582
+6 x 0,89
+Ophanghaak messing   5,34
+8721853583352
+Zaaigoed tomaat   1,99
+Subtotaal   61,25
+TOTAAL   EUR   61,25
+PIN   61,25
+BTW%   Excl.   BTW   Incl.
+21%   44,03   9,25   53,28
+9%   7,31   0,66   7,97
+Datum:11-07-2026   Tijd: 10:03
+Kassa 3 Bon 0042   Medewerker 17
+Bedankt en tot ziens!

@@ -1,0 +1,45 @@
+{
+ "winkel": "GROTHAUS Bouw- en Tuinmarkt",
+ "datum": "2026-05-09",
+ "regels": [
+  {
+   "omschrijving": "Vlonderplank 14x145mm 3m",
+   "aantal": 8,
+   "stukprijs": 7.95,
+   "regelbedrag": 63.6
+  },
+  {
+   "omschrijving": "RVS vlonderschroef 200st",
+   "aantal": 1,
+   "stukprijs": 24.95,
+   "regelbedrag": 24.95
+  },
+  {
+   "omschrijving": "Heester in pot",
+   "aantal": 3,
+   "stukprijs": 5.99,
+   "regelbedrag": 17.97
+  },
+  {
+   "omschrijving": "Afstandhouder vlonder",
+   "aantal": 2,
+   "stukprijs": 3.49,
+   "regelbedrag": 6.98
+  }
+ ],
+ "korting": null,
+ "btw": [
+  {
+   "tarief": 21,
+   "bedrag": 16.58
+  },
+  {
+   "tarief": 9,
+   "bedrag": 1.48
+  }
+ ],
+ "btw_totaal": 18.06,
+ "totaal": 113.5,
+ "betaalwijze": "creditcard",
+ "soort": "clean_pdf"
+}

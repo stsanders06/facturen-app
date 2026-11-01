@@ -50,7 +50,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "2.1.1"
+VERSIE = os.environ.get("ADDON_VERSION") or "2.2.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -221,6 +221,29 @@ BIJLAGE_MIMES = {
     ".heif": "image/heif",
     ".pdf": "application/pdf",
 }
+
+# De bonnenlezer in de buurcontainer. Leeg betekent: geen herkenning, en dan
+# werkt alles zoals vóór 2.2.0. Het adres staat in docker-compose.yml en wijst
+# naar het interne netwerk; in Home Assistant is er geen lezer en blijft dit leeg.
+BON_OCR_URL = os.environ.get("BON_OCR_URL", "").strip()
+# Op de Pi 5 duurt een bon een paar seconden. Dertig is ruim, en het is een
+# achtergrondtaak: niemand zit erop te wachten. Te lang wachten kost alleen een
+# plek in de wachtrij.
+try:
+    BON_OCR_TIJD = max(5, min(120, int(os.environ.get("BON_OCR_TIJD", "30"))))
+except ValueError:
+    BON_OCR_TIJD = 30
+# Wat de lezer aankan. HEIC staat er expres niet bij: opencv leest dat niet, en
+# een verzoek sturen dat zeker misgaat kost alleen tijd. Een HEIC-bon vul je
+# met de hand in, net als voorheen.
+BON_OCR_TYPES = {".jpg", ".jpeg", ".png", ".pdf"}
+# Een antwoord van de lezer is een paar kilobyte. Meer dan dit lezen we niet in:
+# een container die op drift is mag het geheugen van de app niet vullen.
+_BON_MAX_ANTWOORD = 1024 * 1024
+# Grenzen op wat we uit het antwoord overnemen. De lezer is van ons, maar wat
+# hieruit komt gaat in een formulier en in de database, dus wordt het nagemeten.
+_BON_MAX_REGELS = 100
+_BON_MAX_TEKST = 200
 
 # Eén scan vanaf de iPhone. Meer dan dit weigeren we per bestand: één PDF van
 # 80 MB hoort niet in de inbox, ook al past het verzoek nog onder het totaal.
@@ -1966,6 +1989,9 @@ def init_db():
         # Alleen de hash van de code voor iPhone-scans. De code zelf staat
         # nergens: die zie je één keer, bij het aanmaken.
         ("scan_token_hash", "TEXT DEFAULT ''"),
+        # Nieuwe scans automatisch laten lezen. Standaard aan: zonder lezer in
+        # de buurt gebeurt er toch niets, en met lezer is dit wat je wil.
+        ("bon_herkenning", "INTEGER DEFAULT 1"),
     ]:
         if kolom not in bestaand:
             conn.execute(f"ALTER TABLE settings ADD COLUMN {kolom} {definitie}")
@@ -3400,7 +3426,7 @@ def instellingen():
             """UPDATE settings SET naam=?, adres=?, telefoon=?, email=?, iban=?,
                tenaamstelling=?, logo_bestand=?, smtp_host=?,
                smtp_port=?, smtp_user=?, smtp_pass=?, smtp_van=?,
-               bcc_aan=?, bcc_adres=? WHERE id=1""",
+               bcc_aan=?, bcc_adres=?, bon_herkenning=? WHERE id=1""",
             (
                 request.form.get("naam", ""),
                 net_adres(request.form.get("adres", "")),
@@ -3418,6 +3444,12 @@ def instellingen():
                 request.form.get("smtp_van", ""),
                 bcc_aan,
                 bcc_ingevoerd,
+                # Stond de schakelaar niet in dit formulier, dan blijft de
+                # stand zoals hij was. Zonder lezer is hij niet zichtbaar, en
+                # dan zou opslaan hem stil uitzetten.
+                (1 if request.form.get("bon_herkenning") == "ja" else 0)
+                if request.form.get("bon_herkenning_aanwezig")
+                else int(bool(huidig.get("bon_herkenning", 1))),
             ),
         )
         conn.commit()
@@ -3440,6 +3472,7 @@ def instellingen():
             session.pop("scan_token_eenmalig", None)
             return antwoord
     return render_template("instellingen.html", s=get_settings(),
+                           bon_lezer=bool(BON_OCR_URL),
                            gebruiker=session.get("gebruiker"),
                            via_zijbalk=via_ingress(),
                            heeft_account=heeft_account(),
@@ -4457,7 +4490,11 @@ def _taak_tekst_schoon(ruw):
     return " ".join((ruw or "").replace("\r", "\n").replace("\n", " ").split())
 
 
-def _json_taak(gegevens, status=200):
+def _json_antwoord(gegevens, status=200):
+    """JSON voor de kleine adressen waar een script op wacht.
+
+    no-store en nosniff: dit zijn gegevens van het moment, en een browser hoort
+    ze niet te bewaren of er zelf een soort bij te verzinnen."""
     antwoord = make_response(json.dumps(gegevens), status)
     antwoord.mimetype = "application/json"
     antwoord.headers["Cache-Control"] = "no-store"
@@ -4467,7 +4504,7 @@ def _json_taak(gegevens, status=200):
 
 def _taak_weigering(tekst):
     if "application/json" in (request.headers.get("Accept") or ""):
-        return _json_taak({"fout": tekst}, 400)
+        return _json_antwoord({"fout": tekst}, 400)
     return None
 
 
@@ -4487,7 +4524,7 @@ def _taken_antwoord(conn, notitie, extra=None):
     }
     if extra:
         gegevens.update(extra)
-    return _json_taak(gegevens)
+    return _json_antwoord(gegevens)
 
 
 def _terug_naar_taken(notitie):
@@ -4816,6 +4853,32 @@ def _lees_bedrag(waarde):
         return 0.0
 
 
+def _bewaar_materialen(conn, inkoop_id):
+    """De materiaalregels van het formulier bij de bon zetten.
+
+    Parallelle lijsten, net als de regels op een rekening. Een regel zonder
+    omschrijving valt weg: dat is een leeg veld dat is blijven staan. Twee
+    plekken gebruiken dit: een bon bij een klus en een scan die een bon wordt.
+    """
+    aantal_bewaard = 0
+    for oms, aantal, prijs in zip_longest(
+        request.form.getlist("materiaal_omschrijving"),
+        request.form.getlist("materiaal_aantal"),
+        request.form.getlist("materiaal_prijs"),
+        fillvalue="",
+    ):
+        oms = (oms or "").strip()
+        if not oms:
+            continue
+        conn.execute(
+            """INSERT INTO inkoop_materialen (inkoop_id, omschrijving, aantal, prijs)
+               VALUES (?, ?, ?, ?)""",
+            (inkoop_id, oms, _lees_bedrag(aantal) or 1.0, _lees_bedrag(prijs)),
+        )
+        aantal_bewaard += 1
+    return aantal_bewaard
+
+
 @app.route("/klus/<int:klus_id>/inkoop", methods=["POST"])
 def inkoop_erbij(klus_id):
     """Een aankoop (bon) bij de klus: omschrijving, totaalbedrag, optioneel bestanden
@@ -4842,22 +4905,7 @@ def inkoop_erbij(klus_id):
         (klus_id, omschrijving, bedrag, vandaag().isoformat()),
     ).lastrowid
 
-    # Optionele materialen: parallelle lijsten, net als regels op een rekening.
-    for mat_oms, mat_aantal, mat_prijs in zip_longest(
-        request.form.getlist("materiaal_omschrijving"),
-        request.form.getlist("materiaal_aantal"),
-        request.form.getlist("materiaal_prijs"),
-        fillvalue="",
-    ):
-        mat_oms = (mat_oms or "").strip()
-        if not mat_oms:
-            continue
-        conn.execute(
-            """INSERT INTO inkoop_materialen (inkoop_id, omschrijving, aantal, prijs)
-               VALUES (?, ?, ?, ?)""",
-            (inkoop_id, mat_oms, _lees_bedrag(mat_aantal) or 1.0,
-             _lees_bedrag(mat_prijs)),
-        )
+    _bewaar_materialen(conn, inkoop_id)
 
     erbij, geweigerd = bewaar_bestanden(
         conn, klus_id, bestanden, inkoop_id=inkoop_id)
@@ -5815,6 +5863,11 @@ def scans_ontvangen():
                 pass
         _SCAN_BEZIG.release()
 
+    # De bon alvast laten lezen. Dit duurt een paar seconden en gebeurt op de
+    # achtergrond: de opdracht op de iPhone hoort meteen antwoord te krijgen.
+    for opslag in definitief:
+        _plan_bonherkenning({"bestand": opslag})
+
     zin = _scans_zin([goed["naam"] for goed in goedgekeurd])
     if link_erbij:
         zin += " Er kwam ook een link binnen. Die haalt de app niet op."
@@ -5892,7 +5945,7 @@ def _schrijf_stempel(pad, stempel):
                 pass
 
 
-def _onthoud_mislukte_miniatuur(pad):
+def _onthoud_mislukte_poging(pad):
     if not pad:
         return
     try:
@@ -5919,8 +5972,11 @@ def _lees_stempel(stempelpad):
         return ""
 
 
-def _ruim_verouderd_voorbeeld(doel, mislukt, stempelpad, stempel):
-    """Een ander bestand onder dezelfde naam krijgt een nieuw voorbeeld."""
+def _ruim_verouderde_uitslag(doel, mislukt, stempelpad, stempel):
+    """Een ander bestand onder dezelfde naam krijgt een nieuwe uitslag.
+
+    Geldt voor het voorbeeld van een PDF en voor een gelezen bon: hoort de
+    stempel niet bij het bestand dat er nu ligt, dan moet het opnieuw."""
     if _lees_stempel(stempelpad) == stempel:
         return
     for extra in (doel, mislukt):
@@ -5954,6 +6010,295 @@ def _mini_werker():
 def _wacht_op_miniaturen():
     """Voor de tests: wacht tot de achtergrond klaar is met tekenen."""
     _MINI_WACHTRIJ.join()
+
+
+# --- De bon laten lezen ----------------------------------------------------
+#
+# Zelfde vorm als de miniaturen hierboven, en om dezelfde reden: een verzoek
+# mag hier niet op wachten. Het resultaat komt als bestand naast de scan te
+# liggen en niet in de database, want het is een voorstel en geen gegeven: na
+# het goedkeuren staat alles in `inkopen` en mag het bestand weg.
+
+_BON_WACHTRIJ = queue.Queue()
+_BON_GEPLAND = set()
+_BON_LOCK = threading.Lock()
+_BON_WERKER = None
+
+
+def herkenning_aan():
+    """Of een nieuwe scan automatisch gelezen wordt.
+
+    Twee knoppen: zonder lezer in de buurt is er niets om te vragen, en de
+    schakelaar in Instellingen zet het uit zonder de container te stoppen."""
+    if not BON_OCR_URL:
+        return False
+    try:
+        return bool(get_settings().get("bon_herkenning", 1))
+    except sqlite3.Error:
+        # Bij het opstarten kan de tabel er nog niet zijn. Dan gewoon niet.
+        return False
+
+
+def _bon_paden(sleutel):
+    """Het gelezen resultaat, de stempel en een mislukte poging."""
+    return (
+        veilig_pad(SCAN_DIR, sleutel + ".bon.json"),
+        veilig_pad(SCAN_DIR, sleutel + ".bon.stempel"),
+        veilig_pad(SCAN_DIR, sleutel + ".bon.mislukt"),
+    )
+
+
+def _wis_bonherkenning(sleutel):
+    """Hoort bij de scan, niet los in de map."""
+    if not sleutel:
+        return
+    for pad in _bon_paden(sleutel):
+        if pad and os.path.isfile(pad):
+            try:
+                os.remove(pad)
+            except OSError:
+                pass
+
+
+def _plan_bonherkenning(rij):
+    """Zet de scan in de wachtrij, als dat nog zin heeft.
+
+    Twee keer aangeroepen: zodra een scan binnenkomt, en bij het openen van de
+    inbox. Dat tweede is er voor scans van vóór 2.2.0 en voor een scan die
+    binnenkwam toen de lezer net niet draaide."""
+    if not herkenning_aan():
+        return False
+    sleutel = rij["bestand"]
+    bron = veilig_pad(SCAN_DIR, sleutel)
+    if not bron or not os.path.isfile(bron):
+        return False
+    if os.path.splitext(sleutel)[1].lower() not in BON_OCR_TYPES:
+        return False
+    gelezen, stempelpad, mislukt = _bon_paden(sleutel)
+    if not gelezen or not mislukt:
+        return False
+    stempel = _pdf_versie(bron)
+    # Een ander bestand onder dezelfde naam hoort opnieuw gelezen te worden.
+    _ruim_verouderde_uitslag(gelezen, mislukt, stempelpad, stempel)
+    if os.path.isfile(gelezen) or os.path.isfile(mislukt):
+        return False
+    with _BON_LOCK:
+        if sleutel in _BON_GEPLAND:
+            return False
+        _BON_GEPLAND.add(sleutel)
+    _start_bon_werker()
+    _BON_WACHTRIJ.put((sleutel, stempel))
+    return True
+
+
+def _start_bon_werker():
+    global _BON_WERKER
+    with _BON_LOCK:
+        if _BON_WERKER is not None and _BON_WERKER.is_alive():
+            return
+        _BON_WERKER = threading.Thread(
+            target=_bon_werker, name="bon-herkenning", daemon=True,
+        )
+        _BON_WERKER.start()
+
+
+def _bon_werker():
+    while True:
+        sleutel, stempel = _BON_WACHTRIJ.get()
+        try:
+            _lees_de_bon(sleutel, stempel)
+        finally:
+            with _BON_LOCK:
+                _BON_GEPLAND.discard(sleutel)
+            _BON_WACHTRIJ.task_done()
+
+
+def _lees_de_bon(sleutel, stempel):
+    """Vraagt de lezer om de bon en legt het antwoord naast de scan.
+
+    Alles wat misgaat eindigt in een `.mislukt`-bestand. Dat is er niet om de
+    fout te bewaren maar om hem niet te herhalen: anders probeert elke
+    paginaweergave het opnieuw, met een time-out van dertig seconden per keer.
+    """
+    bron = veilig_pad(SCAN_DIR, sleutel)
+    gelezen, stempelpad, mislukt = _bon_paden(sleutel)
+    if not bron or not os.path.isfile(bron) or not gelezen:
+        return
+    mime = BIJLAGE_MIMES.get(os.path.splitext(sleutel)[1].lower())
+    uit = None
+    if mime:
+        uit = _vraag_herkenning(bron, mime)
+    if uit is None:
+        _onthoud_mislukte_poging(mislukt)
+        _schrijf_stempel(stempelpad, stempel)
+        return
+    _schrijf_stempel(gelezen, json.dumps(uit, ensure_ascii=False))
+    _schrijf_stempel(stempelpad, stempel)
+
+
+def _vraag_herkenning(bron, mime):
+    """Stuurt de bon naar de lezer en geeft de velden terug, of None.
+
+    De bytes gaan in de body met het soort in Content-Type: dat is genoeg en
+    scheelt het in elkaar zetten van een multipart-verzoek. Geen tweede poging:
+    staat de lezer er niet, dan vult Stone de bon met de hand in en dat is geen
+    fout die het waard is om op te wachten."""
+    try:
+        with open(bron, "rb") as bestand:
+            ruw = bestand.read()
+    except OSError:
+        return None
+    verzoek = Request(BON_OCR_URL, data=ruw, method="POST",
+                      headers={"Content-Type": mime})
+    try:
+        with urlopen(verzoek, timeout=BON_OCR_TIJD) as antwoord:
+            inhoud = antwoord.read(_BON_MAX_ANTWOORD)
+        return _schone_herkenning(json.loads(inhoud.decode("utf-8")))
+    except (URLError, OSError, ValueError, TimeoutError) as fout:
+        # Een onleesbare bon geeft 422 en komt hier ook terecht. Dat is geen
+        # storing: niet elke foto van een bon is te lezen.
+        app.logger.info("De bon kon niet gelezen worden: %s", fout)
+        return None
+
+
+def _schone_herkenning(ruw):
+    """Neemt alleen over wat we kennen, in het formaat dat we verwachten.
+
+    De lezer is onze eigen container, maar dit gaat een formulier en daarna de
+    database in. Een veld dat niet klopt hoort weg te vallen in plaats van
+    ergens verderop een fout te geven."""
+    if not isinstance(ruw, dict):
+        return None
+
+    def tekst(waarde):
+        return str(waarde or "").strip()[:_BON_MAX_TEKST]
+
+    def getal(waarde):
+        if isinstance(waarde, bool) or not isinstance(waarde, (int, float)):
+            return None
+        if waarde != waarde or waarde in (float("inf"), float("-inf")):
+            return None
+        return round(float(waarde), 2)
+
+    regels = []
+    for regel in (ruw.get("regels") or [])[:_BON_MAX_REGELS]:
+        if not isinstance(regel, dict):
+            continue
+        bedrag = getal(regel.get("regelbedrag"))
+        if bedrag is None:
+            continue
+        aantal = getal(regel.get("aantal")) or 1
+        regels.append({
+            "omschrijving": tekst(regel.get("omschrijving")),
+            "aantal": aantal,
+            "stukprijs": getal(regel.get("stukprijs")),
+            "regelbedrag": bedrag,
+        })
+    btw = []
+    for deel in (ruw.get("btw") or [])[:10]:
+        if isinstance(deel, dict) and getal(deel.get("bedrag")) is not None:
+            btw.append({"tarief": getal(deel.get("tarief")),
+                        "bedrag": getal(deel.get("bedrag"))})
+    onzeker = [tekst(v) for v in (ruw.get("onzeker") or [])[:20] if tekst(v)]
+    return {
+        "winkel": tekst(ruw.get("winkel")),
+        "datum": tekst(ruw.get("datum"))[:10],
+        "regels": regels,
+        "korting": getal(ruw.get("korting")),
+        "btw": btw,
+        "btw_totaal": getal(ruw.get("btw_totaal")),
+        "totaal": getal(ruw.get("totaal")),
+        "betaalwijze": tekst(ruw.get("betaalwijze"))[:20],
+        "onzeker": onzeker,
+        "ocr_regels": [tekst(r) for r in (ruw.get("ocr_regels") or [])[:200]],
+    }
+
+
+def _lees_herkenning(rij):
+    """Het gelezen resultaat bij een scan, of None als het er niet is."""
+    gelezen, stempelpad, _mislukt = _bon_paden(rij["bestand"])
+    bron = veilig_pad(SCAN_DIR, rij["bestand"])
+    if not gelezen or not os.path.isfile(gelezen) or not bron:
+        return None
+    # Hoort de uitslag bij dit bestand? Een scan die is vervangen heeft een
+    # andere stempel, en dan is de oude uitslag niet meer van deze bon.
+    if _lees_stempel(stempelpad) != _pdf_versie(bron):
+        return None
+    try:
+        with open(gelezen, encoding="utf-8") as bestand:
+            return _schone_herkenning(json.load(bestand))
+    except (OSError, ValueError):
+        return None
+
+
+def _herkenning_komt_nog(rij):
+    """Of het wachten op een uitslag nog zin heeft."""
+    if not herkenning_aan():
+        return False
+    sleutel = rij["bestand"]
+    if os.path.splitext(sleutel)[1].lower() not in BON_OCR_TYPES:
+        return False
+    _gelezen, stempelpad, mislukt = _bon_paden(sleutel)
+    bron = veilig_pad(SCAN_DIR, sleutel)
+    if not bron or not os.path.isfile(bron) or not mislukt:
+        return False
+    if os.path.isfile(mislukt) and _lees_stempel(stempelpad) == _pdf_versie(bron):
+        return False
+    return True
+
+
+def _wacht_op_herkenning():
+    """Voor de tests: wacht tot de achtergrond klaar is met lezen."""
+    _BON_WACHTRIJ.join()
+
+
+# Eén regel per goedgekeurde bon: wat de lezer zei en wat Stone ervan maakte.
+CORRECTIE_LOG = os.path.join(DATA_DIR, "bon-correcties.jsonl")
+# Boven deze grens gaat het bestand één keer naar .1 en begint het opnieuw.
+# ponytail: één oude generatie, echte rotatie pas als dit ooit groot wordt.
+_CORRECTIE_GRENS = 5 * 1024 * 1024
+
+
+def _log_correctie(scan_rij, gelezen, bewaard):
+    """Legt vast wat de lezer van een bon maakte en wat er is goedgekeurd.
+
+    Dit is er voor later. De parser bestaat uit regels per winkel, en dat is
+    onderhoud dat nooit klaar is. Een klein model dat regels leert labelen zou
+    dat kunnen vervangen, maar daar is iets voor nodig wat we nu niet hebben:
+    echte bonnen met het juiste antwoord erbij. Elke correctie van Stone is
+    precies zo'n voorbeeld, en die zijn alleen te verzamelen op het moment dat
+    hij ze maakt. Zonder deze regel beginnen we daar over een jaar weer bij nul.
+
+    Blijft op de Pi: het bestand staat in de datamap, gaat niet mee de repo in,
+    en je kunt het zonder gevolgen weggooien. In DOCKER.md staat wat erin zit.
+    """
+    if gelezen is None:
+        return
+    regel = {
+        "wanneer": nu().strftime("%Y-%m-%dT%H:%M:%S"),
+        "soort": scan_rij["soort"],
+        "gelezen": gelezen,
+        "bewaard": bewaard,
+        "regels": [
+            {"omschrijving": oms, "aantal": aantal, "prijs": prijs}
+            for oms, aantal, prijs in zip_longest(
+                request.form.getlist("materiaal_omschrijving"),
+                request.form.getlist("materiaal_aantal"),
+                request.form.getlist("materiaal_prijs"),
+                fillvalue="")
+            if (oms or "").strip()
+        ],
+    }
+    try:
+        if (os.path.isfile(CORRECTIE_LOG)
+                and os.path.getsize(CORRECTIE_LOG) > _CORRECTIE_GRENS):
+            os.replace(CORRECTIE_LOG, CORRECTIE_LOG + ".1")
+        with open(CORRECTIE_LOG, "a", encoding="utf-8") as doel:
+            doel.write(json.dumps(regel, ensure_ascii=False) + "\n")
+    except OSError as fout:
+        # Een volle schijf mag nooit een bon kosten: de bon staat al in de
+        # database, dit is alleen de aantekening erbij.
+        app.logger.warning("De correctie kon niet worden opgeschreven: %s", fout)
 
 
 def _urls_voor_miniatuur(pad, map_dir, sleutel, route, **kwargs):
@@ -6033,7 +6378,7 @@ def _teken_pdf_miniatuur(bron, map_dir, sleutel, stempel):
             if not os.path.isfile(bron):
                 _ruim_miniatuur_resten(gemaakt, doel, stempelpad, mislukt)
                 return
-            _onthoud_mislukte_miniatuur(mislukt)
+            _onthoud_mislukte_poging(mislukt)
             _schrijf_stempel(stempelpad, stempel)
             return
         if not os.path.isfile(bron) or _pdf_versie(bron) != stempel:
@@ -6041,7 +6386,7 @@ def _teken_pdf_miniatuur(bron, map_dir, sleutel, stempel):
             _ruim_miniatuur_resten(gemaakt, doel, stempelpad, mislukt)
             return
         if not os.path.isfile(gemaakt):
-            _onthoud_mislukte_miniatuur(mislukt)
+            _onthoud_mislukte_poging(mislukt)
             _schrijf_stempel(stempelpad, stempel)
             return
         try:
@@ -6073,7 +6418,7 @@ def _plan_pdf_miniatuur(bron, map_dir, sleutel):
         if os.path.getsize(bron) > _MINI_GRENS:
             stempel = _pdf_versie(bron)
             if stempel:
-                _onthoud_mislukte_miniatuur(mislukt)
+                _onthoud_mislukte_poging(mislukt)
                 _schrijf_stempel(stempelpad, stempel)
             return None
         stempel = _pdf_versie(bron)
@@ -6081,7 +6426,7 @@ def _plan_pdf_miniatuur(bron, map_dir, sleutel):
         return None
     if not stempel:
         return None
-    _ruim_verouderd_voorbeeld(doel, mislukt, stempelpad, stempel)
+    _ruim_verouderde_uitslag(doel, mislukt, stempelpad, stempel)
     if os.path.isfile(doel):
         return doel
     if os.path.isfile(mislukt) or shutil.which("pdftoppm") is None:
@@ -6216,8 +6561,12 @@ def _miniatuur_pad(rij):
 
 
 def _wis_scanminiatuur(rij):
-    """Voorbeeld en een mislukte poging horen bij de scan, niet los in de map."""
+    """Voorbeeld, gelezen bon en een mislukte poging horen bij de scan.
+
+    Zowel het verwijderen van een scan als het koppelen aan een bon of notitie
+    komt hier langs, dus één plek is genoeg."""
     _wis_pdfminiatuur(SCAN_DIR, rij["bestand"])
+    _wis_bonherkenning(rij["bestand"])
 
 
 def _verwijder_scanbestanden(rij):
@@ -6264,6 +6613,12 @@ def scans():
             bron = veilig_pad(SCAN_DIR, scan["bestand"])
             if bron and _miniatuur_komt_nog(bron, SCAN_DIR, scan["bestand"]):
                 scan["mini_versie"] = _pdf_versie(bron)
+        # Een scan van vóór 2.2.0, of een die binnenkwam toen de lezer net niet
+        # draaide, krijgt hier alsnog zijn kans.
+        _plan_bonherkenning(scan)
+        scan["bon_gelezen"] = _lees_herkenning(scan) is not None
+        scan["bon_wordt_gelezen"] = (not scan["bon_gelezen"]
+                                     and _herkenning_komt_nog(scan))
         rijen.append(scan)
     conn.close()
     return render_template("scans.html", scans=rijen, actief="scans")
@@ -6321,11 +6676,42 @@ def scan_als_bon(scan_id):
         return _koppel_als_bon(conn, rij)
     groepen = klussen_gegroepeerd(conn)
     conn.close()
+    _plan_bonherkenning(rij)
+    gelezen = _lees_herkenning(rij)
     return render_template(
         "scan_koppel.html", scan=_scan_voor_formulier(rij), groepen=groepen,
         doel="bon", titel="Scan als bon", knop="Bon maken",
-        omschrijving=os.path.splitext(rij["naam"])[0], actief="scans",
+        omschrijving=_bon_omschrijving(gelezen, rij), actief="scans",
+        gelezen=gelezen, wordt_gelezen=_herkenning_komt_nog(rij) if not gelezen else False,
+        vandaag_iso=vandaag().isoformat(),
     )
+
+
+def _bon_omschrijving(gelezen, rij):
+    """De naam van de bon: de winkel als die gelezen is, anders de bestandsnaam.
+
+    De datum komt er niet bij: die staat als eigen veld op het formulier en
+    daarna in de lijst bij de klus."""
+    if gelezen and gelezen.get("winkel"):
+        return gelezen["winkel"]
+    return os.path.splitext(rij["naam"])[0]
+
+
+@app.route("/scans/<int:scan_id>/herkenning")
+def scan_herkenning(scan_id):
+    """Of de bon al gelezen is. Het formulier vraagt dit een paar keer op.
+
+    Zelfde gedachte als bij het voorbeeld van een PDF: de pagina hoeft niet te
+    wachten tot de lezer klaar is, maar hij mag wel even kijken."""
+    conn = get_db()
+    rij = _scan_rij(conn, scan_id)
+    conn.close()
+    if rij is None:
+        return _json_antwoord({"klaar": False, "bezig": False}, 404)
+    gelezen = _lees_herkenning(rij)
+    if gelezen is None:
+        return _json_antwoord({"klaar": False, "bezig": _herkenning_komt_nog(rij)})
+    return _json_antwoord({"klaar": True, "bezig": False, "bon": gelezen})
 
 
 @app.route("/scans/<int:scan_id>/notitie", methods=["GET", "POST"])
@@ -6365,11 +6751,18 @@ def _koppel_als_bon(conn, rij):
     if not omschrijving:
         omschrijving = os.path.splitext(rij["naam"])[0] or "Bon"
     bedrag = _lees_bedrag(request.form.get("bedrag"))
+    # De datum van de bon, niet van vandaag: een bon van vorige week hoort op
+    # zijn eigen dag in de lijst bij de klus te staan.
+    wanneer = geldige_datum(request.form.get("wanneer"), vandaag().isoformat())
+    # Wat de lezer ervan maakte, vóór de bon verdwijnt uit de inbox: dit is de
+    # enige plek waar het gelezene en het goedgekeurde naast elkaar bestaan.
+    gelezen = _lees_herkenning(rij)
     inkoop_id = conn.execute(
         """INSERT INTO inkopen (klus_id, omschrijving, bedrag, toegevoegd)
            VALUES (?, ?, ?, ?)""",
-        (klus["id"], omschrijving, bedrag, vandaag().isoformat()),
+        (klus["id"], omschrijving, bedrag, wanneer),
     ).lastrowid
+    _bewaar_materialen(conn, inkoop_id)
     if not _scan_naar_bijlage(conn, rij, klus["id"], inkoop_id=inkoop_id):
         conn.rollback()
         conn.close()
@@ -6378,6 +6771,8 @@ def _koppel_als_bon(conn, rij):
         return redirect(url_for("scans"))
     conn.commit()
     conn.close()
+    _log_correctie(rij, gelezen,
+                   {"omschrijving": omschrijving, "datum": wanneer, "bedrag": bedrag})
     melding(f"Scan bij de bon '{omschrijving}' gezet.")
     return redirect(url_for("klus", klus_id=klus["id"]))
 

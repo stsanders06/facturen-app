@@ -28,6 +28,10 @@ services:
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-0}
+      # De bonnenlezer hieronder. Leeg zetten in .env schakelt het lezen uit;
+      # de app werkt dan precies als daarvoor en je vult de bon zelf in.
+      BON_OCR_URL: ${BON_OCR_URL-http://bon-ocr:8099/lees}
+      BON_OCR_TIJD: ${BON_OCR_TIJD:-30}
     volumes:
       # Database, PDF's, logo, bijlagen, scans en de sessiesleutel.
       - ./data:/data
@@ -36,6 +40,34 @@ services:
     # (zie DOCKER.md); zonder dat negeert Docker hem stil.
     mem_limit: 512m
     # Logs niet onbeperkt laten groeien op de SD-kaart.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Leest een gescande bon en geeft de velden terug, zodat 'Scan als bon' al
+  # is ingevuld. Helemaal lokaal: geen cloud, geen internet nodig, de modellen
+  # zitten in het image.
+  bon-ocr:
+    build:
+      context: ./bon_ocr
+    image: bon-ocr:lokaal
+    container_name: bon-ocr
+    restart: unless-stopped
+    # Expres geen ports: alleen de facturen-app mag hierbij, via het interne
+    # netwerk van compose. Zet hier nooit een poort op; dan staat een dienst
+    # zonder inlog open op je netwerk.
+    expose:
+      - "8099"
+    environment:
+      TZ: ${TZ:-Europe/Amsterdam}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Meer draden maakt het sneller maar niet zuiniger. Vier is de Pi 5.
+      OCR_DRADEN: ${OCR_DRADEN:-4}
+    # Het lezen van een bon piekte in de proef rond 550 MB. 768 laat lucht,
+    # en houdt een Pi met 4 GB overeind als er iets misgaat.
+    mem_limit: 768m
     logging:
       driver: json-file
       options:

@@ -162,6 +162,27 @@
     </div>
   </section>
 
+  {% if bon_lezer %}
+  <section class="card" style="margin-top:12px">
+    <div class="card-head">
+      <h2>Bonnen lezen</h2>
+      <p>Een nieuwe scan wordt op de achtergrond gelezen, zodat 'Scan als bon'
+        al voor je is ingevuld. Je keurt de bon altijd zelf goed; velden die niet
+        zeker zijn staan gemarkeerd.</p>
+    </div>
+    <div class="fields">
+      <div class="checkregel">
+        {# Zonder dit verborgen veld zou een formulier waarin de schakelaar niet
+           staat hem stil op uit zetten. #}
+        <input type="hidden" name="bon_herkenning_aanwezig" value="1">
+        <input type="checkbox" id="bon_herkenning" name="bon_herkenning" value="ja"
+               {% if s.bon_herkenning %}checked{% endif %}>
+        <label for="bon_herkenning">Nieuwe scans automatisch laten lezen</label>
+      </div>
+    </div>
+  </section>
+  {% endif %}
+
   <div class="opslaan">
     <button type="submit" class="btn">Opslaan</button>
   </div>

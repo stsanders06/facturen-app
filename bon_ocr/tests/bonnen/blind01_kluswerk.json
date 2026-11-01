@@ -1,0 +1,51 @@
+{
+ "winkel": "KLUSWERK",
+ "datum": "2026-07-11",
+ "regels": [
+  {
+   "omschrijving": "Tuinaarde 20L",
+   "aantal": 2,
+   "stukprijs": 2.99,
+   "regelbedrag": 5.98
+  },
+  {
+   "omschrijving": "Bloempot terracotta 30cm",
+   "aantal": 1,
+   "stukprijs": 12.99,
+   "regelbedrag": 12.99
+  },
+  {
+   "omschrijving": "Hogedrukreiniger slang 8m",
+   "aantal": 1,
+   "stukprijs": 34.95,
+   "regelbedrag": 34.95
+  },
+  {
+   "omschrijving": "Ophanghaak messing",
+   "aantal": 6,
+   "stukprijs": 0.89,
+   "regelbedrag": 5.34
+  },
+  {
+   "omschrijving": "Zaaigoed tomaat",
+   "aantal": 1,
+   "stukprijs": 1.99,
+   "regelbedrag": 1.99
+  }
+ ],
+ "korting": null,
+ "btw": [
+  {
+   "tarief": 21,
+   "bedrag": 9.25
+  },
+  {
+   "tarief": 9,
+   "bedrag": 0.66
+  }
+ ],
+ "btw_totaal": 9.91,
+ "totaal": 61.25,
+ "betaalwijze": "pin",
+ "soort": "clean"
+}

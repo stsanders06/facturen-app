@@ -1,0 +1,41 @@
+{
+ "winkel": "Gereedschapshuis Ketel",
+ "datum": "2026-10-14",
+ "regels": [
+  {
+   "omschrijving": "Klauwhamer 450g",
+   "aantal": 1,
+   "stukprijs": 21.95,
+   "regelbedrag": 21.95
+  },
+  {
+   "omschrijving": "Duimstok 2m",
+   "aantal": 2,
+   "stukprijs": 6.5,
+   "regelbedrag": 13.0
+  },
+  {
+   "omschrijving": "Bitset 32-delig",
+   "aantal": 1,
+   "stukprijs": 18.95,
+   "regelbedrag": 18.95
+  },
+  {
+   "omschrijving": "Kabelbinders 100st",
+   "aantal": 1,
+   "stukprijs": 3.75,
+   "regelbedrag": 3.75
+  }
+ ],
+ "korting": null,
+ "btw": [
+  {
+   "tarief": 21,
+   "bedrag": 10.01
+  }
+ ],
+ "btw_totaal": 10.01,
+ "totaal": 57.65,
+ "betaalwijze": "creditcard",
+ "soort": "crumpled"
+}

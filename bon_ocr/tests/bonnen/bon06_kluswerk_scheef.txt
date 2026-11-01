@@ -1,0 +1,24 @@
+KLUSWERK
+BouwmarktVoorbeeldstad
+Fictieflaan12,1234AB Voorbeeldstad
+Tel012-3456789
+KvK 00000000 BTW NL000000000B01
+Omschrijving   Bedrag
+8740364797839
+4 × 24,95
+Laminaat eiken2,13m2   99,80
+8783404053465
+Ondervloer15m2   18,99
+8716118263334
+6 × 4,99
+Plinten wit2,4m   29,94
+8790860714159
+Laminaatzaag   12,95
+Subtotaal   161,68
+TOTAAL   EUR 161,68
+PIN   161,68
+BTW%   Excl.   BTM   Incl.
+21%   133,62   28,06   161,68
+Datum: 29-08-2026   Tijd: 17:55
+Kassa 3 Bon 0042   Medewerker17
+Bedankt en tot ziens!

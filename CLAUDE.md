@@ -4,6 +4,11 @@ Home Assistant add-on: een simpele rekeningen- en offerte-app voor losse klussen
 Flask + SQLite + reportlab, alles in `facturen_app/app/main.py` en de templates ernaast.
 Geen build-stap, geen frontend-framework: server-side Jinja met CSS in de templates zelf.
 
+Daarnaast `bon_ocr/`: een tweede container die een gescande bon leest (RapidOCR +
+een regelparser) zodat 'Scan als bon' voorgevuld klaarstaat. Draait alleen bij
+docker compose, niet in Home Assistant, en is nooit vanaf het netwerk bereikbaar.
+Zie DOCKER.md, hoofdstuk 5.
+
 ## Draaien en testen
 
 Er is geen venv in de repo. Zelf een maken:
@@ -14,11 +19,30 @@ python3 -m venv .venv
                      -r facturen_app/tests/requirements.txt
 ```
 
-Tests draaien vanaf de hoofdmap (`pytest.ini` wijst naar `facturen_app/tests`):
+Tests draaien vanaf de hoofdmap (`pytest.ini` wijst naar `facturen_app/tests` en
+`bon_ocr/tests`):
 
 ```bash
 .venv/bin/python -m pytest
 ```
+
+De parsertests gebruiken meegeleverde OCR-tekst, dus daar is geen onnxruntime of
+container voor nodig. Wil je de lezer zelf draaien, dan heb je een eigen venv
+nodig met `bon_ocr/requirements.txt`; `pdfimages` en `pdftoppm` (poppler) moeten
+op je pad staan:
+
+```bash
+PORT=8599 ocr-venv/bin/python bon_ocr/lezer.py
+curl --data-binary @bon.jpg -H "Content-Type: image/jpeg" http://127.0.0.1:8599/lees
+```
+
+Wil je de app met de lezer eraan: zet `BON_OCR_URL=http://127.0.0.1:8599/lees`
+bij het starten.
+
+**Let op bij een tweede conftest.py:** `bon_ocr/tests` heeft er expres géén.
+Twee bestanden met die naam worden dezelfde module, en dan verliest de hele
+suite van `facturen_app` zijn fixtures. Het pad staat daarom bovenin
+`test_bon_parser.py`.
 
 De app lokaal starten met een eigen datamap, zodat je niet in `/data` schrijft:
 
@@ -55,7 +79,7 @@ Assistant: daar hoort alleen het standaardnetwerk te gelden.
   commentaar houden.
 - **Meldingen aan de gebruiker zijn gewone taal.** "De mailserver weigert je
   gebruikersnaam of wachtwoord", niet "SMTP authentication failed".
-- **Elke wijziging krijgt tests.** Er staan er nu 384.
+- **Elke wijziging krijgt tests.** Er staan er nu 1416.
 
 ### Valkuil bij de tests
 
@@ -91,6 +115,34 @@ voor bestanden op schijf: de opruiming leegt `PDF_DIR` en `BIJLAGE_DIR`.
       gehad met de breedte van datum- en tijdvelden (zie het commentaar onderaan
       `klus.html`). Dat soort fouten vangt geen enkele emulator; alleen kijken op het
       echte toestel helpt. Nieuwe formuliervelden dus altijd even op de telefoon nalopen.
+      **Het datumveld op 'Scan als bon' (2.2.0) is nog niet op een iPhone gezien.**
+- [ ] **De lezer is nog niet op de Pi gemeten.** Tijd en geheugen komen uit de proef
+      en van een Mac (een bon in 1 tot 2,5 seconde, piek rond 550 MB). Op de Pi 5
+      hoort het trager te zijn; `docker stats bon-ocr` tijdens een scan zegt het.
+- [ ] **Een echte blinde test staat nog open:** bonnen van winkels die er nog niet
+      bij zaten (Gamma, Praxis, Hornbach, Hema, supermarkt, pomp). Die bonnen komen
+      de repo niet in; `bon_ocr/tests/bonnen` bevat alleen nepbonnen.
+
+### Over de bonnenlezer
+
+- **De parser is het onderhoud, niet de OCR.** In de proef las RapidOCR alle zes
+  echte bonnen goed en had de parser er nul helemaal goed. Gaat er iets mis met
+  een nieuwe winkel, kijk dan eerst naar `bon_ocr/bon_parser.py` en pas daarna
+  naar de OCR. `bon_ocr/tests/bonnen/*.txt` is de tekst die de OCR oplevert; een
+  nieuw geval erbij zetten is een tekstbestand plus het juiste antwoord.
+- **De `onzeker`-lijst is de kern.** Een veld dat niet klopt moet daarin staan,
+  anders ziet Stone een leesfout aan voor een goed gelezen bon. De test
+  `test_een_fout_veld_staat_altijd_in_onzeker` bewaakt dat; die mag nooit
+  worden versoepeld.
+- **Blind is 5 van de 6.** Dat is de eerlijke score (de andere acht bonnen zijn
+  de set waarop de parser is gemaakt). Omhoog mag, omlaag niet.
+- **Geen taalmodel.** Gemeten en afgevallen: RapidOCR met Qwen2.5-3B haalde 0 van
+  de 6 in 38 s en 2,5 GB, Qwen3-VL 2B idem in 33 s en 3,9 GB, tegen 5 van de 6 in
+  ongeveer een seconde met regels. Kleinere modellen lossen dat niet op: ze
+  verwarren stukprijs met regeltotaal en verzinnen plausibele bedragen, en dat is
+  precies de fout die langs een controle glipt. Pas heroverwegen als
+  `data/bon-correcties.jsonl` genoeg echte voorbeelden heeft, en dan als model
+  dat regels labelt — nooit als model dat bedragen opschrijft.
 
 ### Ideeën die zijn blijven liggen
 

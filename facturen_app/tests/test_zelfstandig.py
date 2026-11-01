@@ -568,7 +568,10 @@ def test_compose_poort_met_en_zonder_luisteradres():
 def test_env_voorbeeld_heeft_alles_wat_compose_gebruikt():
     voorbeeld = (REPO / ".env.example").read_text()
     sleutels = set(re.findall(r"^([A-Z_]+)=", voorbeeld, re.M))
-    gebruikt = set(re.findall(r"\$\{([A-Z_]+):[-+]", (REPO / "docker-compose.yml").read_text()))
+    # ${X:-...} en ${X-...}: die tweede vorm laat een léég antwoord staan in
+    # plaats van de standaard, en dat is hoe BON_OCR_URL uit te zetten is.
+    gebruikt = set(re.findall(r"\$\{([A-Z_]+):?[-+]",
+                              (REPO / "docker-compose.yml").read_text()))
     assert gebruikt == sleutels
     assert "TZ=Europe/Amsterdam" in voorbeeld
 
@@ -699,3 +702,43 @@ def test_versie_klopt_met_config_yaml():
     config = yaml.safe_load((ADDON_DIR / "config.yaml").read_text())
     tekst = (APP_DIR / "main.py").read_text()
     assert f'os.environ.get("ADDON_VERSION") or "{config["version"]}"' in tekst
+
+
+# --- De bonnenlezer als eigen container ---------------------------------------
+
+def test_de_bonnenlezer_staat_niet_op_het_netwerk():
+    """Dit is de belangrijkste eis aan die container: hij heeft geen inlog, dus
+    hij mag alleen vanuit de app bereikbaar zijn en nooit via een poort op de Pi."""
+    dienst = yaml.safe_load((REPO / "docker-compose.yml").read_text())["services"]["bon-ocr"]
+    assert "ports" not in dienst
+    assert dienst["expose"] == ["8099"]
+    assert dienst["restart"] == "unless-stopped"
+    # Geen datamap: de bon komt in het verzoek mee en wordt niet bewaard.
+    assert "volumes" not in dienst
+    assert dienst["mem_limit"] == "768m"
+
+
+def test_de_app_weet_het_adres_van_de_lezer():
+    dienst = yaml.safe_load((REPO / "docker-compose.yml").read_text())["services"]["facturen"]
+    # Zonder dubbele punt: een lege waarde in .env hoort leeg te blijven, want
+    # dat is hoe je het lezen uitzet.
+    assert dienst["environment"]["BON_OCR_URL"] == "${BON_OCR_URL-http://bon-ocr:8099/lees}"
+
+
+def test_de_lezer_draait_niet_als_root_en_heeft_de_modellen_in_het_image():
+    inhoud = (REPO / "bon_ocr" / "Dockerfile").read_text()
+    assert "USER bonocr" in inhoud
+    # De modellen tijdens de build binnenhalen: anders moet de Pi aan het
+    # internet kunnen en staat de eerste scan stil op een download.
+    assert "RapidOCR(" in inhoud
+    assert "HEALTHCHECK" in inhoud
+    # Debian en niet Alpine: onnxruntime heeft geen wheels voor musl.
+    assert "slim-bookworm" in inhoud
+
+
+def test_de_lezer_heeft_vaste_pakketversies():
+    regels = [r.strip() for r in (REPO / "bon_ocr" / "requirements.txt").read_text()
+              .splitlines() if r.strip() and not r.startswith("#")]
+    assert regels
+    for regel in regels:
+        assert "==" in regel, regel
