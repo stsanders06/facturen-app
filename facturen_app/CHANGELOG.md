@@ -1,5 +1,29 @@
 # Changelog
 
+## 2.2.1
+
+Eerste ronde verbeteringen aan het lezen van bonnen, na het uitproberen op een
+echte Karwei-bon op de Raspberry Pi.
+
+- **Je ziet nu dat de app bezig is.** In de Scans-inbox staat onder een nieuwe
+  scan "De bon wordt gelezen…" met een kloppend stipje, en zodra hij klaar is
+  verandert die regel vanzelf in "Bon gelezen". Op het formulier staat een
+  balkje dat loopt zolang er gewerkt wordt. Op de Pi duurt het lezen tien tot
+  twintig seconden, en daar leek het eerst alsof er niets gebeurde.
+- **Drie leesfouten op echte bonnen verholpen.** Een subtotaal dat de app
+  verkeerd las ("Subtoteal") werd niet als subtotaal herkend, waardoor het
+  subtotaal en de personeelskorting als artikelregels op de bon kwamen. Een
+  regel "Aanbieding t/m …" werd een artikel in plaats van een korting die al in
+  de prijs zat. En de datum van zo'n aanbieding won het van de datum van de bon
+  zelf — dat was de vervelendste, want daar was niets aan te zien.
+- **Een datum die een gok is wordt nu gemeld**, net als de andere onzekere velden.
+- De app wacht langer op de lezer (90 in plaats van 30 seconden) en de lezer
+  krijgt meer geheugen (1 GB in plaats van 768 MB). Beide grenzen bleken te krap
+  op de Pi: een bon van 2 MB duurde tot 22 seconden en piekte op 626 MB.
+- **Een nieuwe rekening krijgt het kenmerk van de klus** waar hij over gaat. Gaat
+  hij over meer klussen, dan staan ze er allemaal in. Vul je zelf een kenmerk in,
+  dan blijft dat staan, en bij het bewerken van een rekening verandert er niets.
+
 ## 2.2.0
 
 **Bonnen worden nu voor je ingevuld.** Stuur je een bon vanaf je telefoon naar

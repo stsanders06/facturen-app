@@ -1,0 +1,35 @@
+KAR
+WEI
+Testweg 3   1234 PZ PROEFDORP
++31 00 0000000
+Leveringsbon 26080211140000000000   KLANT   1000000
+J. Jansen
+Voorbeeldstraat 1
+1234AB Proefdorp
+BTV-nunner
+Klantenkart: 1234XXXXXX00   BEDRAG BTM
+AANT ONSCHRIJUING   PRIJS
+1 FL CR MU HETALLICS DROP OF PEARL IL
+44.49   44,49   1
+Aanbieding t/n 16-08-2026   -13,35   -13,35
+Nettoprijs   31,14   31,14
+Subtoteal:   31,14
+15,00% Korting personeel   -4,67
+1 Totaal   26,47
+Haestro   26,47
+POI:   10000000
+KLANTTICKET
+Terninal:   000000
+Herchant:   100000
+Periode:   0000
+Transactie:   1000000
+PAR:   10000AAAAAA0AA00A0AAA000A0A0
+Haestro (A0000000000000)
+MAESTRO
+Kaart:   XXXX XXXX X×XX XX×0 000
+Kaartserienunner:   0
+BETALING
+Datun: 02/08/2026 11:13
+Autorisatiecode: A00000
+Totaal:   26.47 EUR
+Contactless

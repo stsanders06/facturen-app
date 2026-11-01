@@ -717,7 +717,8 @@ def test_de_bonnenlezer_staat_niet_op_het_netwerk():
     assert "volumes" not in dienst
     # Zonder init blijft de container tien seconden hangen bij elke stop.
     assert dienst["init"] is True
-    assert dienst["mem_limit"] == "768m"
+    # Gemeten op een Pi 5: piek 626 MB bij een bon van 2 MB. 768 was te krap.
+    assert dienst["mem_limit"] == "1g"
 
 
 def test_de_app_weet_het_adres_van_de_lezer():

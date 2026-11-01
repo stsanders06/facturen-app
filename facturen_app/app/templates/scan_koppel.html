@@ -21,13 +21,55 @@
     font-size: 12.5px;
     color: var(--text-secondary);
   }
+  /* Het lezen duurt op een Pi tien tot twintig seconden. Een stille grijze
+     regel ziet er in die tijd uit als een pagina die klaar is; een lopende
+     balk en een pulserende stip laten zien dat er gewerkt wordt. */
   .bon-wordt-gelezen {
     display: flex;
     align-items: center;
     gap: 8px;
     margin: 0 0 14px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
     font-size: 13px;
     color: var(--text-secondary);
+    position: relative;
+    overflow: hidden;
+  }
+  .bon-wordt-gelezen .stip {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-secondary);
+    flex: none;
+    animation: leespuls 1.2s ease-in-out infinite;
+  }
+  /* Dunne streep die heen en weer loopt: hij zegt "bezig" zonder te doen
+     alsof we weten hoe ver het is. */
+  .bon-wordt-gelezen::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    height: 2px;
+    width: 35%;
+    background: var(--text-secondary);
+    opacity: .35;
+    animation: leesbalk 1.6s ease-in-out infinite;
+  }
+  .bon-wordt-gelezen.klaar::after { animation: none; display: none; }
+  @keyframes leespuls {
+    0%, 100% { opacity: .25; transform: scale(.8); }
+    50%      { opacity: 1;   transform: scale(1.15); }
+  }
+  @keyframes leesbalk {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(300%); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .bon-wordt-gelezen .stip { animation: none; opacity: .6; }
+    .bon-wordt-gelezen::after { animation: none; width: 100%; opacity: .15; }
   }
 </style>
 
@@ -48,7 +90,11 @@
   {% if doel == 'bon' and wordt_gelezen %}
   {#- Het lezen duurt een paar seconden. De pagina vraagt het even na en vult
       zichzelf dan in; zonder script blijft dit staan tot je ververst. -#}
-  <p class="bon-wordt-gelezen" id="bon-bezig">De bon wordt gelezen…</p>
+  <p class="bon-wordt-gelezen" id="bon-bezig" aria-live="polite">
+    <span class="stip" aria-hidden="true"></span>
+    <span id="bon-bezig-tekst">De bon wordt gelezen. Dit duurt een paar tellen;
+      je kunt alvast een klus kiezen.</span>
+  </p>
   {% endif %}
   <div class="fields">
     <div class="field">
@@ -207,15 +253,21 @@
     // een halve minuut is er iets mis en dan vul je hem met de hand in.
     var bezig = document.getElementById('bon-bezig');
     if (!bezig) return;
+    var tekst = document.getElementById('bon-bezig-tekst');
+    var mislukt = function () {
+      bezig.classList.add('klaar');
+      tekst.textContent = 'De bon is niet gelezen. Vul hem zelf in.';
+      bezig.querySelector('.stip').style.animation = 'none';
+    };
     var pogingen = 0;
     var kijk = function () {
-      if (pogingen++ > 15) { bezig.textContent = 'De bon is niet gelezen. Vul hem zelf in.'; return; }
+      if (pogingen++ > 45) { mislukt(); return; }
       fetch('{{ url_for("scan_herkenning", scan_id=scan.id) }}', {
         headers: { 'Accept': 'application/json' }
       }).then(function (a) { return a.json(); }).then(function (uit) {
         if (!uit.klaar) {
           if (uit.bezig) { setTimeout(kijk, 2000); return; }
-          bezig.textContent = 'De bon is niet gelezen. Vul hem zelf in.';
+          mislukt();
           return;
         }
         // Alleen velden die leeg zijn gebleven vullen: wat je al hebt ingetikt
@@ -234,10 +286,12 @@
             maakRij(r.omschrijving, r.aantal, r.stukprijs);
           });
         }
-        bezig.remove();
-      }).catch(function () {
-        bezig.textContent = 'De bon is niet gelezen. Vul hem zelf in.';
-      });
+        // Niet weghalen maar omzetten: een regel die verdwijnt laat je in het
+        // ongewisse of er iets gebeurd is.
+        bezig.classList.add('klaar');
+        tekst.textContent = 'De bon is gelezen. Kijk de velden na en pas aan wat niet klopt.';
+        bezig.querySelector('.stip').style.animation = 'none';
+      }).catch(mislukt);
     };
     setTimeout(kijk, 1500);
   })();
