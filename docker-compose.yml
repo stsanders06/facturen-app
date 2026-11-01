@@ -55,6 +55,9 @@ services:
     image: bon-ocr:lokaal
     container_name: bon-ocr
     restart: unless-stopped
+    # Zelfde reden als bij de app: als PID 1 negeert Python SIGTERM zonder
+    # handler, en dan wacht docker tien seconden op een SIGKILL bij elke stop.
+    init: true
     # Expres geen ports: alleen de facturen-app mag hierbij, via het interne
     # netwerk van compose. Zet hier nooit een poort op; dan staat een dienst
     # zonder inlog open op je netwerk.

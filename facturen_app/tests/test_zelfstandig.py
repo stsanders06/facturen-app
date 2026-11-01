@@ -715,6 +715,8 @@ def test_de_bonnenlezer_staat_niet_op_het_netwerk():
     assert dienst["restart"] == "unless-stopped"
     # Geen datamap: de bon komt in het verzoek mee en wordt niet bewaard.
     assert "volumes" not in dienst
+    # Zonder init blijft de container tien seconden hangen bij elke stop.
+    assert dienst["init"] is True
     assert dienst["mem_limit"] == "768m"
 
 
