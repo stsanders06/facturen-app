@@ -49,7 +49,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "2.0.1"
+VERSIE = os.environ.get("ADDON_VERSION") or "2.1.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -127,6 +127,11 @@ def _secret_key():
     return sleutel
 
 
+# Losse container (docker compose, Dockerfile.standalone) in plaats van de add-on.
+# Wat er dan anders is staat bij IngressMiddleware en INGRESS_NETWERKEN.
+ZELFSTANDIG = os.environ.get("ZELFSTANDIG", "").strip().lower() in {"1", "ja", "true"}
+
+
 class IngressMiddleware:
     """Home Assistant Ingress serveert de app onder een dynamisch pad. De
     X-Ingress-Path header vertelt welk pad dat is, zodat url_for() links
@@ -137,7 +142,9 @@ class IngressMiddleware:
 
     def __call__(self, environ, start_response):
         ingress_path = environ.get("HTTP_X_INGRESS_PATH")
-        if ingress_path:
+        # Zonder Home Assistant komt deze header nooit van Ingress. Wie hem toch
+        # meestuurt zou alle links naar een verzonnen pad laten wijzen.
+        if ingress_path and not ZELFSTANDIG:
             environ["SCRIPT_NAME"] = ingress_path.rstrip("/")
         return self.wsgi_app(environ, start_response)
 
@@ -648,6 +655,17 @@ INGRESS_NETWERKEN = [
     for stuk in os.environ.get("INGRESS_NETWERK", "172.30.32.0/23").split(",")
     if stuk.strip()
 ]
+# Als losse container (docker compose, zonder Home Assistant) is er geen zijbalk en
+# dus nooit een echt Ingress-verzoek. Docker deelt zijn eigen netwerken uit in
+# 172.16.0.0/12; daar kan 172.30.32.0/23 zomaar tussen zitten, en dan zou een
+# andere container met een zelfgemaakte header langs de inlog kunnen. Daarom staat
+# Ingress hier helemaal uit, ook als iemand INGRESS_NETWERK in .env zet.
+if ZELFSTANDIG:
+    INGRESS_NETWERKEN = []
+app.jinja_env.globals["zelfstandig"] = ZELFSTANDIG
+# Waar je inlogt, voor in de meldingen. Bij de add-on is dat poort 8099 naast de
+# zijbalk; als losse container kies je de poort zelf in .env en is er geen zijbalk.
+INLOG_PLEK = "" if ZELFSTANDIG else " op poort 8099"
 
 # Pagina's die je zonder inloggen moet kunnen bereiken, anders kom je er nooit in.
 OPEN_PAGINAS = {"inloggen", "account_instellen", "static", "scans_ontvangen"}
@@ -892,7 +910,7 @@ def account_instellen():
         conn.close()
 
         session["gebruiker"] = naam
-        melding("Je account staat klaar. Vanaf nu log je hiermee in op poort 8099.")
+        melding(f"Je account staat klaar. Vanaf nu log je hiermee in{INLOG_PLEK}.")
         return redirect(url_for("vandaag_pagina"))
 
     return render_template("instellen.html", minimum=WACHTWOORD_MINIMUM)
@@ -1025,7 +1043,8 @@ def wachtwoord_wijzigen():
                      (generate_password_hash(nieuw), gebruiker["id"]))
     conn.commit()
     conn.close()
-    melding("Je wachtwoord is gewijzigd. Op poort 8099 log je hiermee in.")
+    melding("Je wachtwoord is gewijzigd. Vanaf nu log je hiermee in." if ZELFSTANDIG
+            else "Je wachtwoord is gewijzigd. Op poort 8099 log je hiermee in.")
     return redirect(url_for("instellingen"))
 
 

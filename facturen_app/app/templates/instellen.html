@@ -3,9 +3,14 @@
 {% block content %}
 
 <h1>Kies je inloggegevens</h1>
+{% if zelfstandig %}
+<p class="uitleg">Iedereen in je netwerk kan dit adres openen, en daar zit verder niets
+  voor. Kies daarom een gebruikersnaam en een wachtwoord waarmee je binnenkomt.</p>
+{% else %}
 <p class="uitleg">De app is te openen op poort 8099, en daar zit verder niets voor.
   Kies daarom een gebruikersnaam en een wachtwoord waarmee je binnenkomt. Via de zijbalk
   van Home Assistant hoef je hier niet mee in te loggen.</p>
+{% endif %}
 
 <form method="post" action="{{ url_for('account_instellen') }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

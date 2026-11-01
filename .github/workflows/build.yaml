@@ -126,3 +126,98 @@ jobs:
       - name: Ruim op
         if: always()
         run: docker rm -f facturen-test || true
+
+  zelfstandig:
+    name: Zelfstandig (docker compose)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Precies wat DOCKER.md op de Raspberry Pi laat doen, met een lege map data.
+      - name: Bouw en start met docker compose
+        run: |
+          cp .env.example .env
+          mkdir -p data
+          # Zelfs met INGRESS_NETWERK op het hele Docker-bereik mag een
+          # Ingress-header als losse container niet langs de inlog.
+          cat > /tmp/ingress-poging.yml <<'YAML'
+          services:
+            facturen:
+              environment:
+                INGRESS_NETWERK: 172.16.0.0/12
+          YAML
+          docker compose -f docker-compose.yml -f /tmp/ingress-poging.yml up -d --build
+          for i in $(seq 1 30); do
+            curl -sS -o /dev/null http://localhost:8099/instellen && break
+            if [ "$i" -eq 30 ]; then
+              echo "::error::De container antwoordde niet binnen 30 seconden"
+              docker compose logs
+              exit 1
+            fi
+            sleep 1
+          done
+
+      - name: Controleer inlog, pagina's en wachtwoord herstellen
+        run: |
+          B=http://localhost:8099
+          fout() { echo "::error::$1"; docker compose logs; exit 1; }
+
+          curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' $B/ > /tmp/direct.txt
+          grep -qE '^302 .*/instellen$' /tmp/direct.txt || fout "Zonder account geen instelscherm"
+
+          curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' \
+            -H "X-Ingress-Path: /api/hassio_ingress/xyz" $B/ > /tmp/nagemaakt.txt
+          grep -qE '^302 http://localhost:8099/instellen$' /tmp/nagemaakt.txt \
+            || fout "Een Ingress-header komt langs de inlog of verandert het pad: $(cat /tmp/nagemaakt.txt)"
+
+          curl -fsS $B/instellen > /tmp/instellen.html
+          grep -q "Home Assistant" /tmp/instellen.html && fout "Instelscherm noemt Home Assistant"
+
+          token() { grep -o 'name="csrf_token" value="[^"]*"' | head -1 | sed 's/.*value="//;s/"$//'; }
+          TOK=$(curl -sS -c /tmp/k $B/instellen | token)
+          curl -sS -b /tmp/k -c /tmp/k -o /dev/null --data-urlencode "csrf_token=$TOK" \
+            -d "naam=testgebruiker&wachtwoord=geheim123&nogmaals=geheim123" $B/instellen
+          for p in / /vandaag /klanten /klussen /offertes /scans /instellingen; do
+            code=$(curl -sS -b /tmp/k -o /tmp/pagina.html -w '%{http_code}' $B$p)
+            [ "$code" = "200" ] || fout "$p gaf $code"
+          done
+          grep -q "$B/api/scans" /tmp/pagina.html || fout "Scanadres ontbreekt in Instellingen"
+          echo "Pagina's werken"
+
+          printf 'nieuw-geheim\nnieuw-geheim\n' \
+            | docker compose exec -T facturen wachtwoord-herstellen | tee /tmp/herstel.txt
+          grep -q "Log in als testgebruiker" /tmp/herstel.txt || fout "Wachtwoord herstellen mislukt"
+          TOK=$(curl -sS -c /tmp/k2 $B/inloggen | token)
+          curl -sS -b /tmp/k2 -c /tmp/k2 -o /dev/null --data-urlencode "csrf_token=$TOK" \
+            -d "naam=testgebruiker&wachtwoord=nieuw-geheim" $B/inloggen
+          code=$(curl -sS -b /tmp/k2 -o /dev/null -w '%{http_code}' $B/klanten)
+          [ "$code" = "200" ] || fout "Inloggen met het herstelde wachtwoord lukt niet"
+          echo "Wachtwoord herstellen werkt"
+
+          # De app draait als PUID 1000, niet als root, en de data is van die gebruiker.
+          [ "$(stat -c %u data/facturen.db)" = "1000" ] || fout "data/facturen.db is niet van 1000"
+          docker compose exec -T facturen sh -c 'ps -o user,args' | grep -E '^1000 .*main.py' \
+            || fout "De app draait niet als gebruiker 1000"
+          docker compose logs
+
+      # De Raspberry Pi is arm64; bouwen via QEMU vangt een pakket dat daar ontbreekt.
+      - name: QEMU voor arm64
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Bouw voor arm64 (Raspberry Pi)
+        run: |
+          docker buildx build --platform linux/arm64 \
+            -f facturen_app/Dockerfile.standalone \
+            --tag facturen-app:arm64 --load ./facturen_app
+          docker run --rm --platform linux/arm64 --entrypoint python3 facturen-app:arm64 \
+            -c "import platform, reportlab, waitress; print(platform.machine())" | grep -qx aarch64
+
+      - name: Ruim op
+        if: always()
+        run: docker compose down || true

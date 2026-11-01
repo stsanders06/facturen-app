@@ -1,0 +1,33 @@
+---
+# De Facturen App als losse container, zonder Home Assistant.
+# Uitleg in het Nederlands: DOCKER.md. Kort:
+#   cp .env.example .env
+#   docker compose up -d --build
+services:
+  facturen:
+    build:
+      context: ./facturen_app
+      dockerfile: Dockerfile.standalone
+    image: facturen-app:zelfstandig
+    container_name: facturen-app
+    restart: unless-stopped
+    ports:
+      # Links de poort op de Pi (POORT in .env), rechts die in de container.
+      - "${POORT:-8099}:8099"
+    environment:
+      TZ: ${TZ:-Europe/Amsterdam}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+    volumes:
+      # Database, PDF's, logo, bijlagen, scans en de sessiesleutel.
+      - ./data:/data
+    # De app gebruikt rond de 60 MB. 512 MB laat ruimte voor een grote PDF
+    # of scan, en houdt een Pi met 4 GB vrij als er iets misgaat.
+    mem_limit: 512m
+    # Logs niet onbeperkt laten groeien op de SD-kaart.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
