@@ -507,37 +507,15 @@
 
   /* Takenlijst onder de tekst. De kaart is een flex-item; zonder min-width
      rekt een taak zonder spatie de hele kluspagina voorbij het scherm. */
-  .takenlijst { margin-top: 12px; min-width: 0; }
+  .takenlijst { min-width: 0; }
   /* .btn is inline-flex en wint van het hidden-attribuut, dus «Verberg
      afgevinkte» stond er ook als er niets afgevinkt was. */
   .takenlijst [hidden] { display: none !important; }
-  .taken-voortgang, .notitie-voortgang, .taken-klus {
+  .taken-voortgang, .taken-klus {
     margin: 0 0 8px;
     color: var(--text-secondary);
     font-size: 13px;
   }
-  .invoerrij-bij .notitie-voortgang { margin: 0 0 0 8px; }
-  /* De weg-kruis blijft naast de titel. De lijst komt op de volgende rij,
-     over de volle kaart, zodat het tekstveld breed blijft en niet onder
-     het kruis doorloopt. Acht pixels ertussen, anders raken de kruisjes. */
-  .invoerrij:has(.takenlijst) {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    column-gap: 12px;
-    row-gap: 8px;
-    align-items: start;
-  }
-  .invoerrij:has(.takenlijst) .invoerrij-inhoud { display: contents; }
-  .invoerrij:has(.takenlijst) > .invoerrij-weg { grid-column: 2; grid-row: 1; }
-  .invoerrij:has(.takenlijst) .invoerrij-inhoud > :first-child {
-    grid-column: 1;
-    grid-row: 1;
-    min-width: 0;
-  }
-  .invoerrij:has(.takenlijst) .takenlijst,
-  .invoerrij:has(.takenlijst) .bijlagen,
-  .invoerrij:has(.takenlijst) .invoerrij-acties,
-  .invoerrij:has(.takenlijst) .tekst-form { grid-column: 1 / -1; }
   .taken { list-style: none; margin: 0; padding: 0; min-width: 0; }
   .taak {
     display: grid;
@@ -1066,7 +1044,6 @@
   {% endif %}
 
   {% call invoerkaart('Notities', id='notities', plus='Notitie') %}
-    <p class="hint taken-klus" id="taken-klus"{% if not taken_totaal %} hidden{% endif %}>{{ taken_voortgang }}</p>
     {#- Twee regels: eerst wat je opschrijft, dan wat je erbij wilt zetten. Alles op
         één regel werd een rij van vier dingen waarvan er twee half afgekapt waren.
         De bestandskiezer zelf is verborgen: die toont "geen bestanden geselecteerd"
@@ -1113,17 +1090,13 @@
           <div class="invoerrij-hoofd">
             <span class="invoerrij-titel">{{ n.tekst|met_links }}</span>
           </div>
-          <div class="invoerrij-bij">{{ n.wanneer|datum_nl }}
-            <span class="notitie-voortgang" data-voortgang="{{ n.id }}"{% if not n.taken_totaal %} hidden{% endif %}>{{ n.voortgang }}</span>
-          </div>
+          <div class="invoerrij-bij">{{ n.wanneer|datum_nl }}</div>
           {% else %}
           <div class="invoerrij-hoofd">
             <span class="invoerrij-titel">{{ n.wanneer|datum_nl }}</span>
-            <span class="notitie-voortgang" data-voortgang="{{ n.id }}"{% if not n.taken_totaal %} hidden{% endif %}>{{ n.voortgang }}</span>
           </div>
           {% endif %}
         </div>
-        {% include "_takenlijst.html" %}
         <form method="post" class="tekst-form" id="notitie-{{ n.id }}-form" hidden
               action="{{ url_for('notitie_bewerk', notitie_id=n.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -1189,6 +1162,15 @@
       {% endfor %}
     {% endcall %}
     {% endif %}
+  {% endcall %}
+
+  {% call invoerkaart('Taken') %}
+    {#- Eén lijst voor de klus, onder de notities. De teller stond tot 2.2.1 in
+        de notitiekaart; daar hoort hij niet meer, want de taken staan er niet
+        meer in. Eén teller: per notitie stond er vroeger ook een, en dat werd
+        op een telefoon een tweede regel «0 van 1 klaar». -#}
+    <p class="hint taken-klus" id="taken-klus"{% if not taken_totaal %} hidden{% endif %}>{{ taken_voortgang }}</p>
+    {% include "_takenlijst.html" %}
   {% endcall %}
 
   {% call invoerkaart('Inkopen', plus='Bon') %}
@@ -1756,15 +1738,11 @@
       return li;
     }
     function zetVoortgang(lijst, gegevens) {
-      var id = lijst.getAttribute('data-notitie');
-      document.querySelectorAll('[data-voortgang="' + id + '"]').forEach(function (el) {
-        el.textContent = gegevens.voortgang || '';
-        el.hidden = !gegevens.totaal;
-      });
+      // Eén lijst per klus, dus ook maar één teller om bij te werken.
       var klus = document.getElementById('taken-klus');
       if (klus) {
-        klus.textContent = gegevens.klus_voortgang || '';
-        klus.hidden = !gegevens.klus_totaal;
+        klus.textContent = gegevens.voortgang || '';
+        klus.hidden = !gegevens.totaal;
       }
     }
     function zetLabels(rij, tekst) {

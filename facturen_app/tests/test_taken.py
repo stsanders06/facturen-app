@@ -1,7 +1,8 @@
-"""Takenlijst onder een notitie.
+"""Eén takenlijst per klus, onder de notities.
 
-De tekst en de foto's van de notitie blijven zoals ze waren. De lijst hangt
-ernaast, zodat je bij een klus kunt afvinken wat er nog moet gebeuren.
+Tot 2.2.1 had elke notitie een eigen lijstje. Wat er nog moet gebeuren hoort
+bij de klus, niet bij de aantekening waarin het toevallig is opgeschreven, dus
+staat er nu één lijst onder de notities.
 """
 import logging
 
@@ -18,32 +19,34 @@ def klus_id(post, db):
 
 
 def _notitie(post, db, klus_id, tekst="Te doen in de badkamer"):
+    """Een notitie bij de klus. De takenlijst staat er los van, maar een paar
+    tests kijken of de notitie zelf ongemoeid blijft."""
     schrijf_op(post, klus_id, tekst)
     return db.execute("SELECT id FROM notities").fetchone()[0]
 
 
-def _taak(post, notitie_id, tekst):
+def _taak(post, klus_id, tekst):
     return post(
-        f"/notitie/{notitie_id}/taak",
+        f"/klus/{klus_id}/taak",
         {"tekst": tekst},
         follow_redirects=True,
     )
 
 
-def _namen(db, notitie_id):
+def _namen(db, klus_id):
     return [
         rij["tekst"] for rij in db.execute(
-            "SELECT tekst FROM taken WHERE notitie_id=? ORDER BY volgorde, id",
-            (notitie_id,),
+            "SELECT tekst FROM taken WHERE klus_id=? ORDER BY volgorde, id",
+            (klus_id,),
         )
     ]
 
 
 def test_een_taak_komt_onder_de_notitie(post, db, klus_id, client):
     notitie_id = _notitie(post, db, klus_id)
-    _taak(post, notitie_id, "Kitrand snijden")
-    _taak(post, notitie_id, "Tegels voegen")
-    assert _namen(db, notitie_id) == ["Kitrand snijden", "Tegels voegen"]
+    _taak(post, klus_id, "Kitrand snijden")
+    _taak(post, klus_id, "Tegels voegen")
+    assert _namen(db, klus_id) == ["Kitrand snijden", "Tegels voegen"]
     assert db.execute("SELECT tekst FROM notities").fetchone()[0] == "Te doen in de badkamer"
     pagina = client.get(f"/klus/{klus_id}").data.decode()
     assert "Kitrand snijden" in pagina
@@ -53,24 +56,24 @@ def test_een_taak_komt_onder_de_notitie(post, db, klus_id, client):
 
 def test_afvinken_blijft_in_de_lijst(post, db, klus_id, client):
     notitie_id = _notitie(post, db, klus_id)
-    _taak(post, notitie_id, "Kitrand snijden")
+    _taak(post, klus_id, "Kitrand snijden")
     taak_id = db.execute("SELECT id FROM taken").fetchone()[0]
-    post(f"/notitie/{notitie_id}/taak/{taak_id}/vink", follow_redirects=True)
+    post(f"/klus/{klus_id}/taak/{taak_id}/vink", follow_redirects=True)
     assert db.execute("SELECT klaar FROM taken").fetchone()[0] == 1
     assert db.execute("SELECT COUNT(*) FROM taken").fetchone()[0] == 1
     pagina = client.get(f"/klus/{klus_id}").data.decode()
     assert "1 van 1 klaar" in pagina
     assert "is-klaar" in pagina
-    post(f"/notitie/{notitie_id}/taak/{taak_id}/vink", follow_redirects=True)
+    post(f"/klus/{klus_id}/taak/{taak_id}/vink", follow_redirects=True)
     assert db.execute("SELECT klaar FROM taken").fetchone()[0] == 0
 
 
 def test_een_tik_bewaart_meteen(client, post, db, klus_id):
     notitie_id = _notitie(post, db, klus_id)
-    _taak(post, notitie_id, "Tegels voegen")
+    _taak(post, klus_id, "Tegels voegen")
     taak_id = db.execute("SELECT id FROM taken").fetchone()[0]
     antwoord = client.post(
-        f"/notitie/{notitie_id}/taak/{taak_id}/vink",
+        f"/klus/{klus_id}/taak/{taak_id}/vink",
         data={"csrf_token": "test-token"},
         headers={"Accept": "application/json"},
     )
@@ -79,93 +82,101 @@ def test_een_tik_bewaart_meteen(client, post, db, klus_id):
     gegevens = antwoord.get_json()
     assert gegevens["klaar"] == 1
     assert gegevens["voortgang"] == "1 van 1 klaar"
-    assert gegevens["klus_voortgang"] == "1 van 1 klaar"
 
 
 def test_de_tekst_van_een_taak_aanpassen(post, db, klus_id):
     notitie_id = _notitie(post, db, klus_id)
-    _taak(post, notitie_id, "Kit")
+    _taak(post, klus_id, "Kit")
     taak_id = db.execute("SELECT id FROM taken").fetchone()[0]
-    post(f"/notitie/{notitie_id}/taak/{taak_id}/tekst",
+    post(f"/klus/{klus_id}/taak/{taak_id}/tekst",
          {"tekst": "Kitrand bij de douche"}, follow_redirects=True)
     assert db.execute("SELECT tekst FROM taken").fetchone()[0] == "Kitrand bij de douche"
 
 
 def test_een_lege_taak_komt_er_niet_bij(post, db, klus_id):
     notitie_id = _notitie(post, db, klus_id)
-    antwoord = _taak(post, notitie_id, "   ")
+    antwoord = _taak(post, klus_id, "   ")
     assert db.execute("SELECT COUNT(*) FROM taken").fetchone()[0] == 0
     assert "Schrijf eerst wat er gedaan moet worden" in antwoord.get_data(as_text=True)
 
 
 def test_verwijderen_haalt_alleen_die_taak_weg(post, db, klus_id):
     notitie_id = _notitie(post, db, klus_id)
-    _taak(post, notitie_id, "Eerst")
-    _taak(post, notitie_id, "Daarna")
+    _taak(post, klus_id, "Eerst")
+    _taak(post, klus_id, "Daarna")
     eerste = db.execute("SELECT id FROM taken ORDER BY volgorde").fetchone()[0]
-    post(f"/notitie/{notitie_id}/taak/{eerste}/verwijder", follow_redirects=True)
-    assert _namen(db, notitie_id) == ["Daarna"]
+    post(f"/klus/{klus_id}/taak/{eerste}/verwijder", follow_redirects=True)
+    assert _namen(db, klus_id) == ["Daarna"]
     assert db.execute("SELECT tekst FROM notities").fetchone()[0] == "Te doen in de badkamer"
 
 
 def test_omhoog_en_omlaag(post, db, klus_id):
     notitie_id = _notitie(post, db, klus_id)
     for tekst in ("A", "B", "C"):
-        _taak(post, notitie_id, tekst)
+        _taak(post, klus_id, tekst)
     c = db.execute("SELECT id FROM taken WHERE tekst='C'").fetchone()[0]
-    post(f"/notitie/{notitie_id}/taak/{c}/verplaats",
+    post(f"/klus/{klus_id}/taak/{c}/verplaats",
          {"richting": "omhoog"}, follow_redirects=True)
-    assert _namen(db, notitie_id) == ["A", "C", "B"]
+    assert _namen(db, klus_id) == ["A", "C", "B"]
     a = db.execute("SELECT id FROM taken WHERE tekst='A'").fetchone()[0]
-    post(f"/notitie/{notitie_id}/taak/{a}/verplaats",
+    post(f"/klus/{klus_id}/taak/{a}/verplaats",
          {"richting": "omlaag"}, follow_redirects=True)
-    assert _namen(db, notitie_id) == ["C", "A", "B"]
-    post(f"/notitie/{notitie_id}/taak/{a}/verplaats",
+    assert _namen(db, klus_id) == ["C", "A", "B"]
+    post(f"/klus/{klus_id}/taak/{a}/verplaats",
          {"richting": "nergens"}, follow_redirects=True)
-    assert _namen(db, notitie_id) == ["C", "A", "B"]
+    assert _namen(db, klus_id) == ["C", "A", "B"]
 
 
 def test_zonder_csrf_komt_er_geen_taak_bij(client, post, db, klus_id):
     notitie_id = _notitie(post, db, klus_id)
-    antwoord = client.post(f"/notitie/{notitie_id}/taak", data={"tekst": "Stiekem"})
+    antwoord = client.post(f"/klus/{klus_id}/taak", data={"tekst": "Stiekem"})
     assert antwoord.status_code == 400
     assert db.execute("SELECT COUNT(*) FROM taken").fetchone()[0] == 0
 
 
-def test_een_notitie_met_taken_mag_een_lege_tekst(post, db, klus_id):
-    """De lijst is dan de inhoud. De tekst leegmaken mag de taken niet wissen."""
+def test_een_notitie_leegmaken_raakt_de_taken_niet(post, db, klus_id):
+    """De taken staan los van de notitie; aan de notitie sleutelen laat ze staan.
+
+    Een notitie zonder tekst en zonder foto's mag niet meer bestaan: vóór 2.2.1
+    hielden de taken zo'n lege notitie overeind, en nu is daar geen reden meer
+    voor."""
     notitie_id = _notitie(post, db, klus_id)
-    _taak(post, notitie_id, "Kitrand snijden")
+    _taak(post, klus_id, "Kitrand snijden")
     post(f"/notitie/{notitie_id}/bewerk", {"tekst": ""}, follow_redirects=True)
-    assert db.execute("SELECT tekst FROM notities").fetchone()[0] == ""
-    assert _namen(db, notitie_id) == ["Kitrand snijden"]
+    assert db.execute("SELECT tekst FROM notities").fetchone()[0] == "Te doen in de badkamer"
+    assert _namen(db, klus_id) == ["Kitrand snijden"]
 
 
-def test_verwijderen_van_de_notitie_neemt_de_taken_mee(post, db, klus_id):
+def test_verwijderen_van_de_notitie_laat_de_taken_staan(post, db, klus_id):
+    """De taken horen bij de klus. Een aantekening weggooien hoort je lijstje
+    niet mee te nemen; vóór 2.2.1 gebeurde dat wel."""
     notitie_id = _notitie(post, db, klus_id)
-    _taak(post, notitie_id, "Kitrand snijden")
+    _taak(post, klus_id, "Kitrand snijden")
     post(f"/notitie/{notitie_id}/verwijder", follow_redirects=True)
+    assert _namen(db, klus_id) == ["Kitrand snijden"]
+    prul = db.execute("SELECT inhoud FROM prullenbak").fetchone()[0]
+    assert "Kitrand snijden" not in prul
+
+
+def test_verwijderen_van_de_klus_neemt_de_taken_wel_mee(post, db, klus_id):
+    _taak(post, klus_id, "Kitrand snijden")
+    post(f"/klus/{klus_id}/verwijder", follow_redirects=True)
     assert db.execute("SELECT COUNT(*) FROM taken").fetchone()[0] == 0
     prul = db.execute("SELECT inhoud FROM prullenbak").fetchone()[0]
     assert "Kitrand snijden" in prul
-    assert "taken" in prul
 
 
-def test_de_voortgang_staat_op_de_klus_en_bij_de_notitie(post, client, klus_id):
+def test_de_voortgang_telt_de_hele_klus(post, client, klus_id):
+    """Eén lijst, dus ook maar één teller. Vóór 2.2.1 stond er een teller per
+    notitie én een voor de klus, en op een telefoon werd dat twee regels."""
     schrijf_op(post, klus_id, "Badkamer")
-    eerste = facturen.get_db().execute("SELECT id FROM notities").fetchone()[0]
-    _taak(post, eerste, "Een")
-    _taak(post, eerste, "Twee")
+    _taak(post, klus_id, "Een")
+    _taak(post, klus_id, "Twee")
+    _taak(post, klus_id, "Drie")
     taak = facturen.get_db().execute("SELECT id FROM taken").fetchone()[0]
-    post(f"/notitie/{eerste}/taak/{taak}/vink", follow_redirects=True)
-    schrijf_op(post, klus_id, "Keuken")
-    tweede = facturen.get_db().execute(
-        "SELECT id FROM notities ORDER BY id DESC"
-    ).fetchone()[0]
-    _taak(post, tweede, "Drie")
+    post(f"/klus/{klus_id}/taak/{taak}/vink", follow_redirects=True)
     pagina = client.get(f"/klus/{klus_id}").data.decode()
-    assert pagina.count("1 van 2 klaar") >= 1
-    assert "1 van 3 klaar" in pagina
+    assert pagina.count("1 van 3 klaar") == 1
     assert 'id="taken-klus"' in pagina
 
 
@@ -183,14 +194,14 @@ def test_de_tabel_komt_erbij_zonder_notities_te_wissen(db, post, klus_id):
         "SELECT name FROM sqlite_master WHERE type='table' AND name='taken'"
     ).fetchone()
     notitie_id = db.execute("SELECT id FROM notities").fetchone()[0]
-    _taak(post, notitie_id, "Na de migratie")
-    assert _namen(db, notitie_id) == ["Na de migratie"]
+    _taak(post, klus_id, "Na de migratie")
+    assert _namen(db, klus_id) == ["Na de migratie"]
 
 
 def test_een_foto_notitie_krijgt_ook_een_lijst(post, db, klus_id, client):
     schrijf_op(post, klus_id, tekst="", fotos=["situatie.png"])
     notitie_id = db.execute("SELECT id FROM notities").fetchone()[0]
-    _taak(post, notitie_id, "Foto nalopen")
+    _taak(post, klus_id, "Foto nalopen")
     pagina = client.get(f"/klus/{klus_id}").data.decode()
     assert "Foto nalopen" in pagina
     assert "situatie.png" in pagina
@@ -246,15 +257,14 @@ def test_een_lange_taak_duwt_de_klus_niet_van_het_scherm(client, post, db, klus_
 
     sync_playwright = playwright_verplicht()
     notitie_id = _notitie(post, db, klus_id)
-    _taak(post, notitie_id, "a" * 120)
+    _taak(post, klus_id, "a" * 120)
     html = client.get(f"/klus/{klus_id}").data.decode()
     # De naam van de knop noemt de taak, anders klinken ze allemaal hetzelfde.
     assert f"Afvinken: {'a' * 120}" in html
     assert f"Omhoog: {'a' * 120}" in html
     assert f"Taak verwijderen: {'a' * 120}" in html
-    # De voortgang staat bij de notitie en bij de klus, niet nog een keer
-    # boven de lijst.
-    assert html.count("0 van 1 klaar") == 2
+    # Eén teller, in de kop van de kaart.
+    assert html.count("0 van 1 klaar") == 1
     assert "min-height: 44px" in html
     assert 'class="btn btn-text taak-bewaar"' in html
 
@@ -296,7 +306,7 @@ def test_het_wegkruis_van_de_taak_raakt_de_notitie_niet(client, post, db, klus_i
     sync_playwright = playwright_verplicht()
     schrijf_op(post, klus_id, tekst="", fotos=["situatie.png"])
     notitie_id = db.execute("SELECT id FROM notities").fetchone()[0]
-    _taak(post, notitie_id, "Foto nalopen")
+    _taak(post, klus_id, "Foto nalopen")
     html = client.get(f"/klus/{klus_id}").data.decode()
     with sync_playwright() as p:
         browser = meetbrowser(p)
@@ -327,7 +337,7 @@ def test_zonder_script_blijft_de_tekst_leesbaar(client, post, db, klus_id):
 
     sync_playwright = playwright_verplicht()
     notitie_id = _notitie(post, db, klus_id)
-    _taak(post, notitie_id, "Kitrand langs de douchewand")
+    _taak(post, klus_id, "Kitrand langs de douchewand")
     html = client.get(f"/klus/{klus_id}").data.decode()
     with sync_playwright() as p:
         browser = meetbrowser(p)
@@ -355,19 +365,19 @@ def test_zonder_script_blijft_de_tekst_leesbaar(client, post, db, klus_id):
 
 def test_een_taak_mag_hooguit_vijfhonderd_tekens(post, db, klus_id):
     notitie_id = _notitie(post, db, klus_id)
-    antwoord = _taak(post, notitie_id, "b" * 501)
+    antwoord = _taak(post, klus_id, "b" * 501)
     assert "500 tekens" in antwoord.get_data(as_text=True)
     assert db.execute("SELECT COUNT(*) FROM taken").fetchone()[0] == 0
-    _taak(post, notitie_id, "b" * 500)
+    _taak(post, klus_id, "b" * 500)
     assert db.execute("SELECT length(tekst) FROM taken").fetchone()[0] == 500
 
 
 def test_een_notitie_mag_hooguit_tweehonderd_taken(post, db, klus_id, monkeypatch):
     monkeypatch.setattr(facturen, "TAAK_MAX_AANTAL", 2)
     notitie_id = _notitie(post, db, klus_id)
-    _taak(post, notitie_id, "Een")
-    _taak(post, notitie_id, "Twee")
-    antwoord = _taak(post, notitie_id, "Drie")
+    _taak(post, klus_id, "Een")
+    _taak(post, klus_id, "Twee")
+    antwoord = _taak(post, klus_id, "Drie")
     assert "200 taken" not in antwoord.get_data(as_text=True)
     assert "hooguit 2 taken" in antwoord.get_data(as_text=True)
     assert db.execute("SELECT COUNT(*) FROM taken").fetchone()[0] == 2
@@ -375,19 +385,32 @@ def test_een_notitie_mag_hooguit_tweehonderd_taken(post, db, klus_id, monkeypatc
 
 def test_json_antwoord_laat_zich_niet_raden(client, post, db, klus_id):
     notitie_id = _notitie(post, db, klus_id)
-    _taak(post, notitie_id, "Kit")
+    _taak(post, klus_id, "Kit")
     taak_id = db.execute("SELECT id FROM taken").fetchone()[0]
     antwoord = client.post(
-        f"/notitie/{notitie_id}/taak/{taak_id}/vink",
+        f"/klus/{klus_id}/taak/{taak_id}/vink",
         data={"csrf_token": "test-token"},
         headers={"Accept": "application/json"},
     )
     assert antwoord.headers["X-Content-Type-Options"] == "nosniff"
 
 
-def test_cascade_wist_taken_als_de_notitie_weggaat(db, post, klus_id):
-    """1.42.1 wist alleen de notitie. Zonder CASCADE bleef de database op slot."""
-    notitie_id = _notitie(post, db, klus_id, "Bestaat al")
+def test_cascade_wist_taken_als_de_klus_weggaat(db, post, klus_id):
+    """Een klus verwijderen hoort de database niet op slot te zetten."""
+    _taak(post, klus_id, "Kit")
+    db.execute("DELETE FROM klussen WHERE id=?", (klus_id,))
+    db.commit()
+    assert db.execute("SELECT COUNT(*) FROM taken").fetchone()[0] == 0
+
+
+def test_oude_taken_verhuizen_naar_hun_klus(db, post, klus_id):
+    """Een database van vóór 2.2.1 heeft taken per notitie. Ze horen in één
+    lijst per klus te belanden, op volgorde van de notitie waar ze bij stonden,
+    en afgevinkte taken gaan mee."""
+    eerste = _notitie(post, db, klus_id, "Eerste aantekening")
+    schrijf_op(post, klus_id, "Tweede aantekening")
+    tweede = db.execute(
+        "SELECT id FROM notities ORDER BY id DESC").fetchone()[0]
     db.execute("DROP TABLE taken")
     db.execute(
         """CREATE TABLE taken (
@@ -396,18 +419,29 @@ def test_cascade_wist_taken_als_de_notitie_weggaat(db, post, klus_id):
             tekst TEXT NOT NULL,
             klaar INTEGER NOT NULL DEFAULT 0,
             volgorde INTEGER NOT NULL DEFAULT 0,
-            FOREIGN KEY (notitie_id) REFERENCES notities (id)
+            FOREIGN KEY (notitie_id) REFERENCES notities (id) ON DELETE CASCADE
         )"""
     )
-    db.execute(
-        "INSERT INTO taken (notitie_id, tekst, klaar, volgorde) VALUES (?, 'Kit', 0, 0)",
-        (notitie_id,),
-    )
+    for notitie_id, tekst, klaar, volgorde in (
+        (eerste, "Kit snijden", 1, 0),
+        (eerste, "Voegen", 0, 1),
+        (tweede, "Plint zagen", 0, 0),
+    ):
+        db.execute(
+            "INSERT INTO taken (notitie_id, tekst, klaar, volgorde) VALUES (?, ?, ?, ?)",
+            (notitie_id, tekst, klaar, volgorde),
+        )
     db.commit()
     facturen.init_db()
-    db.execute("DELETE FROM notities WHERE id=?", (notitie_id,))
-    db.commit()
-    assert db.execute("SELECT COUNT(*) FROM taken").fetchone()[0] == 0
+    assert _namen(db, klus_id) == ["Kit snijden", "Voegen", "Plint zagen"]
+    # Wat af was blijft af.
+    klaar = db.execute(
+        "SELECT klaar FROM taken WHERE tekst='Kit snijden'").fetchone()[0]
+    assert klaar == 1
+    # En de volgorde begint bij nul en loopt door over de notities heen.
+    volgordes = [rij["volgorde"] for rij in db.execute(
+        "SELECT volgorde FROM taken ORDER BY volgorde")]
+    assert volgordes == [0, 1, 2]
 
 
 def _dialoog_pagina(client, klus_id):
@@ -419,7 +453,7 @@ def _dialoog_pagina(client, klus_id):
 
 def test_annuleren_laat_de_taak_staan(client, post, db, klus_id):
     notitie_id = _notitie(post, db, klus_id)
-    _taak(post, notitie_id, "Kitrand snijden")
+    _taak(post, klus_id, "Kitrand snijden")
     sync_playwright, meetbrowser, html = _dialoog_pagina(client, klus_id)
     vragen = []
     with sync_playwright() as p:
@@ -447,7 +481,7 @@ def _formuliervelden(ruw):
 
 def test_bevestigen_verwijdert_de_taak(client, post, db, klus_id):
     notitie_id = _notitie(post, db, klus_id)
-    _taak(post, notitie_id, "Kitrand snijden")
+    _taak(post, klus_id, "Kitrand snijden")
     sync_playwright, meetbrowser, html = _dialoog_pagina(client, klus_id)
     # De browser mag de testclient niet zelf aanroepen: die deelt de
     # verzoekcontext niet. We vangen het formulier en sturen het daarna
@@ -502,10 +536,10 @@ def test_bevestigen_verwijdert_de_taak(client, post, db, klus_id):
 def test_leegmaken_vraagt_of_de_taak_weg_mag(client, post, db, klus_id):
     """Een leeg vak stil laten mislukken leek alsof de tekst weg was."""
     notitie_id = _notitie(post, db, klus_id)
-    _taak(post, notitie_id, "Kitrand snijden")
+    _taak(post, klus_id, "Kitrand snijden")
     taak_id = db.execute("SELECT id FROM taken").fetchone()[0]
     antwoord = client.post(
-        f"/notitie/{notitie_id}/taak/{taak_id}/tekst",
+        f"/klus/{klus_id}/taak/{taak_id}/tekst",
         data={"csrf_token": "test-token", "tekst": "   "},
         headers={"Accept": "application/json"},
     )
@@ -540,16 +574,16 @@ def test_leegmaken_vraagt_of_de_taak_weg_mag(client, post, db, klus_id):
 
 def test_een_regeleinde_in_een_taak_wordt_een_spatie(post, db, klus_id):
     notitie_id = _notitie(post, db, klus_id)
-    _taak(post, notitie_id, "Kit\r\nrand")
+    _taak(post, klus_id, "Kit\r\nrand")
     assert db.execute("SELECT tekst FROM taken").fetchone()[0] == "Kit rand"
     taak_id = db.execute("SELECT id FROM taken").fetchone()[0]
-    post(f"/notitie/{notitie_id}/taak/{taak_id}/tekst", {"tekst": "douche\nbak"})
+    post(f"/klus/{klus_id}/taak/{taak_id}/tekst", {"tekst": "douche\nbak"})
     assert db.execute("SELECT tekst FROM taken").fetchone()[0] == "douche bak"
 
 
 def test_zonder_script_heeft_de_taak_een_bewaarknop(client, post, db, klus_id):
     notitie_id = _notitie(post, db, klus_id)
-    _taak(post, notitie_id, "Kitrand snijden")
+    _taak(post, klus_id, "Kitrand snijden")
     html = client.get(f"/klus/{klus_id}").data.decode()
     stuk = html.split('class="taak-tekst"', 1)[1].split("</form>", 1)[0]
     assert 'type="submit"' in stuk
@@ -558,7 +592,7 @@ def test_zonder_script_heeft_de_taak_een_bewaarknop(client, post, db, klus_id):
 
 def test_enter_bewaart_de_taak_zonder_nieuwe_regel(client, post, db, klus_id):
     notitie_id = _notitie(post, db, klus_id)
-    _taak(post, notitie_id, "Kit")
+    _taak(post, klus_id, "Kit")
     sync_playwright, meetbrowser, html = _dialoog_pagina(client, klus_id)
     gevangen = {}
 
@@ -647,10 +681,10 @@ def test_een_net_toegevoegde_lange_taak_groeit_meteen(client, post, db, klus_id)
 
 def test_een_te_lange_aanpassing_springt_terug(client, post, db, klus_id):
     notitie_id = _notitie(post, db, klus_id)
-    _taak(post, notitie_id, "Kit")
+    _taak(post, klus_id, "Kit")
     taak_id = db.execute("SELECT id FROM taken").fetchone()[0]
     geweigerd = client.post(
-        f"/notitie/{notitie_id}/taak/{taak_id}/tekst",
+        f"/klus/{klus_id}/taak/{taak_id}/tekst",
         data={"csrf_token": "test-token", "tekst": "b" * 501},
         headers={"Accept": "application/json"},
     )
@@ -700,10 +734,9 @@ def test_een_te_lange_aanpassing_springt_terug(client, post, db, klus_id):
 
 def test_herbouw_geeft_geen_taaknummer_uit_de_prullenbak(db, post, klus_id):
     """De teller van een nagebouwde tabel begon weer bij de gekopieerde rijen."""
-    notitie_id = _notitie(post, db, klus_id)
-    _taak(post, notitie_id, "Kitrand snijden")
+    _taak(post, klus_id, "Kitrand snijden")
     taak_id = db.execute("SELECT id FROM taken").fetchone()[0]
-    post(f"/notitie/{notitie_id}/verwijder", follow_redirects=True)
+    post(f"/klus/{klus_id}/verwijder", follow_redirects=True)
     db.execute("DROP TABLE taken")
     db.execute(
         """CREATE TABLE taken (
@@ -722,8 +755,10 @@ def test_herbouw_geeft_geen_taaknummer_uit_de_prullenbak(db, post, klus_id):
         "SELECT seq FROM sqlite_sequence WHERE name='taken'"
     ).fetchone()
     assert seq is not None and seq[0] >= taak_id
-    nieuwe = _notitie(post, db, klus_id, "Nog een notitie")
-    _taak(post, nieuwe, "Nieuwe taak")
+    post("/klussen/nieuw", {"naam": "Keuken", "uurtarief": "45"})
+    nieuwe_klus = db.execute(
+        "SELECT id FROM klussen ORDER BY id DESC").fetchone()[0]
+    _taak(post, nieuwe_klus, "Nieuwe taak")
     nieuw_id = db.execute("SELECT id FROM taken").fetchone()[0]
     assert nieuw_id != taak_id
     prul = db.execute("SELECT id FROM prullenbak ORDER BY id DESC").fetchone()[0]
@@ -734,13 +769,13 @@ def test_herbouw_geeft_geen_taaknummer_uit_de_prullenbak(db, post, klus_id):
 
 
 def test_een_bezet_taaknummer_komt_toch_terug(post, db, klus_id):
-    notitie_id = _notitie(post, db, klus_id)
-    _taak(post, notitie_id, "Kitrand snijden")
+    _taak(post, klus_id, "Kitrand snijden")
     taak_id = db.execute("SELECT id FROM taken").fetchone()[0]
-    post(f"/notitie/{notitie_id}/verwijder", follow_redirects=True)
-    andere = _notitie(post, db, klus_id, "Andere notitie")
+    post(f"/klus/{klus_id}/verwijder", follow_redirects=True)
+    post("/klussen/nieuw", {"naam": "Keuken", "uurtarief": "45"})
+    andere = db.execute("SELECT id FROM klussen ORDER BY id DESC").fetchone()[0]
     db.execute(
-        """INSERT INTO taken (id, notitie_id, tekst, klaar, volgorde)
+        """INSERT INTO taken (id, klus_id, tekst, klaar, volgorde)
            VALUES (?, ?, 'Andere taak', 0, 0)""",
         (taak_id, andere),
     )
@@ -756,5 +791,5 @@ def test_het_log_van_een_taak_staat_niet_in_de_melding(caplog, post, klus_id, db
     """Een mislukte tik mag geen ruwe fout zijn. Dit houdt de logger stil."""
     notitie_id = _notitie(post, db, klus_id)
     with caplog.at_level(logging.ERROR):
-        _taak(post, notitie_id, "Gewoon een taak")
+        _taak(post, klus_id, "Gewoon een taak")
     assert "Traceback" not in caplog.text

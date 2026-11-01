@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.3.0
+
+**Eén takenlijst per klus.** Tot nu had elke notitie een eigen lijstje, en dan
+stond wat je nog moest doen verspreid over je aantekeningen. Nu staat er één
+lijst onder Notities, met alles wat er bij die klus nog ligt.
+
+- Je bestaande taken verhuizen mee. Ze komen in één lijst per klus te staan, op
+  volgorde van de notitie waar ze bij hoorden. Wat je al had afgevinkt blijft
+  afgevinkt.
+- De teller ("2 van 5 klaar") staat nu in de takenkaart zelf, in plaats van bij
+  elke notitie apart.
+- Een notitie weggooien laat je taken staan. Dat was eerst niet zo: dan
+  verdween je lijstje mee. Een klus weggooien neemt de taken wél mee, zoals
+  altijd.
+- Een notitie zonder tekst en zonder foto's kan niet meer blijven bestaan. Dat
+  kon alleen omdat de taken hem overeind hielden, en daar is nu geen reden meer
+  voor.
+
 ## 2.2.1
 
 Eerste ronde verbeteringen aan het lezen van bonnen, na het uitproberen op een

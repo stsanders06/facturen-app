@@ -79,7 +79,15 @@ Assistant: daar hoort alleen het standaardnetwerk te gelden.
   commentaar houden.
 - **Meldingen aan de gebruiker zijn gewone taal.** "De mailserver weigert je
   gebruikersnaam of wachtwoord", niet "SMTP authentication failed".
-- **Elke wijziging krijgt tests.** Er staan er nu 1433.
+- **Elke wijziging krijgt tests.** Er staan er nu 1435.
+
+### Taken horen bij de klus
+
+Sinds 2.3.0 hangt een taak aan `klussen` en niet meer aan `notities`: één lijst
+onder de notities in plaats van een lijstje per aantekening. De routes staan
+onder `/klus/<id>/taak/...`. `_taken_naar_de_klus` verhuist een oude database
+eenmalig; die functie kijkt naar de kolom `klus_id` en doet daarna niets meer.
+Een notitie verwijderen laat de taken dus staan, een klus verwijderen niet.
 
 ### Valkuil bij de tests
 
