@@ -246,10 +246,14 @@ def test_een_notitie_die_niet_bestaat_aanpassen_geeft_404(post):
 
 
 def test_het_notitieveld_is_een_tekstvak_en_geen_invoerregel(client, klus_id):
-    """In een notitie hoort Enter een nieuwe regel te maken, niet te versturen."""
+    """In een notitie hoort Enter een nieuwe regel te maken, niet te versturen.
+
+    Alleen naar het notitieformulier kijken: de takenlijst eronder heeft wél
+    een invoerregel, en daar hoort Enter juist de taak toe te voegen."""
     pagina = client.get(f"/klus/{klus_id}").data.decode()
-    assert '<textarea name="tekst" rows="1" class="groeit"' in pagina
-    assert 'type="text" name="tekst"' not in pagina
+    formulier = pagina.split('action="/klus/%s/notitie"' % klus_id, 1)[1].split("</form>", 1)[0]
+    assert '<textarea name="tekst" rows="1" class="groeit"' in formulier
+    assert 'type="text" name="tekst"' not in formulier
 
 
 def test_een_notitie_over_meerdere_regels_blijft_zo_staan(post, client, db, klus_id):

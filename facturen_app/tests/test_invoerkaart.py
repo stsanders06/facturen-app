@@ -18,7 +18,7 @@ def _sectie(html, kop):
     return html.split(f"<h2>{kop}</h2>", 1)[1].split("<h2>", 1)[0]
 
 
-def test_de_drie_secties_zijn_dezelfde_kaart(post, client, db):
+def test_de_vier_secties_zijn_dezelfde_kaart(post, client, db):
     klus_id = _klus(post, db)
     post(f"/klus/{klus_id}/dag", {
         "datum": "2026-08-14", "van": "09:00", "tot": "17:00", "notitie": "voegen",
@@ -35,8 +35,9 @@ def test_de_drie_secties_zijn_dezelfde_kaart(post, client, db):
     })
 
     pagina = client.get(f"/klus/{klus_id}").data.decode()
-    # Info en 'Klus verwijderen' blijven gewone kaarten; alleen deze drie delen de macro.
-    assert pagina.count('class="card invoerkaart"') == 3
+    # Info en 'Klus verwijderen' blijven gewone kaarten; alleen deze vier delen
+    # de macro: dagen, notities, taken en inkopen.
+    assert pagina.count('class="card invoerkaart"') == 4
     assert "<h2>Dag erbij</h2>" not in pagina
     assert "inkoop-nieuw" not in pagina
     assert 'class="inkoop"' not in pagina
