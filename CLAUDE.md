@@ -79,7 +79,7 @@ Assistant: daar hoort alleen het standaardnetwerk te gelden.
   commentaar houden.
 - **Meldingen aan de gebruiker zijn gewone taal.** "De mailserver weigert je
   gebruikersnaam of wachtwoord", niet "SMTP authentication failed".
-- **Elke wijziging krijgt tests.** Er staan er nu 1416.
+- **Elke wijziging krijgt tests.** Er staan er nu 1433.
 
 ### Valkuil bij de tests
 
@@ -116,9 +116,9 @@ voor bestanden op schijf: de opruiming leegt `PDF_DIR` en `BIJLAGE_DIR`.
       `klus.html`). Dat soort fouten vangt geen enkele emulator; alleen kijken op het
       echte toestel helpt. Nieuwe formuliervelden dus altijd even op de telefoon nalopen.
       **Het datumveld op 'Scan als bon' (2.2.0) is nog niet op een iPhone gezien.**
-- [ ] **De lezer is nog niet op de Pi gemeten.** Tijd en geheugen komen uit de proef
-      en van een Mac (een bon in 1 tot 2,5 seconde, piek rond 550 MB). Op de Pi 5
-      hoort het trager te zijn; `docker stats bon-ocr` tijdens een scan zegt het.
+- [x] **Op de Pi 5 gemeten** in 2.2.1: een bon van 2 MB kost 10 tot 22 seconden en
+      piekt op 626 MB. Dat is vier keer trager dan geschat; de timeout ging naar 90 s
+      en `mem_limit` naar 1 GB. Het image is 698 MB.
 - [ ] **Een echte blinde test staat nog open:** bonnen van winkels die er nog niet
       bij zaten (Gamma, Praxis, Hornbach, Hema, supermarkt, pomp). Die bonnen komen
       de repo niet in; `bon_ocr/tests/bonnen` bevat alleen nepbonnen.
@@ -136,6 +136,13 @@ voor bestanden op schijf: de opruiming leegt `PDF_DIR` en `BIJLAGE_DIR`.
   worden versoepeld.
 - **Blind is 5 van de 6.** Dat is de eerlijke score (de andere acht bonnen zijn
   de set waarop de parser is gemaakt). Omhoog mag, omlaag niet.
+- **Wat een echte bon anders maakt dan een nepbon** (gevonden in 2.2.1, allemaal op
+  één Karwei-bon): de OCR verhaspelt woorden, dus vergelijk ze met `_lijkt_op` en
+  niet met `in`. Een winkel kent meer soorten aftrek dan "korting", en sommige zijn
+  al in de prijs verwerkt (`AL_VERREKEND`) terwijl andere er nog af moeten. En er
+  staan meer datums op een bon dan alleen die van de aankoop. Zulke gevallen horen
+  als fixture in `bon_ocr/tests/bonnen/echt*`, mét de leesfouten erin, en met de
+  naam, het adres en de kaartnummers vervangen.
 - **Geen taalmodel.** Gemeten en afgevallen: RapidOCR met Qwen2.5-3B haalde 0 van
   de 6 in 38 s en 2,5 GB, Qwen3-VL 2B idem in 33 s en 3,9 GB, tegen 5 van de 6 in
   ongeveer een seconde met regels. Kleinere modellen lossen dat niet op: ze

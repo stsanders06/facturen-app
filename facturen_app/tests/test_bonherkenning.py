@@ -414,3 +414,44 @@ def test_opslaan_zonder_de_schakelaar_laat_de_stand_staan(client, post, db):
     assert db.execute("SELECT bon_herkenning FROM settings").fetchone()[0] == 1
     post("/instellingen", {"naam": "Hogedruk", "smtp_port": "587"})
     assert db.execute("SELECT bon_herkenning FROM settings").fetchone()[0] == 1
+
+
+def test_de_inbox_laat_zien_dat_een_bon_gelezen_wordt(client, post, db, monkeypatch):
+    """Het lezen duurt op een Pi tien tot twintig seconden. Zonder teken aan de
+    wand lijkt de inbox klaar terwijl er nog gewerkt wordt."""
+    traag = []
+    monkeypatch.setattr(facturen, "BON_OCR_URL", "http://bon-ocr:8099/lees")
+    monkeypatch.setattr(facturen, "_plan_bonherkenning", lambda rij: traag.append(rij))
+    scan_id = scan_erin(client, post, db)
+    pagina = client.get("/scans").data.decode()
+    assert "De bon wordt gelezen" in pagina
+    assert f"/scans/{scan_id}/herkenning" in pagina
+
+
+def test_de_inbox_meldt_een_bon_die_klaar_is(client, post, db, lezer):
+    scan_erin(client, post, db)
+    facturen._wacht_op_herkenning()
+    pagina = client.get("/scans").data.decode()
+    assert "Bon gelezen" in pagina
+    assert "De bon wordt gelezen" not in pagina
+
+
+def test_zonder_lezer_staat_er_niets_over_lezen_in_de_inbox(client, post, db,
+                                                            monkeypatch):
+    monkeypatch.setattr(facturen, "BON_OCR_URL", "")
+    scan_erin(client, post, db)
+    pagina = client.get("/scans").data.decode()
+    # Het scriptblok staat er altijd; de statusregel hoort er niet te zijn.
+    assert 'class="leesstand' not in pagina
+
+
+def test_het_formulier_zegt_dat_het_bezig_is(client, post, db, monkeypatch):
+    monkeypatch.setattr(facturen, "BON_OCR_URL", "http://bon-ocr:8099/lees")
+    monkeypatch.setattr(facturen, "_plan_bonherkenning", lambda rij: None)
+    klus_erin(db)
+    scan_id = scan_erin(client, post, db)
+    pagina = client.get(f"/scans/{scan_id}/bon").data.decode()
+    assert "De bon wordt gelezen" in pagina
+    assert "je kunt alvast een klus kiezen" in pagina
+    # Een schermlezer hoort de wijziging te melden zodra hij klaar is.
+    assert 'aria-live="polite"' in pagina

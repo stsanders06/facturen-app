@@ -9,3 +9,5 @@ facturen_app/app/data/
 /.env
 /data/
 /docker-compose.override.yml
+# Persoonlijke Claude Code-instellingen; hoort niet in de repo.
+.claude/settings.local.json

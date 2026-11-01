@@ -111,7 +111,7 @@ def test_een_fout_veld_staat_altijd_in_onzeker(naam):
     assert fout <= gemeld
 
 
-@pytest.mark.parametrize("naam", [n for n in NAMEN if n.startswith("bon")])
+@pytest.mark.parametrize("naam", [n for n in NAMEN if n.startswith("bon0")])
 def test_de_eigen_set_is_helemaal_goed(naam):
     """Op de acht bonnen waarop de parser is gemaakt mag niets missen."""
     uit, goed = _lees(naam)
@@ -138,6 +138,53 @@ def test_de_regels_tellen_op_tot_het_totaal():
         if "regels" in uit["onzeker"]:
             continue
         assert uit["controles"]["regels_som_klopt"], naam
+
+
+# Wat er op een echte bon misging. De fixture echt01 is een bon van Stone met
+# zijn gegevens eruit; de leesfouten van de OCR staan er precies zo in als ze
+# eruit kwamen, want juist die maakten dat de parser omviel.
+
+def test_een_verhaspeld_subtotaal_wordt_herkend():
+    """De OCR las 'Subtoteal:'. Met een exacte vergelijking liepen het
+    subtotaal en de personeelskorting mee als artikelregels."""
+    uit, _ = _lees("echt01_karwei_aanbieding")
+    assert len(uit["regels"]) == 1
+    assert uit["regels"][0]["regelbedrag"] == 31.14
+
+
+def test_een_aanbieding_wordt_niet_dubbel_afgetrokken():
+    """Karwei verrekent de aanbieding al in de Nettoprijs eronder. Die regel
+    nog eens van het totaal afhalen zou het bedrag te laag maken; als artikel
+    meetellen maakte het te hoog."""
+    uit, _ = _lees("echt01_karwei_aanbieding")
+    assert uit["korting"] == -4.67          # alleen de personeelskorting
+    assert uit["controles"]["regels_som_klopt"]
+
+
+def test_de_bondatum_wint_van_een_aanbiedingsdatum():
+    """'Aanbieding t/m 16-08-2026' stond boven 'Datum: 02/08/2026' en won het.
+    Dat was de ergste soort fout: verkeerd én niet gemeld."""
+    uit, _ = _lees("echt01_karwei_aanbieding")
+    assert uit["datum"] == "2026-08-02"
+    assert "datum" not in uit["onzeker"]
+
+
+def test_alleen_een_geldigheidsdatum_is_onzeker():
+    """Staat er niets anders, dan is zo'n datum een gok en zeggen we dat."""
+    uit = lees_bon("Karwei\n"
+                   "Aanbieding t/m 16-08-2026   -2,00\n"
+                   "Verf   10,00\n"
+                   "TOTAAL   10,00\nPIN   10,00\n")
+    assert uit["datum"] == "2026-08-16"
+    assert "datum" in uit["onzeker"]
+
+
+def test_een_regel_die_zichzelf_datum_noemt_wint():
+    uit = lees_bon("Gamma\n"
+                   "02-10-2026\n"
+                   "Datum: 05-10-2026\n"
+                   "Schroef   10,00\nTOTAAL   10,00\nPIN   10,00\n")
+    assert uit["datum"] == "2026-10-05"
 
 
 # Hieronder de losse vormen uit de proef, elk met zijn eigen test. Zo zie je

@@ -50,7 +50,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "2.2.0"
+VERSIE = os.environ.get("ADDON_VERSION") or "2.2.1"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -226,13 +226,14 @@ BIJLAGE_MIMES = {
 # werkt alles zoals vóór 2.2.0. Het adres staat in docker-compose.yml en wijst
 # naar het interne netwerk; in Home Assistant is er geen lezer en blijft dit leeg.
 BON_OCR_URL = os.environ.get("BON_OCR_URL", "").strip()
-# Op de Pi 5 duurt een bon een paar seconden. Dertig is ruim, en het is een
-# achtergrondtaak: niemand zit erop te wachten. Te lang wachten kost alleen een
-# plek in de wachtrij.
+# Gemeten op een Pi 5: een bon van 2 MB kostte 10 tot 22 seconden. Dertig bleek
+# te krap, want dan valt een trage bon net buiten de boot en krijg je een lege
+# bon zonder dat er iets mis is. Het is een achtergrondtaak: niemand zit erop
+# te wachten, en te lang wachten kost alleen een plek in de wachtrij.
 try:
-    BON_OCR_TIJD = max(5, min(120, int(os.environ.get("BON_OCR_TIJD", "30"))))
+    BON_OCR_TIJD = max(5, min(300, int(os.environ.get("BON_OCR_TIJD", "90"))))
 except ValueError:
-    BON_OCR_TIJD = 30
+    BON_OCR_TIJD = 90
 # Wat de lezer aankan. HEIC staat er expres niet bij: opencv leest dat niet, en
 # een verzoek sturen dat zeker misgaat kost alleen tijd. Een HEIC-bon vul je
 # met de hand in, net als voorheen.
@@ -8140,6 +8141,30 @@ def _melding_bij_conflict(exc, conn=None, form=None, bestaand=False,
     return kern + " De rekening is niet aangemaakt."
 
 
+def kenmerk_van_de_klussen(conn, factuur_id):
+    """De namen van de klussen die op deze rekening staan, als één tekst.
+
+    Het kenmerk is het veld waaraan Stone zelf terugziet waar een rekening over
+    ging. Staan de uren of de bonnen van één klus erop, dan is de naam van die
+    klus precies dat. Alfabetisch, zodat dezelfde rekening altijd hetzelfde
+    kenmerk krijgt; bij meer dan drie klussen zou de lijst langer worden dan
+    het veld laat zien, dus dan volgt een telling."""
+    namen = [rij["naam"] for rij in conn.execute(
+        """SELECT DISTINCT k.naam FROM klussen k
+           WHERE k.id IN (SELECT klus_id FROM uren WHERE factuur_id=?)
+              OR k.id IN (SELECT klus_id FROM inkopen WHERE factuur_id=?)
+              OR k.id IN (SELECT klus_id FROM regels
+                          WHERE factuur_id=? AND klus_id IS NOT NULL)
+           ORDER BY k.naam COLLATE NOCASE""",
+        (factuur_id, factuur_id, factuur_id),
+    )]
+    if not namen:
+        return ""
+    if len(namen) <= 3:
+        return ", ".join(namen)
+    return ", ".join(namen[:3]) + f" en {len(namen) - 3} andere"
+
+
 def bewaar_regels(conn, factuur_id, regels):
     conn.execute("DELETE FROM regels WHERE factuur_id=?", (factuur_id,))
     for o, t, a, p, subtotaal, klus_id, inkoop_id, uur_id in regels:
@@ -8556,6 +8581,14 @@ def nieuw():
             )
             factuur_id = cur.lastrowid
             uren_meldingen = bewaar_regels(conn, factuur_id, regels)
+            # Het kenmerk invullen met de klus waar de rekening over gaat, maar
+            # alleen bij een nieuwe rekening en alleen als het veld leeg bleef.
+            # Bij het bewerken niet: anders kun je het nooit meer weghalen.
+            if not request.form.get("kenmerk", "").strip():
+                uit_klussen = kenmerk_van_de_klussen(conn, factuur_id)
+                if uit_klussen:
+                    conn.execute("UPDATE facturen SET kenmerk=? WHERE id=?",
+                                 (uit_klussen, factuur_id))
             conn.commit()
         except sqlite3.IntegrityError as exc:
             # Eerst terugdraaien: na een mislukte insert weigert SQLite elke

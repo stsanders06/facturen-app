@@ -47,6 +47,33 @@
     overflow-wrap: anywhere;
   }
   .scan-meta { margin: 2px 0 10px; }
+  /* Of de bon al gelezen is. Zonder dit zie je tien tot twintig seconden lang
+     niets gebeuren en lijkt het alsof de scan er zomaar bij staat. */
+  .leesstand {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: -6px 0 10px;
+    font-size: 12.5px;
+    color: var(--text-secondary);
+  }
+  .leesstand .stip {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--text-secondary);
+    flex: none;
+  }
+  .leesstand.bezig .stip { animation: leespuls 1.2s ease-in-out infinite; }
+  .leesstand.klaar .stip { background: var(--ok, var(--text)); }
+  @keyframes leespuls {
+    0%, 100% { opacity: .25; transform: scale(.8); }
+    50%      { opacity: 1;   transform: scale(1.15); }
+  }
+  /* Wie beweging uitzet krijgt een rustige stip; de tekst zegt het al. */
+  @media (prefers-reduced-motion: reduce) {
+    .leesstand.bezig .stip { animation: none; opacity: .6; }
+  }
   .scan-acties { display: flex; flex-wrap: wrap; gap: 8px; }
   .scan-acties form { display: contents; }
   @media (max-width: 420px) {
@@ -95,6 +122,12 @@
     <div>
       <span class="scan-naam" title="{{ s.naam }}">{{ s.naam }}</span>
       <p class="hint scan-meta">{{ s.wanneer }} · {{ s.grootte_tekst }}</p>
+      {% if s.bon_wordt_gelezen %}
+      <p class="leesstand bezig" data-leest="{{ url_for('scan_herkenning', scan_id=s.id) }}"
+         aria-live="polite"><span class="stip"></span>De bon wordt gelezen…</p>
+      {% elif s.bon_gelezen %}
+      <p class="leesstand klaar"><span class="stip"></span>Bon gelezen — 'Als bon' staat ingevuld klaar</p>
+      {% endif %}
       <div class="scan-acties">
         <a class="btn" href="{{ url_for('scan_als_bon', scan_id=s.id) }}">Als bon</a>
         <a class="btn btn-outline" href="{{ url_for('scan_als_notitie', scan_id=s.id) }}">Bij notitie</a>
@@ -108,6 +141,40 @@
   </article>
   {% endfor %}
 </div>
+
+<script>
+  // Zolang een bon gelezen wordt even navragen, zodat de regel vanzelf
+  // omslaat naar 'gelezen'. Zonder dit zie je de verandering pas na F5.
+  (function () {
+    document.querySelectorAll('.leesstand.bezig').forEach(function (regel) {
+      var adres = regel.dataset.leest;
+      if (!adres) return;
+      var pogingen = 0;
+      var kijk = function () {
+        if (pogingen++ > 45) {
+          regel.className = 'leesstand';
+          regel.innerHTML = '<span class="stip"></span>De bon is niet gelezen. Vul hem zelf in.';
+          return;
+        }
+        fetch(adres, { headers: { 'Accept': 'application/json' } })
+          .then(function (a) { return a.json(); })
+          .then(function (uit) {
+            if (uit.klaar) {
+              regel.className = 'leesstand klaar';
+              regel.innerHTML = "<span class=\"stip\"></span>Bon gelezen — 'Als bon' staat ingevuld klaar";
+            } else if (uit.bezig) {
+              setTimeout(kijk, 2000);
+            } else {
+              regel.className = 'leesstand';
+              regel.innerHTML = '<span class="stip"></span>De bon is niet gelezen. Vul hem zelf in.';
+            }
+          })
+          .catch(function () { setTimeout(kijk, 4000); });
+      };
+      setTimeout(kijk, 2000);
+    });
+  })();
+</script>
 {% endif %}
 
 {% endblock %}

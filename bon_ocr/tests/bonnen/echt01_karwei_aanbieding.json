@@ -1,0 +1,18 @@
+{
+ "winkel": "Karwei",
+ "datum": "2026-08-02",
+ "regels": [
+  {
+   "omschrijving": "FL CR MU HETALLICS DROP OF PEARL IL",
+   "aantal": 1,
+   "stukprijs": 31.14,
+   "regelbedrag": 31.14
+  }
+ ],
+ "korting": -4.67,
+ "btw": [],
+ "btw_totaal": null,
+ "totaal": 26.47,
+ "betaalwijze": "pin",
+ "soort": "echte bon, geanonimiseerd"
+}

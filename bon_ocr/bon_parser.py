@@ -35,6 +35,16 @@ BEDRAG = r"-?\d{1,5}[,.]\d{2}(?!\d)"
 # maat in een omschrijving ('Laminaat eiken 2,13m2') buiten beschouwing.
 LOS_BEDRAG = r"(?<![A-Za-z0-9])" + BEDRAG + r"(?![A-Za-z0-9])"
 
+# Regels die geld van het totaal afhalen, na de artikelen.
+AFTREKPOSTEN = ("korting", "aanbieding", "actie", "voordeel")
+
+# Aftrek die al in de prijs van het artikel zit. Karwei drukt
+# 'Aanbieding t/m 16-08-2026  -13,35' af en zet de uitkomst eronder als
+# 'Nettoprijs  31,14'; die regel nog eens van het totaal aftrekken zou het
+# bedrag dubbel verlagen. Zonder dit werd de aanbieding bovendien een artikel
+# met een eigen bedrag, en telde de bon helemaal niet meer op.
+AL_VERREKEND = re.compile(r"prijs\s?correctie|prijsvoordeel|aanbieding|^actie\b", re.I)
+
 # Wat op de bon staat, en wat wij het noemen. De volgorde telt: 'maestro' moet
 # vóór 'pin' staan, want op een Maestro-bon staat vaak beide.
 BETAALWIJZEN = [
@@ -61,6 +71,22 @@ def _normaliseer(regel):
     r = re.sub(r"(?<=\d)\s*\*\s*(?=\d)", " x ", r)
     r = re.sub(r"\s*EUR/\S*\s*$", "", r, flags=re.I)
     return r.strip()
+
+
+def _lijkt_op(woord, regel):
+    """Of `woord` ongeveer in `regel` staat, ondanks leesfouten.
+
+    De OCR haalt letters door elkaar: op een echte Karwei-bon stond
+    'Subtoteal:' in plaats van 'Subtotaal', en dan ziet een exacte vergelijking
+    het subtotaal over het hoofd — waarna de korting en het subtotaal zelf als
+    artikelregels in de bon belanden. Eén verkeerde letter op de tien mag.
+    """
+    laag = regel.lower()
+    if woord in laag:
+        return True
+    n = len(woord)
+    return any(difflib.SequenceMatcher(None, woord, laag[i:i + n]).ratio() >= 0.85
+               for i in range(max(1, len(laag) - n + 1)))
 
 
 def _bedragen(regel):
@@ -131,15 +157,46 @@ MAANDEN = {"jan": 1, "feb": 2, "mrt": 3, "maa": 3, "apr": 4, "mei": 5, "jun": 6,
            "jul": 7, "aug": 8, "sep": 9, "okt": 10, "nov": 11, "dec": 12}
 
 
+# Een datum op zo'n regel is niet de dag van de aankoop maar een geldigheid:
+# 'Aanbieding t/m 16-08-2026'. Die stond op een echte bon bóven de bondatum, en
+# won het daardoor — stil, want aan het veld was niets te zien.
+GELDIGHEID = re.compile(r"\bt[/.]?[mn]\b|geldig|aanbieding|actie|houdbaar|vervalt", re.I)
+
+
 def _datum(regels):
-    """De eerste datum die een echte datum kan zijn, als jjjj-mm-dd.
+    """De datum van de bon, en of we daar zeker van zijn.
+
+    In volgorde van betrouwbaarheid: een regel die zichzelf 'datum' noemt, dan
+    een gewone regel, en pas als laatste een regel met een geldigheidsdatum.
+    Dat laatste is een gok en wordt als onzeker gemeld.
+    """
+    met_kop, gewoon, geldigheid = None, None, None
+    for regel in regels:
+        gevonden = _datum_op_regel(regel)
+        if gevonden is None:
+            continue
+        if GELDIGHEID.search(regel):
+            geldigheid = geldigheid or gevonden
+        elif _lijkt_op("datum", regel):
+            met_kop = met_kop or gevonden
+        else:
+            gewoon = gewoon or gevonden
+    if met_kop:
+        return met_kop, True
+    if gewoon:
+        return gewoon, True
+    return geldigheid, False
+
+
+def _datum_op_regel(regel):
+    """De eerste datum op deze regel, als jjjj-mm-dd.
 
     Bonnen zetten de datum soms tegen de tijd aan ('02-10-2026 14:33') en
     Duitse kassabonnen gebruiken punten met twee cijfers jaar ('02.10.26').
     Een tuincentrum schrijft de maand als woord, en de OCR plakt dag en maand
     dan aan elkaar ('02okt 2026'); daarom staat er geen \\b of spatie tussen.
     """
-    for regel in regels:
+    for _ in (0,):
         m = re.search(r"\b(20\d\d)-(\d\d)-(\d\d)\b", regel)
         if m:
             jaar, maand, dag = m.groups()
@@ -297,6 +354,8 @@ def _bonregels(regels, start, eind):
         if not regel:
             continue
         laag = regel.lower()
+        if AL_VERREKEND.search(laag):
+            continue
         if "korting" in laag:
             bedragen = _bedragen(regel)
             korting = -abs(bedragen[-1]) if bedragen else None
@@ -309,9 +368,6 @@ def _bonregels(regels, start, eind):
                 gevonden[-1]["regelbedrag"] = bedragen[-1]
                 gevonden[-1]["stukprijs"] = round(bedragen[-1] / gevonden[-1]["aantal"], 2)
             continue
-        if re.match(r"prijs\s?correctie|prijsvoordeel", laag):
-            continue
-
         m = AANTAL.match(regel)
         if m:
             aantal = int(m.group(1))
@@ -412,7 +468,7 @@ def _bonregels(regels, start, eind):
     return gevonden, korting
 
 
-def _onzeker(uit, winkel_bekend, betaalwijze_geraden):
+def _onzeker(uit, winkel_bekend, betaalwijze_geraden, datum_zeker=True):
     """Welke velden Stone moet nakijken.
 
     Leeg is onzeker, en een veld dat door een rekencontrole valt ook. Dit is
@@ -422,7 +478,7 @@ def _onzeker(uit, winkel_bekend, betaalwijze_geraden):
     velden = []
     if not uit["winkel"] or not winkel_bekend:
         velden.append("winkel")
-    if not uit["datum"]:
+    if not uit["datum"] or not datum_zeker:
         velden.append("datum")
     if uit["totaal"] is None:
         velden.append("totaal")
@@ -453,7 +509,7 @@ def lees_bon(tekst):
            "controles": {}, "onzeker": []}
 
     uit["winkel"], winkel_bekend = _winkel(regels)
-    uit["datum"] = _datum(regels)
+    uit["datum"], datum_zeker = _datum(regels)
     uit["totaal"], index_totaal, stemmen = _totaal(regels)
     if stemmen:
         uit["controles"]["totaal_stemmen"] = stemmen
@@ -461,7 +517,7 @@ def lees_bon(tekst):
     # De artikelen staan boven het totaal, en boven een subtotaal als dat er is.
     eind = index_totaal if index_totaal is not None else len(regels)
     for i, regel in enumerate(regels[:eind]):
-        if "subtotaal" in regel.lower():
+        if _lijkt_op("subtotaal", regel):
             eind = i
             break
 
@@ -501,7 +557,7 @@ def lees_bon(tekst):
         # Karwei zet de personeelskorting ná het subtotaal, dus buiten het deel
         # waar de artikelen staan.
         for regel in regels[eind:(index_totaal if index_totaal is not None else len(regels))]:
-            if "korting" in regel.lower() and _bedragen(regel):
+            if (any(w in regel.lower() for w in AFTREKPOSTEN)) and _bedragen(regel):
                 uit["korting"] = -abs(_bedragen(regel)[-1])
 
     # Controle: de artikelen plus de korting horen het totaal te zijn.
@@ -510,7 +566,7 @@ def lees_bon(tekst):
         uit["controles"]["regels_som"] = som
         uit["controles"]["regels_som_klopt"] = abs(som - uit["totaal"]) <= 0.02
 
-    uit["onzeker"] = _onzeker(uit, winkel_bekend, geraden)
+    uit["onzeker"] = _onzeker(uit, winkel_bekend, geraden, datum_zeker)
     return uit
 
 
