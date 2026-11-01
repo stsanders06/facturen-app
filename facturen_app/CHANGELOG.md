@@ -1,5 +1,60 @@
 # Changelog
 
+## 2.2.0
+
+**Bonnen worden nu voor je ingevuld.** Stuur je een bon vanaf je telefoon naar
+Scans, dan leest de app hem op de achtergrond en staat 'Scan als bon' al klaar:
+de winkel, de datum, het totaalbedrag en de regels die erop stonden. Jij kijkt
+het na en past aan wat niet klopt; pas als jij op *Bon maken* tikt wordt er iets
+bewaard.
+
+- Velden die de app niet zeker weet staan **gemarkeerd** met een streepje en een
+  regel eronder die zegt waarom. Een winkel die niet in de lijst staat is altijd
+  een gok, en als de btw niet klopt met het totaal krijg je dat te zien. Zo weet
+  je waar je moet kijken in plaats van alles te controleren.
+- De datum van de bon telt nu, niet de dag waarop je hem indeelt. Een bon van
+  vorige week staat bij de klus dus op zijn eigen dag.
+- De regels van de bon (wat je gekocht hebt, hoeveel en voor hoeveel per stuk)
+  komen als materiaalregels onder de bon te staan. Ze tellen niet mee in het
+  bedrag: dat blijft het totaal van de bon.
+- Dit gebeurt **helemaal bij jou thuis**. Er gaat geen bon en geen bedrag naar
+  internet; het lezen doet een tweede container op de Pi die alleen de app kan
+  bereiken. Zonder internet werkt het ook.
+- Staat die container uit of kan een bon niet gelezen worden, dan verandert er
+  niets: je vult de bon in zoals je altijd deed. In Instellingen staat een
+  schakelaar om het lezen uit te zetten.
+- Nieuw in `.env`: `BON_OCR_URL`, `BON_OCR_TIJD` en `OCR_DRADEN`. Leeg laten van
+  `BON_OCR_URL` zet het lezen uit. Zie
+  [DOCKER.md](https://github.com/stsanders06/facturen-app/blob/main/DOCKER.md).
+- In Home Assistant verandert er niets: daar is geen bonnenlezer, dus de app
+  blijft precies zoals hij was.
+
+## 2.1.1
+
+Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet
+genoeg; anders blijft de vorige versie draaien. Op poort 8099 log je daarna
+één keer opnieuw in; via de zijbalk merk je niets.
+
+- **Na een nieuw wachtwoord ben je overal uitgelogd.** Wijzig je je wachtwoord
+  in Instellingen, dan moeten je andere apparaten opnieuw inloggen; het
+  apparaat waarop je het wijzigde blijft binnen. Na
+  `wachtwoord-herstellen` is elk apparaat uitgelogd, ook een telefoon met
+  "onthoud mij".
+- Als losse container (Docker) start de app niet meer bij een onduidelijke
+  instelling, zoals een tikfout in `ZELFSTANDIG` of `PUID=0`, en zegt hij wat
+  er mis is. Zo kan een vergissing de inlog nooit stilletjes uitzetten.
+- Losse container: `docker compose stop` stopt meteen in plaats van na tien
+  seconden. Met `LUISTER_ADRES` in `.env` luistert de app alleen op het adres
+  dat je kiest, en `SESSION_COOKIE_SECURE=1` is er voor wie de app via https
+  opent. [DOCKER.md](https://github.com/stsanders06/facturen-app/blob/main/DOCKER.md)
+  legt nu ook uit waarom de firewall (ufw) de poort niet dichtzet, hoe de
+  geheugengrens op een Raspberry Pi gaat werken, en begint het bijwerken met
+  een back-up.
+- Je administratie, `secret_key` en `.env` komen nooit meer in een image
+  terecht, ook niet als ze naast de broncode staan.
+- Alle onderdelen hebben nu een vaste versie, zodat een nieuwe bouw over een
+  maand hetzelfde oplevert.
+
 ## 2.1.0
 
 Na het bijwerken: **stop de add-on en start hem opnieuw**. Alleen opslaan is niet

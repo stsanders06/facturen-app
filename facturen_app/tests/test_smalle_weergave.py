@@ -326,16 +326,17 @@ def test_het_kruisje_bij_een_nieuw_materiaal_blijft_naast_de_prijs(client, db):
     db.commit()
     klus_id = db.execute("SELECT id FROM klussen").fetchone()[0]
     css = css_van(client.get(f"/klus/{klus_id}").data.decode())
-    # Het blok van het bonformulier. Later op de pagina staat nog een
-    # @media (max-width: 620px) voor de notities; die heeft dit raster niet.
-    begin = css.index(".inkoop-form .materiaal-rijen")
+    # Het raster staat sinds 2.2.0 in _layout.html, want 'Scan als bon' gebruikt
+    # dezelfde regels. Vanaf daar zoeken: later op de pagina staat nog een
+    # @media (max-width: 620px) voor de notities, en die heeft dit raster niet.
+    begin = css.index(".materiaal-rijen")
     smal = css[css.index("@media (max-width: 620px)", begin):]
-    kolommen = regel_met(smal, ".inkoop-form .materiaal-rij")
+    kolommen = regel_met(smal, ".materiaal-rij")
     assert "minmax(0, 1fr) minmax(0, 1fr) auto" in kolommen
-    assert "grid-column: 1 / -1" in regel_met(smal, ".inkoop-form .materiaal-rij .mat-oms")
-    assert "44px" in regel_met(smal, ".inkoop-form .materiaal-rij .mat-weg")
+    assert "grid-column: 1 / -1" in regel_met(smal, ".materiaal-rij .mat-oms")
+    assert "44px" in regel_met(smal, ".materiaal-rij .mat-weg")
     # Het kruisje zelf heeft een vak, anders blijft het een los teken naast de prijs.
-    vak = regel_met(css, ".inkoop-form .materiaal-rij .mat-weg")
+    vak = regel_met(css, ".materiaal-rij .mat-weg")
     assert "border: 1px solid var(--border)" in vak
     assert "border-radius: var(--radius-sm)" in vak
     assert "background: var(--card)" in vak

@@ -1,0 +1,93 @@
+{
+ "winkel": "GROTHAUS Bouw- en Tuinmarkt",
+ "datum": "2026-10-24",
+ "regels": [
+  {
+   "omschrijving": "Steigerhout plank 2m",
+   "aantal": 6,
+   "stukprijs": 5.49,
+   "regelbedrag": 32.94
+  },
+  {
+   "omschrijving": "Potgrond universeel 40L",
+   "aantal": 3,
+   "stukprijs": 3.99,
+   "regelbedrag": 11.97
+  },
+  {
+   "omschrijving": "Lavendel in pot 13cm",
+   "aantal": 4,
+   "stukprijs": 2.49,
+   "regelbedrag": 9.96
+  },
+  {
+   "omschrijving": "Tuinslang 25m",
+   "aantal": 1,
+   "stukprijs": 24.99,
+   "regelbedrag": 24.99
+  },
+  {
+   "omschrijving": "Slangkoppeling set",
+   "aantal": 1,
+   "stukprijs": 7.99,
+   "regelbedrag": 7.99
+  },
+  {
+   "omschrijving": "Houtlijm D3 750g",
+   "aantal": 1,
+   "stukprijs": 10.95,
+   "regelbedrag": 10.95
+  },
+  {
+   "omschrijving": "Spijkers verzinkt 1kg",
+   "aantal": 1,
+   "stukprijs": 5.49,
+   "regelbedrag": 5.49
+  },
+  {
+   "omschrijving": "Graszaad 1kg",
+   "aantal": 1,
+   "stukprijs": 12.99,
+   "regelbedrag": 12.99
+  },
+  {
+   "omschrijving": "Werkhandschoenen mt 10",
+   "aantal": 2,
+   "stukprijs": 3.49,
+   "regelbedrag": 6.98
+  },
+  {
+   "omschrijving": "Tuinhark 14 tands",
+   "aantal": 1,
+   "stukprijs": 17.95,
+   "regelbedrag": 17.95
+  },
+  {
+   "omschrijving": "Kruiwagen band 16inch",
+   "aantal": 1,
+   "stukprijs": 19.99,
+   "regelbedrag": 19.99
+  },
+  {
+   "omschrijving": "Bindraad groen 50m",
+   "aantal": 2,
+   "stukprijs": 1.89,
+   "regelbedrag": 3.78
+  }
+ ],
+ "korting": null,
+ "btw": [
+  {
+   "tarief": 21,
+   "bedrag": 22.75
+  },
+  {
+   "tarief": 9,
+   "bedrag": 2.88
+  }
+ ],
+ "btw_totaal": 25.63,
+ "totaal": 165.98,
+ "betaalwijze": "creditcard",
+ "soort": "clean"
+}

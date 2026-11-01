@@ -1,0 +1,35 @@
+{
+ "winkel": "DOEMARKT",
+ "datum": "2026-09-21",
+ "regels": [
+  {
+   "omschrijving": "Deurklink RVS",
+   "aantal": 2,
+   "stukprijs": 17.95,
+   "regelbedrag": 35.9
+  },
+  {
+   "omschrijving": "Scharnier 89mm 2st",
+   "aantal": 3,
+   "stukprijs": 4.49,
+   "regelbedrag": 13.47
+  },
+  {
+   "omschrijving": "Houtplamuur eiken",
+   "aantal": 1,
+   "stukprijs": 7.95,
+   "regelbedrag": 7.95
+  }
+ ],
+ "korting": null,
+ "btw": [
+  {
+   "tarief": 21,
+   "bedrag": 9.95
+  }
+ ],
+ "btw_totaal": 9.95,
+ "totaal": 57.32,
+ "betaalwijze": "pin",
+ "soort": "rot_lowc"
+}

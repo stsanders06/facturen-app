@@ -1,0 +1,20 @@
+BOUWMAX
+Testweg 3
+2345 CD Proefdorp
+Datum 20/10/26 13:07   Filiaal 211
+2   Tegellijm 25kg
+à 16,99   33,98
+1   Voegmiddel grijs 5kg
+à 11,49   11,49
+2   Tegelkruisjes 3mm
+à 2,49   4,98
+1   Lijmkam 8mm
+à 6,99   6,99
+Emmer 12L
+à 2,99   2,99
+Aantal artikelen: 7
+Te betalen   60,43
+Betaald met PIN   60,43
+BTW hoog 21% over 49,94 = 10,49
+Ruilen binnen 30 dagen met kassabon.
+www.bouwmax.example

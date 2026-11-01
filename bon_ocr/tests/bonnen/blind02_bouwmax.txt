@@ -1,0 +1,18 @@
+BOUWMAX
+Testweg 3
+2345 CD Proefdorp
+Datum 30/06/2619:22   Filiaal 211
+1 Koevoet 60cm
+à 14,99   14,99
+3 Stofmasker FFP2 3st
+à 6,99   20,97
+1 Veiligheidsbril
+à 5,49   5,49
+Gipsplaat 260x60
+à 8,99   35,96
+Aantal artikelen: 9
+Te betalen   77,41
+Betaald met Maestro   77,41
+BTW hoog 21% over 63,98 = 13,43
+Ruilen binnen 30 dagen met kassabon.
+www.bouwmax.example

@@ -11,21 +11,66 @@ services:
     image: facturen-app:zelfstandig
     container_name: facturen-app
     restart: unless-stopped
+    # Een klein init-proces als PID 1. Python negeert SIGTERM als eerste
+    # proces; docker compose stop wachtte dan 10 seconden en killde de app.
+    init: true
     ports:
-      # Links de poort op de Pi (POORT in .env), rechts die in de container.
-      - "${POORT:-8099}:8099"
+      # Optioneel een vast adres van de Pi (LUISTER_ADRES in .env), dan de
+      # poort. Zonder adres luistert de app op alle netwerken van de Pi.
+      - "${LUISTER_ADRES:+${LUISTER_ADRES}:}${POORT:-8099}:${POORT:-8099}"
     environment:
+      # Altijd de losse modus, ook als iemand het image anders bouwt: nooit
+      # via .env, zodat een tikfout de inlog niet kan uitzetten.
+      ZELFSTANDIG: "1"
+      PORT: ${POORT:-8099}
       TZ: ${TZ:-Europe/Amsterdam}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-0}
+      # De bonnenlezer hieronder. Leeg zetten in .env schakelt het lezen uit;
+      # de app werkt dan precies als daarvoor en je vult de bon zelf in.
+      BON_OCR_URL: ${BON_OCR_URL-http://bon-ocr:8099/lees}
+      BON_OCR_TIJD: ${BON_OCR_TIJD:-30}
     volumes:
       # Database, PDF's, logo, bijlagen, scans en de sessiesleutel.
       - ./data:/data
-    # De app gebruikt rond de 60 MB. 512 MB laat ruimte voor een grote PDF
-    # of scan, en houdt een Pi met 4 GB vrij als er iets misgaat.
+    # De app gebruikt rond de 50 MB. 512 MB laat ruimte voor een grote PDF of
+    # scan. Op Raspberry Pi OS werkt deze grens pas met cgroup_enable=memory
+    # (zie DOCKER.md); zonder dat negeert Docker hem stil.
     mem_limit: 512m
     # Logs niet onbeperkt laten groeien op de SD-kaart.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Leest een gescande bon en geeft de velden terug, zodat 'Scan als bon' al
+  # is ingevuld. Helemaal lokaal: geen cloud, geen internet nodig, de modellen
+  # zitten in het image.
+  bon-ocr:
+    build:
+      context: ./bon_ocr
+    image: bon-ocr:lokaal
+    container_name: bon-ocr
+    restart: unless-stopped
+    # Zelfde reden als bij de app: als PID 1 negeert Python SIGTERM zonder
+    # handler, en dan wacht docker tien seconden op een SIGKILL bij elke stop.
+    init: true
+    # Expres geen ports: alleen de facturen-app mag hierbij, via het interne
+    # netwerk van compose. Zet hier nooit een poort op; dan staat een dienst
+    # zonder inlog open op je netwerk.
+    expose:
+      - "8099"
+    environment:
+      TZ: ${TZ:-Europe/Amsterdam}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Meer draden maakt het sneller maar niet zuiniger. Vier is de Pi 5.
+      OCR_DRADEN: ${OCR_DRADEN:-4}
+    # Het lezen van een bon piekte in de proef rond 550 MB. 768 laat lucht,
+    # en houdt een Pi met 4 GB overeind als er iets misgaat.
+    mem_limit: 768m
     logging:
       driver: json-file
       options:

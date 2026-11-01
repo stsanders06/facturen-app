@@ -1,0 +1,26 @@
+KLUSWERK
+Bouwmarkt Voorbeeldstad
+Fictieflaan 12, 1234 AB Voorbeeldstad
+Tel 012-3456789
+KvK 00000000   BTW NL000000000B01
+Omschrijving   Bedrag
+8762187499831
+Schroeven spaanplaat 4x40 200st   7,99
+8717090709584
+2 x 3,49
+Kitpistool basis   6,98
+8725186497579
+3 x 4,29
+Acrylaatkit wit 310ml   12,87
+8788880033272
+Afdekfolie 4x5m   2,49
+8737949223669
+Kwast synthetisch 50mm   5,95
+Subtotaal   36,28
+TOTAAL   EUR 36,28
+PIN   36,28
+BTW%   Excl.   BTW   Incl.
+21%   29,98   6,30   36,28
+Datum: 12-10-2026   Tijd: 14:32
+Kassa 3   Bon 0042   Medewerker 17
+Bedankt en tot ziens!

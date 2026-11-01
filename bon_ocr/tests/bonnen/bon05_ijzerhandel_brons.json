@@ -1,0 +1,41 @@
+{
+ "winkel": "IJzerwarenhandel Brons",
+ "datum": "2026-10-05",
+ "regels": [
+  {
+   "omschrijving": "BOUTEN M8X40 VZ",
+   "aantal": 10,
+   "stukprijs": 0.35,
+   "regelbedrag": 3.5
+  },
+  {
+   "omschrijving": "MOEREN M8 VZ",
+   "aantal": 10,
+   "stukprijs": 0.12,
+   "regelbedrag": 1.2
+  },
+  {
+   "omschrijving": "SLUITRING M8",
+   "aantal": 20,
+   "stukprijs": 0.05,
+   "regelbedrag": 1.0
+  },
+  {
+   "omschrijving": "KETTINGSLOT",
+   "aantal": 1,
+   "stukprijs": 14.5,
+   "regelbedrag": 14.5
+  }
+ ],
+ "korting": null,
+ "btw": [
+  {
+   "tarief": 21,
+   "bedrag": 3.51
+  }
+ ],
+ "btw_totaal": 3.51,
+ "totaal": 20.2,
+ "betaalwijze": "contant",
+ "soort": "faded"
+}

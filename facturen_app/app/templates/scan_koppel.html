@@ -2,6 +2,35 @@
 {% block title %}{{ titel }}{% endblock %}
 {% block content %}
 
+<style>
+  /* Een veld dat de bonnenlezer niet zeker weet. Geen kleurvlak: de hele app
+     is zwart-wit en alleen een status mag kleuren. Een streep links en een
+     regel tekst eronder zeggen het, en die tekst hangt met aria-describedby
+     aan het veld zodat een schermlezer hem ook meeneemt. */
+  .nakijken > input,
+  .nakijken > select {
+    border-left: 3px solid var(--warn-border);
+  }
+  .nakijken .waarschuwing {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--text-secondary);
+  }
+  .gelezen-regel {
+    margin: 12px 0 0;
+    font-size: 12.5px;
+    color: var(--text-secondary);
+  }
+  .bon-wordt-gelezen {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 14px;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+</style>
+
 <div class="page-head">
   <h1>{{ titel }}</h1>
 </div>
@@ -16,6 +45,11 @@
 {% else %}
 <form method="post" class="card" style="margin-top:16px">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  {% if doel == 'bon' and wordt_gelezen %}
+  {#- Het lezen duurt een paar seconden. De pagina vraagt het even na en vult
+      zichzelf dan in; zonder script blijft dit staan tot je ververst. -#}
+  <p class="bon-wordt-gelezen" id="bon-bezig">De bon wordt gelezen…</p>
+  {% endif %}
   <div class="fields">
     <div class="field">
       <label for="klus">Klus</label>
@@ -31,17 +65,37 @@
       </select>
     </div>
     {% if doel == 'bon' %}
-    <div class="field">
+    {% set onzeker = (gelezen.onzeker if gelezen else []) %}
+    <div class="field{{ ' nakijken' if 'winkel' in onzeker }}">
       <label for="omschrijving">Omschrijving</label>
       <input type="text" id="omschrijving" name="omschrijving" value="{{ omschrijving }}"
-             placeholder="Bijv. bouwmarkt">
+             placeholder="Bijv. bouwmarkt"
+             {% if 'winkel' in onzeker %}aria-describedby="omschrijving-nakijken"{% endif %}>
+      {% if 'winkel' in onzeker %}
+      <p class="waarschuwing" id="omschrijving-nakijken">De winkelnaam is een gok. Kijk hem na.</p>
+      {% endif %}
     </div>
-    <div class="field">
+    <div class="field{{ ' nakijken' if 'datum' in onzeker }}">
+      <label for="wanneer">Datum</label>
+      <input type="date" id="wanneer" name="wanneer"
+             value="{{ (gelezen.datum if gelezen and gelezen.datum else vandaag_iso) }}"
+             {% if 'datum' in onzeker %}aria-describedby="datum-nakijken"{% endif %}>
+      {% if 'datum' in onzeker %}
+      <p class="waarschuwing" id="datum-nakijken">De datum stond niet op de bon. Vandaag ingevuld.</p>
+      {% endif %}
+    </div>
+    <div class="field{{ ' nakijken' if 'totaal' in onzeker }}">
       <label for="bedrag">Totaalbedrag</label>
       <input type="number" step="any" id="bedrag" name="bedrag" inputmode="decimal"
-             placeholder="0,00">
+             placeholder="0,00"
+             value="{{ '%.2f'|format(gelezen.totaal) if gelezen and gelezen.totaal is not none }}"
+             {% if 'totaal' in onzeker %}aria-describedby="bedrag-nakijken"{% endif %}>
+      {% if 'totaal' in onzeker %}
+      <p class="waarschuwing" id="bedrag-nakijken">Het totaal is niet zeker. Vergelijk het met de bon.</p>
+      {% endif %}
     </div>
-    {% else %}
+    {% endif %}
+    {% if doel == 'notitie' %}
     <div class="field">
       <label for="wanneer">Datum</label>
       <input type="date" id="wanneer" name="wanneer" value="{{ vandaag_iso }}">
@@ -53,11 +107,142 @@
     </div>
     {% endif %}
   </div>
+
+  {% if doel == 'bon' %}
+  <div class="materiaal-rijen" id="bon-regels">
+    {% for r in (gelezen.regels if gelezen else []) %}
+    <div class="materiaal-rij">
+      <div class="field mat-oms">
+        <label for="regel-oms-{{ loop.index }}">Materiaal</label>
+        <input type="text" id="regel-oms-{{ loop.index }}" name="materiaal_omschrijving"
+               value="{{ r.omschrijving }}" placeholder="Bijv. tegellijm">
+      </div>
+      <div class="field">
+        <label for="regel-aantal-{{ loop.index }}">Aantal</label>
+        <input type="number" step="any" id="regel-aantal-{{ loop.index }}"
+               {#- Een heel aantal zonder ',0': '2' leest als twee stuks, '2.0' niet. -#}
+               name="materiaal_aantal"
+               value="{{ r.aantal|int if r.aantal == r.aantal|int else r.aantal }}">
+      </div>
+      <div class="field">
+        <label for="regel-prijs-{{ loop.index }}">Prijs</label>
+        <input type="number" step="any" id="regel-prijs-{{ loop.index }}"
+               name="materiaal_prijs" placeholder="0,00"
+               value="{{ '%.2f'|format(r.stukprijs) if r.stukprijs is not none }}">
+      </div>
+      <button type="button" class="btn btn-text danger mat-weg"
+              title="Regel verwijderen" aria-label="Regel verwijderen">&times;</button>
+    </div>
+    {% endfor %}
+  </div>
+  {% if gelezen and 'regels' in (gelezen.onzeker or []) and gelezen.regels %}
+  <p class="waarschuwing" style="margin:8px 0 0; font-size:12.5px; color:var(--text-secondary)">
+    De regels tellen niet op tot het totaal. Kijk ze na.</p>
+  {% endif %}
+  {% if gelezen %}
+  {#- Btw en betaalwijze bewaren we niet: ze staan hier om te vergelijken met
+      de bon, en ze zijn gebruikt om het totaal na te rekenen. -#}
+  <p class="gelezen-regel" id="bon-gelezen-regel">
+    Gelezen:
+    {%- for b in gelezen.btw %} {{ b.tarief|int }}% btw &euro; {{ b.bedrag|bedrag }}{% if not loop.last %},{% endif %}{% endfor %}
+    {%- if gelezen.betaalwijze %} · {{ gelezen.betaalwijze }}{% endif %}
+    {%- if gelezen.korting %} · korting &euro; {{ -gelezen.korting|bedrag }}{% endif %}
+    {%- if not gelezen.btw and not gelezen.betaalwijze %} niets bruikbaars op deze bon{% endif %}
+    {#- De btw heeft geen eigen veld, dus de waarschuwing hoort hier. Dit is
+        juist het signaal dat zegt dat er iets niet klopt aan het totaal. -#}
+    {%- if 'btw' in (gelezen.onzeker or []) %}
+    <br>De btw klopt niet met het totaal. Vergelijk het bedrag met de bon.
+    {%- endif %}
+  </p>
+  {% endif %}
+  {% endif %}
+
   <div class="indienen" style="margin-top:16px">
     <a class="btn btn-text" href="{{ url_for('scans') }}">Annuleren</a>
+    {% if doel == 'bon' %}
+    <button type="button" class="btn btn-text" id="regel-erbij">+ Materiaal</button>
+    {% endif %}
     <button type="submit" class="btn">{{ knop }}</button>
   </div>
 </form>
+
+{% if doel == 'bon' %}
+<script>
+  // Een regel erbij, zelfde velden als bij een bon op de klus-pagina.
+  (function () {
+    var lijst = document.getElementById('bon-regels');
+    var knop = document.getElementById('regel-erbij');
+    if (!lijst || !knop) return;
+    function maakRij(oms, aantal, prijs) {
+      var rij = document.createElement('div');
+      rij.className = 'materiaal-rij';
+      rij.innerHTML =
+        '<div class="field mat-oms"><label>Materiaal</label>'
+        + '<input type="text" name="materiaal_omschrijving" placeholder="Bijv. tegellijm"></div>'
+        + '<div class="field"><label>Aantal</label>'
+        + '<input type="number" step="any" name="materiaal_aantal" value="1"></div>'
+        + '<div class="field"><label>Prijs</label>'
+        + '<input type="number" step="any" name="materiaal_prijs" placeholder="0,00"></div>'
+        + '<button type="button" class="btn btn-text danger mat-weg" title="Regel verwijderen"'
+        + ' aria-label="Regel verwijderen">&times;</button>';
+      if (oms !== undefined) {
+        rij.querySelector('[name="materiaal_omschrijving"]').value = oms;
+        rij.querySelector('[name="materiaal_aantal"]').value = aantal;
+        if (prijs !== null && prijs !== undefined) {
+          rij.querySelector('[name="materiaal_prijs"]').value = prijs.toFixed(2);
+        }
+      }
+      rij.querySelector('.mat-weg').addEventListener('click', function () { rij.remove(); });
+      lijst.appendChild(rij);
+      return rij;
+    }
+    lijst.querySelectorAll('.mat-weg').forEach(function (weg) {
+      weg.addEventListener('click', function () { weg.closest('.materiaal-rij').remove(); });
+    });
+    knop.addEventListener('click', function () {
+      maakRij().querySelector('[name="materiaal_omschrijving"]').focus();
+    });
+
+    // Staat de bon nog in de wachtrij, dan even navragen. Niet eindeloos: na
+    // een halve minuut is er iets mis en dan vul je hem met de hand in.
+    var bezig = document.getElementById('bon-bezig');
+    if (!bezig) return;
+    var pogingen = 0;
+    var kijk = function () {
+      if (pogingen++ > 15) { bezig.textContent = 'De bon is niet gelezen. Vul hem zelf in.'; return; }
+      fetch('{{ url_for("scan_herkenning", scan_id=scan.id) }}', {
+        headers: { 'Accept': 'application/json' }
+      }).then(function (a) { return a.json(); }).then(function (uit) {
+        if (!uit.klaar) {
+          if (uit.bezig) { setTimeout(kijk, 2000); return; }
+          bezig.textContent = 'De bon is niet gelezen. Vul hem zelf in.';
+          return;
+        }
+        // Alleen velden die leeg zijn gebleven vullen: wat je al hebt ingetikt
+        // terwijl de lezer bezig was, mag niet alsnog worden overschreven.
+        var bon = uit.bon || {};
+        var oms = document.getElementById('omschrijving');
+        if (oms && !oms.value && bon.winkel) { oms.value = bon.winkel; }
+        var bedrag = document.getElementById('bedrag');
+        if (bedrag && !bedrag.value && bon.totaal !== null && bon.totaal !== undefined) {
+          bedrag.value = bon.totaal.toFixed(2);
+        }
+        var datum = document.getElementById('wanneer');
+        if (datum && bon.datum) { datum.value = bon.datum; }
+        if (!lijst.querySelector('.materiaal-rij')) {
+          (bon.regels || []).forEach(function (r) {
+            maakRij(r.omschrijving, r.aantal, r.stukprijs);
+          });
+        }
+        bezig.remove();
+      }).catch(function () {
+        bezig.textContent = 'De bon is niet gelezen. Vul hem zelf in.';
+      });
+    };
+    setTimeout(kijk, 1500);
+  })();
+</script>
+{% endif %}
 {% endif %}
 
 {% endblock %}

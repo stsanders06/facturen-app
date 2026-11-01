@@ -1,0 +1,51 @@
+{
+ "winkel": "Tuincentrum Het Groene Erf",
+ "datum": "2026-10-02",
+ "regels": [
+  {
+   "omschrijving": "Snoeischaar",
+   "aantal": 1,
+   "stukprijs": 14.95,
+   "regelbedrag": 14.95
+  },
+  {
+   "omschrijving": "Buxus bol 30cm",
+   "aantal": 2,
+   "stukprijs": 12.5,
+   "regelbedrag": 25.0
+  },
+  {
+   "omschrijving": "Tuinmest korrel 1,",
+   "aantal": 1,
+   "stukprijs": 8.99,
+   "regelbedrag": 8.99
+  },
+  {
+   "omschrijving": "Plantenbak zwart 6",
+   "aantal": 1,
+   "stukprijs": 19.99,
+   "regelbedrag": 19.99
+  },
+  {
+   "omschrijving": "Gieter 10L",
+   "aantal": 1,
+   "stukprijs": 6.99,
+   "regelbedrag": 6.99
+  }
+ ],
+ "korting": null,
+ "btw": [
+  {
+   "tarief": 21,
+   "bedrag": 7.28
+  },
+  {
+   "tarief": 9,
+   "bedrag": 2.81
+  }
+ ],
+ "btw_totaal": 10.09,
+ "totaal": 75.92,
+ "betaalwijze": "pin",
+ "soort": "perspective_blur"
+}

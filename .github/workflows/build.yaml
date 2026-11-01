@@ -188,6 +188,10 @@ jobs:
           printf 'nieuw-geheim\nnieuw-geheim\n' \
             | docker compose exec -T facturen wachtwoord-herstellen | tee /tmp/herstel.txt
           grep -q "Log in als testgebruiker" /tmp/herstel.txt || fout "Wachtwoord herstellen mislukt"
+          # De sessie van vóór het herstellen (cookie /tmp/k) telt niet meer.
+          curl -sS -b /tmp/k -o /dev/null -w '%{http_code} %{redirect_url}' $B/klanten > /tmp/oud.txt
+          grep -qE '^302 .*/inloggen' /tmp/oud.txt \
+            || fout "Oude sessie werkt nog na wachtwoord herstellen: $(cat /tmp/oud.txt)"
           TOK=$(curl -sS -c /tmp/k2 $B/inloggen | token)
           curl -sS -b /tmp/k2 -c /tmp/k2 -o /dev/null --data-urlencode "csrf_token=$TOK" \
             -d "naam=testgebruiker&wachtwoord=nieuw-geheim" $B/inloggen
@@ -200,6 +204,61 @@ jobs:
           docker compose exec -T facturen sh -c 'ps -o user,args' | grep -E '^1000 .*main.py' \
             || fout "De app draait niet als gebruiker 1000"
           docker compose logs
+
+      - name: Controleer healthcheck, volume, stoppen en ZELFSTANDIG
+        run: |
+          fout() { echo "::error::$1"; docker compose logs; exit 1; }
+
+          # De healthcheck moet echt "healthy" worden; een verkeerde poort of
+          # een kapotte opdracht geeft "unhealthy" of blijft hangen op "starting".
+          for i in $(seq 1 100); do
+            status=$(docker inspect -f '{{.State.Health.Status}}' facturen-app)
+            [ "$status" = healthy ] && break
+            [ "$status" = unhealthy ] && fout "Healthcheck: unhealthy"
+            [ "$i" -eq 100 ] && fout "Healthcheck na 100 s nog: $status"
+            sleep 1
+          done
+          echo "Healthcheck: $status"
+
+          # Zonder VOLUME verdwijnt de administratie bij een docker run zonder -v.
+          docker image inspect -f '{{json .Config.Volumes}}' facturen-app:zelfstandig \
+            | grep -q '"/data"' || fout "Het image heeft geen VOLUME /data"
+
+          # Alleen 1/0 en duidelijke woorden; al het andere start niet.
+          if docker compose run --rm -T -e ZELFSTANDIG=misschien facturen > /tmp/onzin.txt 2>&1; then
+            fout "ZELFSTANDIG=misschien startte toch"
+          fi
+          grep -q "begrijp ik niet" /tmp/onzin.txt || fout "Geen uitleg bij ZELFSTANDIG=misschien"
+          if docker compose run --rm -T -e PUID=0 facturen > /tmp/root.txt 2>&1; then
+            fout "PUID=0 startte toch"
+          fi
+          grep -q "als root" /tmp/root.txt || fout "Geen uitleg bij PUID=0"
+
+          # ZELFSTANDIG=yes is ook aan: een vervalste zijbalk-kop vanaf het
+          # Ingress-netwerk van Home Assistant moet naar het inlogscherm.
+          docker compose run --rm -T -e ZELFSTANDIG=yes -e DATA_DIR=/tmp/proef \
+            --entrypoint python3 facturen -c '
+          import sys
+          sys.path.insert(0, "/opt/app")
+          import main
+          conn = main.get_db()
+          conn.execute("INSERT INTO gebruikers (naam, wachtwoord, aangemaakt) VALUES (?, ?, ?)",
+                       ("testgebruiker", "x", "2026-01-01"))
+          conn.commit()
+          a = main.app.test_client().get("/", environ_overrides={
+              "HTTP_X_INGRESS_PATH": "/api/hassio_ingress/xyz", "REMOTE_ADDR": "172.30.32.5"})
+          print(a.status_code, a.headers.get("Location"))
+          assert a.status_code == 302 and a.headers["Location"].startswith("/inloggen")
+          ' || fout "ZELFSTANDIG=yes laat een vervalste kop binnen"
+
+          # Met init: true stopt de app meteen, niet pas na 10 s SIGKILL.
+          begin=$(date +%s)
+          docker compose stop
+          duur=$(( $(date +%s) - begin ))
+          echo "Stoppen duurde ${duur} s"
+          [ "$duur" -lt 5 ] || fout "Stoppen duurde ${duur} s"
+          [ "$(docker inspect -f '{{.State.ExitCode}}' facturen-app)" != "137" ] \
+            || fout "De app is met SIGKILL gestopt"
 
       # De Raspberry Pi is arm64; bouwen via QEMU vangt een pakket dat daar ontbreekt.
       - name: QEMU voor arm64

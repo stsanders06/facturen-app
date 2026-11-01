@@ -1,0 +1,9 @@
+# Vastgezet op wat in de proef gemeten is. Een nieuwe RapidOCR kan andere
+# modellen meenemen, en dan verandert de tekst die de parser krijgt.
+rapidocr==3.10.0
+onnxruntime==1.31.1
+# De headless-variant: zonder GUI-bibliotheken, want hier is geen beeldscherm.
+opencv-python-headless==5.0.0.93
+numpy==2.5.4
+Flask==3.1.3
+waitress==3.0.2

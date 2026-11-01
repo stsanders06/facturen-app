@@ -33,22 +33,74 @@ docker compose ps
 
 Bij `STATUS` staat `Up ... (healthy)` als alles goed is. Open in je browser
 `http://<adres-van-de-pi>:8099/` (het adres vind je met `hostname -I`). Bij een
-lege administratie kies je eerst een gebruikersnaam en wachtwoord. Heb je je
-administratie uit Home Assistant meegenomen (stap 2), dan log je in met het
-account dat je daar al had.
+lege administratie kies je eerst een gebruikersnaam en wachtwoord. Doe dat
+meteen na het starten: zolang er nog geen account is, kan iedereen op je
+netwerk dat account aanmaken. Heb je je administratie uit Home Assistant
+meegenomen (stap 2), dan log je in met het account dat je daar al had.
 
 ### Instellingen in .env
 
 | Naam | Standaard | Wat het doet |
 | --- | --- | --- |
 | `POORT` | `8099` | De poort op de Pi. Na een wijziging: `docker compose up -d`. |
+| `LUISTER_ADRES` | leeg | Alleen op dit adres van de Pi luisteren (zie hieronder). Leeg = alle netwerken. |
 | `TZ` | `Europe/Amsterdam` | Tijdzone voor datums en "te laat". |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warning` of `error`. |
-| `PUID` / `PGID` | `1000` | Eigenaar van de map `data`. Controleer met `id -u` en `id -g`. |
+| `PUID` / `PGID` | `1000` | Eigenaar van de map `data`. Zet hier wat `id -u` en `id -g` zeggen. `0` (root) weigert de app. |
+| `SESSION_COOKIE_SECURE` | `0` | `1` als je de app alleen via https opent. Over gewoon `http://` moet dit `0` blijven, anders kom je niet meer binnen. |
+| `BON_OCR_URL` | `http://bon-ocr:8099/lees` | De bonnenlezer. **Leeg** = scans worden niet gelezen en je vult de bon zelf in. |
+| `BON_OCR_TIJD` | `30` | Hoe lang de app op de lezer wacht, in seconden. |
+| `OCR_DRADEN` | `4` | Hoeveel kernen de lezer mag gebruiken. De Pi 5 heeft er vier. |
+
+Pas `docker-compose.yml` zelf niet aan; zet alles in `.env`. Een aangepast
+`docker-compose.yml` laat `git pull` bij het bijwerken mislukken.
 
 Mailserver, bedrijfsgegevens en logo staan níet in `.env`. Die zet je in de app
 onder Instellingen, net als in Home Assistant. Ze staan in de database en
 verhuizen vanzelf mee.
+
+### Veilig op je netwerk
+
+- **Firewall (ufw) helpt hier niet.** Docker zet zijn eigen regels vóór die van
+  ufw. Een `ufw deny 8099` houdt de app dus níet tegen; de poort staat open
+  voor iedereen die de Pi kan bereiken.
+- **Alleen op één adres luisteren** doe je met `LUISTER_ADRES` in `.env`, en
+  daarna `docker compose up -d`:
+  - `LUISTER_ADRES=192.168.1.20` (het vaste adres van de Pi op je
+    thuisnetwerk; geef de Pi in je router een vast adres): alleen via dat
+    netwerk bereikbaar, niet via bijvoorbeeld een tweede netwerkkaart of VPN.
+  - `LUISTER_ADRES=127.0.0.1`: alleen vanaf de Pi zelf, voor als er een
+    reverse proxy (Caddy, nginx) met https vóór staat.
+- **Https**: over `http://` gaan je wachtwoord en de inlogcookie onversleuteld
+  over je wifi. Wil je dat niet, zet er dan een reverse proxy met https vóór of
+  gebruik Tailscale met https (`tailscale serve`), en zet
+  `SESSION_COOKIE_SECURE=1`.
+- **Zet de poort nooit open in je router** (ook niet via UPnP). Voor onderweg:
+  zie stap 6, VPN.
+
+### Geheugengrens op de Raspberry Pi
+
+`mem_limit: 512m` in `docker-compose.yml` werkt alleen als de kernel geheugen
+per container bijhoudt. Op Raspberry Pi OS staat dat standaard uit, en dan
+negeert Docker de grens zonder melding. Controleer het:
+
+```sh
+docker info 2>&1 | grep -i "memory limit"
+```
+
+Zie je `WARNING: No memory limit support`, zet het dan aan. Open
+`/boot/firmware/cmdline.txt` (dat is één lange regel):
+
+```sh
+sudo nano /boot/firmware/cmdline.txt
+```
+
+Zet aan het eind van die regel, met een spatie ervoor:
+`cgroup_enable=memory cgroup_memory=1`. Niet op een nieuwe regel. Opslaan
+(Ctrl+O, Enter, Ctrl+X) en `sudo reboot`. Daarna geeft `docker info` geen
+waarschuwing meer en laat `docker stats --no-stream` bij `LIMIT` 512MiB zien.
+
+Laat je het uit, dan werkt de app gewoon; alleen de bovengrens ontbreekt.
 
 ## 2. Je administratie uit Home Assistant meenemen
 
@@ -112,7 +164,7 @@ Pak dat uit en zet de inhoud van `data` in de map van de app:
 ```sh
 tar -xzf *_facturen_app.tar.gz
 ls data
-cp -a data/. ~/facturen-app/data/
+sudo cp -a data/. ~/facturen-app/data/
 cd ~/facturen-app
 docker compose up -d
 ```
@@ -121,8 +173,11 @@ In `ls data` moet in elk geval `facturen.db` staan. Krijg je bij `tar -xzf` de
 melding `not in gzip format`, dan is de back-up versleuteld: maak hem opnieuw
 zoals in stap 2a, in de terminal.
 
-De container maakt de bestanden bij het starten zelf van de juiste gebruiker;
-`sudo` of `chown` is niet nodig.
+`sudo` bij `cp`: de map `data` is na de eerste start van PUID (en
+`secret_key` is alleen voor die gebruiker leesbaar). Is dat niet je eigen
+gebruiker, dan mag een gewone `cp` die bestanden niet overschrijven. De
+container geeft alles bij het starten zelf weer aan PUID:PGID; `chown` is niet
+nodig.
 
 ### 2d. Controleren en afronden
 
@@ -140,8 +195,13 @@ De container maakt de bestanden bij het starten zelf van de juiste gebruiker;
 
 ## 3. Bijwerken
 
+Maak eerst een back-up (stap 4). Zet een nieuwe versie iets om in de database,
+dan kun je zo altijd terug.
+
 ```sh
 cd ~/facturen-app
+docker compose stop
+sudo tar -czf ~/facturen-backup-$(date +%F).tar.gz data
 git pull && docker compose up -d --build
 ```
 
@@ -156,9 +216,13 @@ database niet halverwege een wijziging wordt gekopieerd:
 ```sh
 cd ~/facturen-app
 docker compose stop
-tar -czf ~/facturen-backup-$(date +%F).tar.gz data
+sudo tar -czf ~/facturen-backup-$(date +%F).tar.gz data
 docker compose start
 ```
+
+`sudo` bij `tar`: `secret_key` in `data` is alleen leesbaar voor PUID. Zonder
+`sudo` slaat `tar` hem over als je als een andere gebruiker bent ingelogd, en
+dan ben je na het terugzetten overal uitgelogd.
 
 Zet het bestand daarna ergens anders dan op de SD-kaart van de Pi, bijvoorbeeld
 op je Mac:
@@ -168,10 +232,12 @@ op je Mac:
 scp <gebruiker>@<adres-van-de-pi>:~/facturen-backup-*.tar.gz ~/Documents/
 ```
 
-Elke zondag om 03:00 automatisch (op de Pi `crontab -e` en deze regel toevoegen):
+Elke zondag om 03:00 automatisch. Dit gaat in de crontab van root (op de Pi
+`sudo crontab -e`), zodat `tar` overal bij kan; vul je gebruikersnaam in bij
+`<gebruiker>`:
 
 ```cron
-0 3 * * 0 cd ~/facturen-app && { docker compose stop; tar -czf ~/facturen-backup-$(date +\%F).tar.gz data; docker compose start; }
+0 3 * * 0 cd /home/<gebruiker>/facturen-app && { docker compose stop; tar -czf /home/<gebruiker>/facturen-backup-$(date +\%F).tar.gz data; docker compose start; }
 ```
 
 ### Terugzetten
@@ -180,15 +246,60 @@ Elke zondag om 03:00 automatisch (op de Pi `crontab -e` en deze regel toevoegen)
 cd ~/facturen-app
 docker compose down
 mv data data-oud
-tar -xzf ~/facturen-backup-JJJJ-MM-DD.tar.gz
+sudo tar -xzf ~/facturen-backup-JJJJ-MM-DD.tar.gz
 docker compose up -d
 ```
 
-## 5. Handig om te weten
+## 5. Bonnen laten lezen
+
+Sinds 2.2.0 draait er naast de app een tweede container, `bon-ocr`. Die leest een
+gescande bon en geeft de velden terug, zodat **Scan als bon** al is ingevuld: de
+winkel, de datum, het totaal en de regels. Jij keurt elke bon zelf goed.
+
+Het gebeurt **helemaal op de Pi**. Er gaat geen bon en geen bedrag naar internet,
+en de modellen zitten in het image, dus het werkt ook zonder internetverbinding.
+
+De container staat **niet** op je netwerk: in `docker-compose.yml` heeft hij
+expres geen `ports`, alleen `expose`. Zo kan alleen de facturen-app erbij, via
+het interne netwerk van compose. Zet daar nooit een poort op: de lezer heeft
+geen inlog.
+
+```bash
+docker compose up -d --build        # bouwt bon-ocr er de eerste keer bij
+docker compose logs -f bon-ocr      # 'Bon gelezen: ... artikelen, onzeker: -'
+docker stats bon-ocr                # geheugen tijdens het lezen
+```
+
+Het bouwen duurt de eerste keer een paar minuten: er komt een kleine 1 GB aan
+OCR-modellen en bibliotheken in het image. Daarna start hij in seconden.
+
+**Uitzetten** kan op twee manieren: de schakelaar in Instellingen (onder *Bonnen
+lezen*), of `BON_OCR_URL=` leeg in `.env`. In beide gevallen werkt de app verder
+precies zoals daarvoor. Hetzelfde geldt als de container stuk is of een bon niet
+te lezen valt: je vult de bon dan gewoon met de hand in.
+
+### Wat er wordt bijgehouden
+
+Bij elke bon die je goedkeurt schrijft de app één regel in
+`data/bon-correcties.jsonl`: wat de lezer van de bon maakte en wat jij ervan
+maakte. Dat bestand blijft op de Pi, gaat nergens heen, en je kunt het zonder
+gevolgen weggooien (`rm data/bon-correcties.jsonl`).
+
+Waarom het er is: de lezer werkt met regels per winkel, en dat onderhoud is nooit
+klaar. Met genoeg van die voorbeelden is later te meten waar het misgaat, of kan
+er een klein model getraind worden dat het beter doet. Die voorbeelden zijn
+alleen te verzamelen op het moment dat je ze maakt. Boven de 5 MB begint het
+bestand opnieuw; het vorige blijft als `.1` staan.
+
+## 6. Handig om te weten
 
 - **Logboek**: `docker compose logs -f` (stoppen met Ctrl+C).
 - **Wachtwoord kwijt**: `docker compose exec facturen wachtwoord-herstellen`.
-  Je kiest een nieuw wachtwoord en ziet je gebruikersnaam.
+  Je kiest een nieuw wachtwoord en ziet je gebruikersnaam. Alle apparaten zijn
+  daarna uitgelogd, ook een telefoon met "onthoud mij"; dat gebeurt ook als je
+  je wachtwoord in Instellingen wijzigt (behalve op dat apparaat zelf).
+- **Stoppen gaat meteen**: `docker compose stop` stopt de app binnen een
+  seconde (dankzij `init: true`), zonder halve schrijfacties.
 - **Herstarten**: `docker compose restart`. Na een stroomstoring start de app
   vanzelf weer (`restart: unless-stopped`).
 - **Stoppen**: `docker compose down`. Je administratie blijft in `data`.
@@ -196,4 +307,13 @@ docker compose up -d
   onderweg bij, gebruik dan een VPN naar huis (bijvoorbeeld Tailscale of
   WireGuard) in plaats van de poort open te zetten in je router.
 - **Geheugen**: de app gebruikt rond de 50 MB; `mem_limit: 512m` in
-  `docker-compose.yml` is de bovengrens.
+  `docker-compose.yml` is de bovengrens (op de Pi alleen met
+  `cgroup_enable=memory`, zie stap 1). De bonnenlezer komt daar bovenop: in rust
+  een paar honderd MB, tijdens het lezen van een bon piekte hij op ongeveer
+  550 MB, met `mem_limit: 768m` als bovengrens. Samen past dat ruim op een Pi
+  met 4 GB.
+- **Helemaal zonder root**: de container start als root om de map `data` aan
+  PUID te geven en draait de app daarna als PUID. Wil je ook dat eerste stapje
+  niet, maak `data` dan zelf van je gebruiker (`sudo chown -R 1000:1000 data`)
+  en zet in een eigen `docker-compose.override.yml` bij de dienst `facturen` de regel
+  `user: "1000:1000"`.

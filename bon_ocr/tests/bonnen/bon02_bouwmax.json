@@ -1,0 +1,53 @@
+{
+ "winkel": "BOUWMAX",
+ "datum": "2026-09-03",
+ "regels": [
+  {
+   "omschrijving": "Afplaktape 50mm x 50m",
+   "aantal": 2,
+   "stukprijs": 4.29,
+   "regelbedrag": 8.58
+  },
+  {
+   "omschrijving": "Muurverf mat wit 2,5L",
+   "aantal": 1,
+   "stukprijs": 29.99,
+   "regelbedrag": 29.99
+  },
+  {
+   "omschrijving": "Verfroller 18cm",
+   "aantal": 1,
+   "stukprijs": 6.49,
+   "regelbedrag": 6.49
+  },
+  {
+   "omschrijving": "Plamuurmes 8cm",
+   "aantal": 1,
+   "stukprijs": 3.79,
+   "regelbedrag": 3.79
+  },
+  {
+   "omschrijving": "Vulmiddel snelhardend 750g",
+   "aantal": 1,
+   "stukprijs": 8.99,
+   "regelbedrag": 8.99
+  },
+  {
+   "omschrijving": "Schuurpapier K120 5st",
+   "aantal": 2,
+   "stukprijs": 1.99,
+   "regelbedrag": 3.98
+  }
+ ],
+ "korting": null,
+ "btw": [
+  {
+   "tarief": 21,
+   "bedrag": 10.73
+  }
+ ],
+ "btw_totaal": 10.73,
+ "totaal": 61.82,
+ "betaalwijze": "pin",
+ "soort": "clean"
+}

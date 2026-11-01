@@ -1,0 +1,30 @@
+# Wat niet in het image hoort. De bouwmap is facturen_app/, voor de add-on én
+# voor Dockerfile.standalone. Zonder dit bestand kwam bijvoorbeeld app/data/
+# (de administratie en secret_key als je de app lokaal draait) leesbaar in het
+# image terecht.
+
+# Administratie, sessiesleutel en eigen instellingen
+app/data/
+data/
+**/secret_key
+**/*.db
+**/*.db-journal
+**/*.db-wal
+**/*.db-shm
+**/.env
+**/.env.*
+
+# Tests en wat ze achterlaten
+tests/
+**/.pytest_cache/
+**/__pycache__/
+**/*.py[cod]
+**/test-results/
+**/playwright-report/
+
+# Versiebeheer en editors
+**/.git
+**/.gitignore
+**/.DS_Store
+**/.venv/
+**/venv/
