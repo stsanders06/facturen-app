@@ -126,7 +126,7 @@
       <p class="leesstand bezig" data-leest="{{ url_for('scan_herkenning', scan_id=s.id) }}"
          aria-live="polite"><span class="stip"></span>De bon wordt gelezen…</p>
       {% elif s.bon_gelezen %}
-      <p class="leesstand klaar"><span class="stip"></span>Bon gelezen — 'Als bon' staat ingevuld klaar</p>
+      <p class="leesstand klaar"><span class="stip"></span>Bon gelezen</p>
       {% endif %}
       <div class="scan-acties">
         <a class="btn" href="{{ url_for('scan_als_bon', scan_id=s.id) }}">Als bon</a>
@@ -161,7 +161,7 @@
           .then(function (uit) {
             if (uit.klaar) {
               regel.className = 'leesstand klaar';
-              regel.innerHTML = "<span class=\"stip\"></span>Bon gelezen — 'Als bon' staat ingevuld klaar";
+              regel.innerHTML = '<span class="stip"></span>Bon gelezen';
             } else if (uit.bezig) {
               setTimeout(kijk, 2000);
             } else {
