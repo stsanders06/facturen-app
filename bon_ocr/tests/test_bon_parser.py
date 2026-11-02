@@ -32,7 +32,17 @@ NAMEN = sorted(n[:-4] for n in os.listdir(BONNEN) if n.endswith(".txt"))
 # te gokken, en gokken op een btw-bedrag is erger dan het niet weten. De
 # parser hoort het btw-veld dan als onzeker te melden; dat test
 # test_een_fout_veld_staat_altijd_in_onzeker.
-BEKENDE_AFWIJKING = {"blind03_groene_erf": {"btw_totaal"}}
+BEKENDE_AFWIJKING = {
+    "blind03_groene_erf": {"btw_totaal"},
+    # Een bon die ondersteboven gescand is. De OCR draait losse regels zelf om,
+    # maar binnen een regel staan de kolommen dan gespiegeld: 'BEDRAG BTW  RUBY
+    # RED 500ML  MONSTER ENERGY'. De omschrijvingen zijn daardoor rommelig en
+    # de btw-regel valt uiteen. Wat ertoe doet klopt wel: winkel, datum, totaal,
+    # betaalwijze, de bedragen van de regels, en de som. Het plaatje omdraaien
+    # en opnieuw lezen is geprobeerd en gaf een slechter resultaat (één regel,
+    # som klopt niet) voor het dubbele van de tijd.
+    "echt03_karwei_ondersteboven": {"omschrijving", "btw_totaal"},
+}
 
 
 def _lees(naam):
@@ -138,6 +148,31 @@ def test_de_regels_tellen_op_tot_het_totaal():
         if "regels" in uit["onzeker"]:
             continue
         assert uit["controles"]["regels_som_klopt"], naam
+
+
+def test_een_bon_die_ondersteboven_gescand_is_wordt_omgedraaid():
+    """De OCR leest hem wel, maar de volgorde staat op zijn kop: de artikelen
+    komen dan ónder het totaal te staan en de parser vindt ze niet. Beide
+    richtingen proberen kost niets — het lezen duurt geen honderdste seconde,
+    de OCR is het dure deel."""
+    uit, goed = _lees("echt03_karwei_ondersteboven")
+    assert uit["controles"]["ondersteboven"] is True
+    assert uit["totaal"] == goed["totaal"]
+    assert uit["datum"] == goed["datum"]
+    assert uit["betaalwijze"] == goed["betaalwijze"]
+    # De bedragen van de regels kloppen, en ze tellen op tot het totaal.
+    assert [r["regelbedrag"] for r in uit["regels"]] == [2.89, 0.15]
+    assert uit["controles"]["regels_som_klopt"]
+
+
+def test_een_gewone_bon_wordt_niet_omgedraaid():
+    """Omkeren mag alleen als het echt beter wordt; bij gelijkspel wint de
+    gewone volgorde, want zo ziet een bon er normaal uit."""
+    for naam in NAMEN:
+        if naam == "echt03_karwei_ondersteboven":
+            continue
+        uit, _ = _lees(naam)
+        assert not uit["controles"].get("ondersteboven"), naam
 
 
 # Wat er op een echte bon misging. De fixture echt01 is een bon van Stone met

@@ -1,0 +1,29 @@
+{
+ "winkel": "Karwei",
+ "datum": "2026-11-02",
+ "regels": [
+  {
+   "omschrijving": "MONSTER ENERGY RUBY RED 500ML",
+   "aantal": 1,
+   "stukprijs": 2.89,
+   "regelbedrag": 2.89
+  },
+  {
+   "omschrijving": "STATIEGELD",
+   "aantal": 1,
+   "stukprijs": 0.15,
+   "regelbedrag": 0.15
+  }
+ ],
+ "korting": null,
+ "btw": [
+  {
+   "tarief": 9,
+   "bedrag": 0.24
+  }
+ ],
+ "btw_totaal": 0.24,
+ "totaal": 3.04,
+ "betaalwijze": "pin",
+ "soort": "echte bon, ondersteboven gescand, geanonimiseerd"
+}

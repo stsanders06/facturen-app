@@ -502,8 +502,31 @@ def _onzeker(uit, winkel_bekend, betaalwijze_geraden, datum_zeker=True):
 
 
 def lees_bon(tekst):
-    """Alle velden van een bon, plus de controles en wat onzeker is."""
-    regels = [_normaliseer(r) for r in tekst.splitlines() if r.strip()]
+    """Alle velden van een bon, plus de controles en wat onzeker is.
+
+    Een bon die ondersteboven gescand is leest de OCR gewoon uit — die draait
+    losse regels zelf om — maar de volgorde staat dan op zijn kop, en de parser
+    verwacht de artikelen bóven het totaal. Daarom lezen we hem zo nodig ook
+    achterstevoren en houden we de beste van de twee. Dat kost niets: het lezen
+    zelf duurt minder dan een honderdste seconde, de OCR is het dure deel.
+    """
+    regels = [r for r in tekst.splitlines() if r.strip()]
+    eerste = _lees_op_volgorde(regels)
+    if not eerste["onzeker"]:
+        # Niets te winnen; dit is het gewone geval.
+        return eerste
+    andersom = _lees_op_volgorde(regels[::-1])
+    # Alleen omkeren als het echt beter wordt. Bij gelijkspel wint de gewone
+    # volgorde, want dat is hoe een bon er normaal uitziet.
+    if len(andersom["onzeker"]) < len(eerste["onzeker"]):
+        andersom["controles"]["ondersteboven"] = True
+        return andersom
+    return eerste
+
+
+def _lees_op_volgorde(ruwe_regels):
+    """De velden uit de regels, in de volgorde waarin ze worden aangeleverd."""
+    regels = [_normaliseer(r) for r in ruwe_regels if r.strip()]
     uit = {"winkel": None, "datum": None, "regels": [], "korting": None,
            "btw": [], "btw_totaal": None, "totaal": None, "betaalwijze": None,
            "controles": {}, "onzeker": []}
