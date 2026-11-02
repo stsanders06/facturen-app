@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.3.3
+
+**Een bon die ondersteboven gescand is wordt nu ook gelezen.** Dat ging eerst
+mis: de app kon de tekst wel lezen, maar las de bon van onder naar boven en
+vond de artikelen dus niet.
+
+- De app probeert nu allebei de richtingen en houdt de beste. Dat kost niets:
+  het lezen zelf duurt geen honderdste seconde.
+- Bij zo'n omgekeerde bon kloppen de bedragen, het totaal, de datum en de
+  betaalwijze. De omschrijvingen van de artikelen zijn vaak rommelig — die
+  staan op de scan letterlijk achterstevoren — dus die kijk je even na. Ze
+  worden als onzeker gemarkeerd.
+
 ## 2.3.2
 
 **Een grote scan werd ten onrechte als onleesbaar afgewezen.** Een scan van je

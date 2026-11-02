@@ -79,7 +79,7 @@ Assistant: daar hoort alleen het standaardnetwerk te gelden.
   commentaar houden.
 - **Meldingen aan de gebruiker zijn gewone taal.** "De mailserver weigert je
   gebruikersnaam of wachtwoord", niet "SMTP authentication failed".
-- **Elke wijziging krijgt tests.** Er staan er nu 1449.
+- **Elke wijziging krijgt tests.** Er staan er nu 1453.
 
 ### Taken horen bij de klus
 
@@ -144,6 +144,13 @@ voor bestanden op schijf: de opruiming leegt `PDF_DIR` en `BIJLAGE_DIR`.
   worden versoepeld.
 - **Blind is 5 van de 6.** Dat is de eerlijke score (de andere acht bonnen zijn
   de set waarop de parser is gemaakt). Omhoog mag, omlaag niet.
+- **Een bon kan ondersteboven binnenkomen.** RapidOCR draait losse regels zelf
+  om, dus de tekst is leesbaar, maar de regelvolgorde staat op zijn kop en
+  binnen een regel staan de kolommen gespiegeld. `lees_bon` probeert daarom
+  beide richtingen en houdt de beste (minste onzekere velden; bij gelijkspel
+  wint de gewone volgorde). Het plaatje omdraaien en opnieuw door de OCR halen
+  is geprobeerd: dat gaf een slechter resultaat voor het dubbele van de tijd,
+  omdat de OCR op het gedraaide beeld andere fouten maakt.
 - **Meet tijden op de Pi, niet op een Mac.** Twee keer ging het hierop mis: de
   time-out van de app stond op 30 s terwijl een bon er 22 kost, en `PDF_TIJD`
   stond op 20 s terwijl `pdfimages -png` er 22,5 over deed. Een bon kwam dan
