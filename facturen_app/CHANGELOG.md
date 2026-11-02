@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.3.1
+
+**Een bon die je rechtstreeks uit de app van een winkel deelt wordt nu gelezen.**
+Dat ging mis: zo'n bon is geen foto maar een PDF met echte tekst erin, en het
+enige plaatje erin is het logo van de winkel. De app las dat logo, herkende
+daardoor alleen de winkelnaam, en liet de rest leeg.
+
+- Zit er echte tekst in de PDF, dan gebruikt de app die nu meteen. Dat is niet
+  alleen volledig, het is ook foutloos — geen verkeerd gelezen letters — en het
+  gaat in een oogwenk in plaats van tien tot twintig seconden.
+- Een gescande bon of een foto gaat gewoon door de herkenning heen, zoals
+  voorheen.
+- Een logo of streepjescode wordt niet meer voor de bon aangezien.
+
 ## 2.3.0
 
 **Eén takenlijst per klus.** Tot nu had elke notitie een eigen lijstje, en dan

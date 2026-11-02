@@ -1,0 +1,60 @@
+                 Testweg 3
+                   1234 AB PROEFDORP
+                  +31 00 0000000
+Leveringsbon 26102617440000000000
+J. Jansen                                KLANT     1000000
+Voorbeeldstraat 1
+1234AB   Proefdorp
+BTW-nummer
+Klantenkaart: 1234XXXXXXX00
+ AANT OMSCHRIJVING                  PRIJS   BEDRAG         BTW
+    1 KABELDOOS MET 12    INGANGEN IP55 ZWART
+                                     3,29      3,29          1
+                   Nettoprijs        3,29      3,29
+    1 STEKKER RA RUBBER   10/16A ZWART
+                                     3,89      3,89          1
+                   Nettoprijs        3,89      3,89
+                                          --------
+                               Subtotaal:      7,18
+      15,00% Korting personeel                -1,08
+          2 Totaal                                     6,10
+              Maestro                                      6,10
+POI:                           10000000
+KLANTTICKET
+Terminal:                        000000
+Merchant:                        100000
+Periode:                           0000
+Transactie:                     1000000
+PAR:      10000AAAAAA0AA00A0AAA000A0A0
+Maestro (A0000000000000)
+MAESTRO
+Kaart:          xxxx xxxx xxxx xxx0 000
+Kaartserienummer:                     0
+BETALING
+Datum: 26/10/2026 17:44
+Autorisatiecode: A00000
+Ref.: 26102617440000000000.7024
+Totaal:                        6.10 EUR
+Contactless
+Leesmethode:                       Chip
+DANK U - TOT ZIENS
+                 Terug                                 0,00
+      Totaal prijsvoordeel                                1,08
+         BTW 21,00 % over         5,04   =      1,06
+                  TOT.OMZET         TOT.BTW
+                       6,10            1,06
+Ticket      29      dd. 26-10-2026 17:44:55           30211862
+                      Kassa 10 / 100000
+Spaarpunten
+    Vorig saldo                         143
+    Punten gespaard                       7
+    Nieuw saldo                         150
+      Je gespaarde punten blijven één jaar geldig
+     Wissel je punten op tijd in voor extra korting
+  Ruilen of terugbrengen binnen 30 dagen met kassabon
+            Zie voorwaarden in de bouwmarkt
+         Club karwei-kaart vergeten te scannen?
+  Voeg je punten toe op Karwei.nl of in de Karwei app
+            Dit kan tot 30 dagen na aankoop
+                 Bedankt en graag tot ziens!
+                   391026102617440000000000
