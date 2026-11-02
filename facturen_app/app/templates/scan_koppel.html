@@ -3,18 +3,47 @@
 {% block content %}
 
 <style>
-  /* Een veld dat de bonnenlezer niet zeker weet. Geen kleurvlak: de hele app
-     is zwart-wit en alleen een status mag kleuren. Een streep links en een
-     regel tekst eronder zeggen het, en die tekst hangt met aria-describedby
-     aan het veld zodat een schermlezer hem ook meeneemt. */
-  .nakijken > input,
-  .nakijken > select {
-    border-left: 3px solid var(--warn-border);
+  /* Wat de bonnenlezer heeft ingevuld krijgt een dunne rand: groen als hij er
+     zeker van is, oranje als je het moet nakijken. Geen kleurvlak en geen
+     regel tekst eronder — de rand zegt het, en dat houdt het formulier rustig.
+     De reden staat als title en aria-label op het veld zelf, zodat je hem met
+     een schermlezer of een muis alsnog krijgt: kleur alleen is geen boodschap.
+     Velden die niet uit de bon komen blijven onopgemaakt. */
+  /* outline en niet border: een veld in een kaart krijgt van _layout.html een
+     doorzichtige rand mee via een selector met veel :not(), en daar win je met
+     een gewone border-regel niet van zonder !important. outline is een andere
+     eigenschap, dus die strijd is er niet, en hij volgt de afgeronde hoeken.
+     De negatieve offset houdt de lijn binnen het veld, zodat niets verschuift. */
+  .veld-zeker > input,
+  .veld-zeker > select,
+  .veld-nakijken > input,
+  .veld-nakijken > select,
+  .materiaal-rij.veld-zeker input,
+  .materiaal-rij.veld-nakijken input {
+    outline: 1.5px solid;
+    outline-offset: -1.5px;
   }
-  .nakijken .waarschuwing {
-    margin: 0;
-    font-size: 12.5px;
-    color: var(--text-secondary);
+  .veld-zeker > input,
+  .veld-zeker > select,
+  .materiaal-rij.veld-zeker input { outline-color: var(--ok); }
+  .veld-nakijken > input,
+  .veld-nakijken > select,
+  .materiaal-rij.veld-nakijken input { outline-color: var(--nakijk); }
+  /* Bij het typen wint de gewone focusring; anders zie je twee lijnen. */
+  .veld-zeker > input:focus,
+  .veld-nakijken > input:focus,
+  .materiaal-rij input:focus { outline-offset: 0; }
+  /* De btw heeft geen eigen veld; klopt die niet, dan kleurt de leesregel. */
+  .gelezen-regel.nakijken { color: var(--nakijk); }
+  /* De velden van de bon horen bij elkaar: geen streep ertussen. Tussen de
+     materialen juist wel, want dat zijn losse regels die uit elkaar moeten
+     vallen. _layout.html doet het standaard precies andersom. */
+  .card > .fields > .field { border-top: 0; padding-top: 0; }
+  .card > .fields { gap: 14px; }
+  .materiaal-rijen > .materiaal-rij + .materiaal-rij {
+    border-top: 1px solid var(--divider);
+    padding-top: 12px;
+    margin-top: 12px;
   }
   .gelezen-regel {
     margin: 12px 0 0;
@@ -85,8 +114,21 @@
   <p style="margin:12px 0 0"><a class="btn" href="{{ url_for('klus_nieuw') }}">Nieuwe klus</a></p>
 </section>
 {% else %}
-<form method="post" class="card" style="margin-top:16px">
+<form method="post" style="margin-top:16px">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  {% set onzeker = (gelezen.onzeker if gelezen else []) %}
+  {#- Of een veld uit de bon komt, en of de lezer er zeker van is. Onzeker is
+      oranje, ook als het veld leeg bleef: juist dan moet je er iets mee. Wat
+      gelezen is en klopt wordt groen. Zonder lezer blijft een veld gewoon. -#}
+  {% macro stand(veld, gevuld) -%}
+    {%- if gelezen %}
+      {%- if veld in onzeker %} veld-nakijken{% elif gevuld %} veld-zeker{% endif -%}
+    {%- endif -%}
+  {%- endmacro %}
+  {% macro waarom(veld, uitleg) -%}
+    {%- if gelezen and veld in onzeker %} title="{{ uitleg }}" aria-label="{{ uitleg }}"{% endif -%}
+  {%- endmacro %}
+
   {% if doel == 'bon' and wordt_gelezen %}
   {#- Het lezen duurt een paar seconden. De pagina vraagt het even na en vult
       zichzelf dan in; zonder script blijft dit staan tot je ververst. -#}
@@ -96,111 +138,110 @@
       je kunt alvast een klus kiezen.</span>
   </p>
   {% endif %}
-  <div class="fields">
-    <div class="field">
-      <label for="klus">Klus</label>
-      <select id="klus" name="klus_id" required>
-        <option value="">Kies een klus</option>
-        {% for groepsnaam, klussen in groepen %}
-        <optgroup label="{{ groepsnaam }}">
-          {% for k in klussen %}
-          <option value="{{ k.id }}">{{ k.naam }}</option>
+
+  {#- Drie kaarten: waar de bon bij hoort, wat erop staat, en wat erin zat.
+      Alles in één kaart werd op een telefoon een lange lap velden. -#}
+  <section class="card">
+    <div class="fields">
+      <div class="field">
+        <label for="klus">Klus</label>
+        <select id="klus" name="klus_id" required>
+          <option value="">Kies een klus</option>
+          {% for groepsnaam, klussen in groepen %}
+          <optgroup label="{{ groepsnaam }}">
+            {% for k in klussen %}
+            <option value="{{ k.id }}">{{ k.naam }}</option>
+            {% endfor %}
+          </optgroup>
           {% endfor %}
-        </optgroup>
-        {% endfor %}
-      </select>
+        </select>
+      </div>
     </div>
-    {% if doel == 'bon' %}
-    {% set onzeker = (gelezen.onzeker if gelezen else []) %}
-    <div class="field{{ ' nakijken' if 'winkel' in onzeker }}">
-      <label for="omschrijving">Omschrijving</label>
-      <input type="text" id="omschrijving" name="omschrijving" value="{{ omschrijving }}"
-             placeholder="Bijv. bouwmarkt"
-             {% if 'winkel' in onzeker %}aria-describedby="omschrijving-nakijken"{% endif %}>
-      {% if 'winkel' in onzeker %}
-      <p class="waarschuwing" id="omschrijving-nakijken">De winkelnaam is een gok. Kijk hem na.</p>
+  </section>
+
+  <section class="card" style="margin-top:12px">
+    <div class="fields">
+      {% if doel == 'bon' %}
+      <div class="field{{ stand('winkel', omschrijving) }}">
+        <label for="omschrijving">Omschrijving</label>
+        <input type="text" id="omschrijving" name="omschrijving" value="{{ omschrijving }}"
+               placeholder="Bijv. bouwmarkt"
+               {{- waarom('winkel', 'De winkelnaam is een gok. Kijk hem na.') }}>
+      </div>
+      <div class="field{{ stand('datum', true) }}">
+        <label for="wanneer">Datum</label>
+        <input type="date" id="wanneer" name="wanneer"
+               value="{{ (gelezen.datum if gelezen and gelezen.datum else vandaag_iso) }}"
+               {{- waarom('datum', 'De datum stond niet op de bon. Vandaag ingevuld.') }}>
+      </div>
+      <div class="field{{ stand('totaal', gelezen and gelezen.totaal is not none) }}">
+        <label for="bedrag">Totaalbedrag</label>
+        <input type="number" step="any" id="bedrag" name="bedrag" inputmode="decimal"
+               placeholder="0,00"
+               value="{{ '%.2f'|format(gelezen.totaal) if gelezen and gelezen.totaal is not none }}"
+               {{- waarom('totaal', 'Het totaal is niet zeker. Vergelijk het met de bon.') }}>
+      </div>
+      {% else %}
+      <div class="field">
+        <label for="wanneer">Datum</label>
+        <input type="date" id="wanneer" name="wanneer" value="{{ vandaag_iso }}">
+      </div>
+      <div class="field">
+        <label for="tekst">Notitie</label>
+        <textarea id="tekst" name="tekst" rows="3"
+                  placeholder="Mag leeg: de scan is dan zelf de notitie"></textarea>
+      </div>
       {% endif %}
     </div>
-    <div class="field{{ ' nakijken' if 'datum' in onzeker }}">
-      <label for="wanneer">Datum</label>
-      <input type="date" id="wanneer" name="wanneer"
-             value="{{ (gelezen.datum if gelezen and gelezen.datum else vandaag_iso) }}"
-             {% if 'datum' in onzeker %}aria-describedby="datum-nakijken"{% endif %}>
-      {% if 'datum' in onzeker %}
-      <p class="waarschuwing" id="datum-nakijken">De datum stond niet op de bon. Vandaag ingevuld.</p>
-      {% endif %}
-    </div>
-    <div class="field{{ ' nakijken' if 'totaal' in onzeker }}">
-      <label for="bedrag">Totaalbedrag</label>
-      <input type="number" step="any" id="bedrag" name="bedrag" inputmode="decimal"
-             placeholder="0,00"
-             value="{{ '%.2f'|format(gelezen.totaal) if gelezen and gelezen.totaal is not none }}"
-             {% if 'totaal' in onzeker %}aria-describedby="bedrag-nakijken"{% endif %}>
-      {% if 'totaal' in onzeker %}
-      <p class="waarschuwing" id="bedrag-nakijken">Het totaal is niet zeker. Vergelijk het met de bon.</p>
-      {% endif %}
-    </div>
-    {% endif %}
-    {% if doel == 'notitie' %}
-    <div class="field">
-      <label for="wanneer">Datum</label>
-      <input type="date" id="wanneer" name="wanneer" value="{{ vandaag_iso }}">
-    </div>
-    <div class="field">
-      <label for="tekst">Notitie</label>
-      <textarea id="tekst" name="tekst" rows="3"
-                placeholder="Mag leeg: de scan is dan zelf de notitie"></textarea>
-    </div>
-    {% endif %}
-  </div>
+  </section>
 
   {% if doel == 'bon' %}
-  <div class="materiaal-rijen" id="bon-regels">
-    {% for r in (gelezen.regels if gelezen else []) %}
-    <div class="materiaal-rij">
-      <div class="field mat-oms">
-        <label for="regel-oms-{{ loop.index }}">Materiaal</label>
-        <input type="text" id="regel-oms-{{ loop.index }}" name="materiaal_omschrijving"
-               value="{{ r.omschrijving }}" placeholder="Bijv. tegellijm">
-      </div>
-      <div class="field">
-        <label for="regel-aantal-{{ loop.index }}">Aantal</label>
-        <input type="number" step="any" id="regel-aantal-{{ loop.index }}"
-               {#- Een heel aantal zonder ',0': '2' leest als twee stuks, '2.0' niet. -#}
-               name="materiaal_aantal"
-               value="{{ r.aantal|int if r.aantal == r.aantal|int else r.aantal }}">
-      </div>
-      <div class="field">
-        <label for="regel-prijs-{{ loop.index }}">Prijs</label>
-        <input type="number" step="any" id="regel-prijs-{{ loop.index }}"
-               name="materiaal_prijs" placeholder="0,00"
-               value="{{ '%.2f'|format(r.stukprijs) if r.stukprijs is not none }}">
-      </div>
-      <button type="button" class="btn btn-text danger mat-weg"
-              title="Regel verwijderen" aria-label="Regel verwijderen">&times;</button>
+  <section class="card" style="margin-top:12px">
+    <div class="card-head">
+      <h2 style="font-size:17px; margin:0">Materialen</h2>
     </div>
-    {% endfor %}
-  </div>
-  {% if gelezen and 'regels' in (gelezen.onzeker or []) and gelezen.regels %}
-  <p class="waarschuwing" style="margin:8px 0 0; font-size:12.5px; color:var(--text-secondary)">
-    De regels tellen niet op tot het totaal. Kijk ze na.</p>
-  {% endif %}
-  {% if gelezen %}
-  {#- Btw en betaalwijze bewaren we niet: ze staan hier om te vergelijken met
-      de bon, en ze zijn gebruikt om het totaal na te rekenen. -#}
-  <p class="gelezen-regel" id="bon-gelezen-regel">
-    Gelezen:
-    {%- for b in gelezen.btw %} {{ b.tarief|int }}% btw &euro; {{ b.bedrag|bedrag }}{% if not loop.last %},{% endif %}{% endfor %}
-    {%- if gelezen.betaalwijze %} · {{ gelezen.betaalwijze }}{% endif %}
-    {%- if gelezen.korting %} · korting &euro; {{ -gelezen.korting|bedrag }}{% endif %}
-    {%- if not gelezen.btw and not gelezen.betaalwijze %} niets bruikbaars op deze bon{% endif %}
-    {#- De btw heeft geen eigen veld, dus de waarschuwing hoort hier. Dit is
-        juist het signaal dat zegt dat er iets niet klopt aan het totaal. -#}
-    {%- if 'btw' in (gelezen.onzeker or []) %}
-    <br>De btw klopt niet met het totaal. Vergelijk het bedrag met de bon.
-    {%- endif %}
-  </p>
-  {% endif %}
+    <div class="materiaal-rijen" id="bon-regels">
+      {% set regels_nakijken = gelezen and 'regels' in onzeker %}
+      {% for r in (gelezen.regels if gelezen else []) %}
+      <div class="materiaal-rij {{ 'veld-nakijken' if regels_nakijken else 'veld-zeker' }}"
+           {% if regels_nakijken %}title="Deze regels tellen niet op tot het totaal. Kijk ze na."{% endif %}>
+        <div class="field mat-oms">
+          <label for="regel-oms-{{ loop.index }}">Materiaal</label>
+          <input type="text" id="regel-oms-{{ loop.index }}" name="materiaal_omschrijving"
+                 value="{{ r.omschrijving }}" placeholder="Bijv. tegellijm">
+        </div>
+        <div class="field">
+          <label for="regel-aantal-{{ loop.index }}">Aantal</label>
+          {#- Een heel aantal zonder ',0': '2' leest als twee stuks, '2.0' niet. -#}
+          <input type="number" step="any" id="regel-aantal-{{ loop.index }}"
+                 name="materiaal_aantal"
+                 value="{{ r.aantal|int if r.aantal == r.aantal|int else r.aantal }}">
+        </div>
+        <div class="field">
+          <label for="regel-prijs-{{ loop.index }}">Prijs</label>
+          <input type="number" step="any" id="regel-prijs-{{ loop.index }}"
+                 name="materiaal_prijs" placeholder="0,00"
+                 value="{{ '%.2f'|format(r.stukprijs) if r.stukprijs is not none }}">
+        </div>
+        <button type="button" class="btn btn-text danger mat-weg"
+                title="Regel verwijderen" aria-label="Regel verwijderen">&times;</button>
+      </div>
+      {% endfor %}
+    </div>
+    {% if gelezen %}
+    {#- Btw en betaalwijze bewaren we niet: ze staan hier om te vergelijken met
+        de bon, en ze zijn gebruikt om het totaal na te rekenen. Klopt de btw
+        niet, dan kleurt deze regel; een veld om te omranden is er niet. -#}
+    <p class="gelezen-regel{{ ' nakijken' if 'btw' in onzeker }}" id="bon-gelezen-regel"
+       {% if 'btw' in onzeker %}title="De btw klopt niet met het totaal. Vergelijk het bedrag met de bon."{% endif %}>
+      Gelezen:
+      {%- for b in gelezen.btw %} {{ b.tarief|int }}% btw &euro; {{ b.bedrag|bedrag }}{% if not loop.last %},{% endif %}{% endfor %}
+      {%- if gelezen.betaalwijze %} · {{ gelezen.betaalwijze }}{% endif %}
+      {%- if gelezen.korting %} · korting &euro; {{ -gelezen.korting|bedrag }}{% endif %}
+      {%- if not gelezen.btw and not gelezen.betaalwijze %} niets bruikbaars op deze bon{% endif %}
+    </p>
+    {% endif %}
+  </section>
   {% endif %}
 
   <div class="indienen" style="margin-top:16px">

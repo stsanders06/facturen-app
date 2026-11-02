@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.4.0
+
+Het scherm **Scan als bon** is rustiger geworden.
+
+- **Drie kaarten in plaats van één lange lijst**: de klus, wat er op de bon
+  staat, en de materialen. Op een telefoon scheelt dat veel scrollen door een
+  rij losse velden.
+- **Velden laten met een kleur zien hoe het ervoor staat.** Een dunne groene
+  rand betekent: dit heeft de app van de bon gelezen en het klopt. Oranje
+  betekent: kijk dit even na. De regels tekst onder de velden zijn verdwenen;
+  de reden staat nu als tekstballon op het veld zelf, en een schermlezer leest
+  hem ook voor.
+- Tussen de materialen staat een lijntje, zodat je ziet waar de ene regel
+  ophoudt. Tussen de gewone velden staat dat lijntje juist niet meer.
+- In de Scans-inbox staat voortaan kort **"Bon gelezen"** in plaats van een
+  hele zin.
+
 ## 2.3.3
 
 **Een bon die ondersteboven gescand is wordt nu ook gelezen.** Dat ging eerst

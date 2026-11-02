@@ -79,7 +79,7 @@ Assistant: daar hoort alleen het standaardnetwerk te gelden.
   commentaar houden.
 - **Meldingen aan de gebruiker zijn gewone taal.** "De mailserver weigert je
   gebruikersnaam of wachtwoord", niet "SMTP authentication failed".
-- **Elke wijziging krijgt tests.** Er staan er nu 1453.
+- **Elke wijziging krijgt tests.** Er staan er nu 1455.
 
 ### Taken horen bij de klus
 
@@ -88,6 +88,14 @@ onder de notities in plaats van een lijstje per aantekening. De routes staan
 onder `/klus/<id>/taak/...`. `_taken_naar_de_klus` verhuist een oude database
 eenmalig; die functie kijkt naar de kolom `klus_id` en doet daarna niets meer.
 Een notitie verwijderen laat de taken dus staan, een klus verwijderen niet.
+
+### Een veld in een kaart omranden
+
+`_layout.html` zet op `.card .field input:not(...):not(...)...` een doorzichtige
+rand. Die selector heeft zoveel specificiteit dat een eigen `border`-regel er
+niet van wint zonder `!important`. Gebruik `outline` met een negatieve
+`outline-offset`: dat is een andere eigenschap, dus geen strijd, hij volgt de
+afgeronde hoeken, en de breedte van het veld verandert niet.
 
 ### Valkuil bij de tests
 

@@ -6,6 +6,7 @@ de app ermee doet, en de parser heeft zijn eigen tests in `bon_ocr/tests`.
 """
 import json
 import os
+import re
 
 import pytest
 
@@ -139,17 +140,51 @@ def test_een_lege_regel_wordt_niet_bewaard(client, post, db, lezer):
     assert db.execute("SELECT COUNT(*) FROM inkoop_materialen").fetchone()[0] == 1
 
 
-def test_onzekere_velden_worden_gemarkeerd(client, post, db, lezer):
+def test_onzekere_velden_krijgen_een_oranje_rand(client, post, db, lezer):
+    """Geen regel tekst onder het veld maar een rand: oranje als je het moet
+    nakijken, groen als de lezer er zeker van is. De reden staat als title op
+    het veld, want een kleur alleen is geen boodschap."""
     lezer.antwoord = dict(GELEZEN, datum=None, onzeker=["datum", "totaal"])
     klus_erin(db)
     scan_id = scan_erin(client, post, db)
     facturen._wacht_op_herkenning()
     pagina = client.get(f"/scans/{scan_id}/bon").data.decode()
-    assert 'aria-describedby="datum-nakijken"' in pagina
-    assert "De datum stond niet op de bon" in pagina
-    assert 'aria-describedby="bedrag-nakijken"' in pagina
-    # De winkel was wel zeker, dus die krijgt geen streep.
-    assert 'aria-describedby="omschrijving-nakijken"' not in pagina
+    def stand_van(veld):
+        """De klasse van het blok waar dit label in staat."""
+        m = re.search(r'<div class="field([^"]*)">\s*<label for="%s"' % veld, pagina)
+        assert m, f"veld {veld} niet gevonden"
+        return m.group(1).strip()
+
+    # Datum en totaal zijn onzeker, de winkel niet.
+    assert stand_van("wanneer") == "veld-nakijken"
+    assert stand_van("bedrag") == "veld-nakijken"
+    assert stand_van("omschrijving") == "veld-zeker"
+    assert "De datum stond niet op de bon" in pagina      # als title
+    # De oude regels tekst onder het veld zijn weg.
+    assert "aria-describedby" not in pagina
+
+
+def test_zonder_lezer_krijgt_geen_enkel_veld_een_rand(client, post, db, monkeypatch):
+    """Een veld dat niet uit de bon komt hoort er gewoon uit te zien."""
+    monkeypatch.setattr(facturen, "BON_OCR_URL", "")
+    klus_erin(db)
+    scan_id = scan_erin(client, post, db)
+    pagina = client.get(f"/scans/{scan_id}/bon").data.decode()
+    # De stijlregels staan er altijd; het gaat om het gebruik op een veld.
+    assert 'class="field veld-nakijken"' not in pagina
+    assert 'class="field veld-zeker"' not in pagina
+
+
+def test_het_formulier_heeft_drie_kaarten(client, post, db, lezer):
+    """Klus, wat er op de bon staat, en wat erin zat. Alles in één kaart werd
+    op een telefoon een lange lap velden."""
+    klus_erin(db)
+    scan_id = scan_erin(client, post, db)
+    facturen._wacht_op_herkenning()
+    pagina = client.get(f"/scans/{scan_id}/bon").data.decode()
+    body = pagina.split("<form", 1)[1].split("</form>", 1)[0]
+    assert body.count('<section class="card"') == 3
+    assert "<h2" in body and "Materialen" in body
 
 
 def test_een_btw_die_niet_klopt_staat_in_de_leesregel(client, post, db, lezer):
