@@ -29,8 +29,11 @@ SOORTEN = {
     "image/jpeg": ".jpg", "image/jpg": ".jpg", "image/png": ".png",
     "application/pdf": ".pdf",
 }
-# Poppler mag niet blijven hangen op een kapotte PDF.
-PDF_TIJD = 20
+# Poppler mag niet blijven hangen op een kapotte PDF. Ruim genomen: op een Pi
+# duurt het natekenen van een volle bladzijde tientallen seconden, en dit is
+# een achtergrondtaak. Twintig seconden bleek te krap — een scan van 2 MB viel
+# er net buiten en kwam als onleesbaar terug terwijl er niets mis mee was.
+PDF_TIJD = 120
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "info").upper(),
                     format="[%(asctime)s] %(levelname)s: %(message)s")
@@ -101,6 +104,10 @@ TEKSTLAAG_REGELS = 6
 # halen en lezen gaf alleen de winkelnaam en verder niets.
 PLAATJE_MINIMUM = 500
 
+# Wat pdfimages met -j achterlaat: een JPEG blijft JPEG, de rest wordt PPM of
+# PBM. pdftoppm maakt er een PNG van.
+UITPAK_SOORTEN = (".jpg", ".jpeg", ".ppm", ".pbm", ".pgm", ".png")
+
 
 def tekst_uit_pdf(pad):
     """De tekstlaag van een PDF, als die er is.
@@ -132,10 +139,14 @@ def plaatje_uit_pdf(pad):
     """
     stam = pad + "-uit"
     try:
-        subprocess.run(["pdfimages", "-png", "-f", "1", "-l", "1", pad, stam],
+        # -j houdt een JPEG zoals hij is. Met -png wordt hij omgezet, en dat
+        # kostte op een Pi 22 seconden voor een scan van 2 MB tegen 0,04 met
+        # -j: het plaatje hoeft dan alleen uit het bestand gehaald te worden.
+        # Wat geen JPEG is komt als PPM; opencv leest dat net zo goed.
+        subprocess.run(["pdfimages", "-j", "-f", "1", "-l", "1", pad, stam],
                        check=True, timeout=PDF_TIJD,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        gevonden = [p for p in _naast(stam) if p.endswith(".png")
+        gevonden = [p for p in _naast(stam) if p.endswith(UITPAK_SOORTEN)
                     and _groot_genoeg(p)]
         # Een bon met een logo levert meer plaatjes; het grootste is de bon.
         if gevonden:
@@ -151,6 +162,7 @@ def plaatje_uit_pdf(pad):
         return None
     gevonden = sorted(p for p in _naast(stam) if p.endswith(".png"))
     return gevonden[0] if gevonden else None
+
 
 
 def _groot_genoeg(pad):

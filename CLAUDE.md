@@ -79,7 +79,7 @@ Assistant: daar hoort alleen het standaardnetwerk te gelden.
   commentaar houden.
 - **Meldingen aan de gebruiker zijn gewone taal.** "De mailserver weigert je
   gebruikersnaam of wachtwoord", niet "SMTP authentication failed".
-- **Elke wijziging krijgt tests.** Er staan er nu 1447.
+- **Elke wijziging krijgt tests.** Er staan er nu 1449.
 
 ### Taken horen bij de klus
 
@@ -144,6 +144,12 @@ voor bestanden op schijf: de opruiming leegt `PDF_DIR` en `BIJLAGE_DIR`.
   worden versoepeld.
 - **Blind is 5 van de 6.** Dat is de eerlijke score (de andere acht bonnen zijn
   de set waarop de parser is gemaakt). Omhoog mag, omlaag niet.
+- **Meet tijden op de Pi, niet op een Mac.** Twee keer ging het hierop mis: de
+  time-out van de app stond op 30 s terwijl een bon er 22 kost, en `PDF_TIJD`
+  stond op 20 s terwijl `pdfimages -png` er 22,5 over deed. Een bon kwam dan
+  terug als onleesbaar terwijl er niets mis mee was. `pdfimages -j` doet
+  hetzelfde in 0,04 s, want een JPEG hoeft alleen uit het bestand gehaald te
+  worden en niet omgezet.
 - **Niet elke bon is een plaatje.** Een bon uit de app van een winkel is een PDF
   met een tekstlaag; die tekst gebruiken is foutloos en duizend keer sneller dan
   OCR. `tekst_uit_pdf` gaat daarom vóór `plaatje_uit_pdf`. Let op de valkuil die
