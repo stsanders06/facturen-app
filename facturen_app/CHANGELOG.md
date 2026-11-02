@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.3.2
+
+**Een grote scan werd ten onrechte als onleesbaar afgewezen.** Een scan van je
+telefoon is al gauw twee megabyte, en het uitpakken daarvan duurde op de
+Raspberry Pi net te lang — de app gaf het op en meldde dat de bon niet te lezen
+was, terwijl er niets mis mee was.
+
+- Het plaatje wordt nu uit de scan gehaald zonder het om te zetten. Dat scheelt
+  op de Pi 22 seconden per bon: het duurt nu een fractie van een seconde in
+  plaats van een halve minuut.
+- De app heeft ook meer geduld gekregen voor het geval een bon toch zwaar is.
+
 ## 2.3.1
 
 **Een bon die je rechtstreeks uit de app van een winkel deelt wordt nu gelezen.**

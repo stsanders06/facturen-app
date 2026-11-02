@@ -113,3 +113,30 @@ def test_de_soorten_die_de_lezer_aanneemt(soort, ext):
 def test_heic_wordt_niet_aangenomen():
     """opencv leest het niet; een belofte die misgaat is erger dan een weigering."""
     assert "image/heic" not in lezer.SOORTEN
+
+
+@poppler
+def test_een_jpeg_in_een_pdf_wordt_niet_omgezet(tmp_path):
+    """Een scan van de iPhone is een JPEG in een PDF. Die omzetten naar PNG
+    kostte op een Pi 22 seconden en liep daarmee over de time-out heen; de bon
+    kwam terug als onleesbaar terwijl er niets mis mee was. Met -j wordt het
+    plaatje er alleen uit gehaald, in 0,04 seconde."""
+    import struct
+    import zlib
+
+    # Een kleine JPEG maken zonder extra pakketten: een PNG kan niet, want dan
+    # test dit juist het pad dat we willen vermijden.
+    cv2 = pytest.importorskip("cv2", reason="opencv zit alleen in de lezer")
+    np = pytest.importorskip("numpy")
+    jpg = str(tmp_path / "groot.jpg")
+    cv2.imwrite(jpg, np.full((1200, 800, 3), 240, dtype="uint8"))
+
+    # pdfimages schrijft met -j een .jpg; de code moet die herkennen.
+    assert jpg.endswith(lezer.UITPAK_SOORTEN)
+    assert lezer._groot_genoeg(jpg) is True
+
+
+def test_de_uitpaksoorten_dekken_wat_poppler_oplevert():
+    """-j laat een JPEG staan en maakt van de rest een PPM; pdftoppm geeft PNG."""
+    for ext in (".jpg", ".ppm", ".png"):
+        assert ext in lezer.UITPAK_SOORTEN
