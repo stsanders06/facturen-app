@@ -79,7 +79,7 @@ Assistant: daar hoort alleen het standaardnetwerk te gelden.
   commentaar houden.
 - **Meldingen aan de gebruiker zijn gewone taal.** "De mailserver weigert je
   gebruikersnaam of wachtwoord", niet "SMTP authentication failed".
-- **Elke wijziging krijgt tests.** Er staan er nu 1435.
+- **Elke wijziging krijgt tests.** Er staan er nu 1447.
 
 ### Taken horen bij de klus
 
@@ -144,6 +144,11 @@ voor bestanden op schijf: de opruiming leegt `PDF_DIR` en `BIJLAGE_DIR`.
   worden versoepeld.
 - **Blind is 5 van de 6.** Dat is de eerlijke score (de andere acht bonnen zijn
   de set waarop de parser is gemaakt). Omhoog mag, omlaag niet.
+- **Niet elke bon is een plaatje.** Een bon uit de app van een winkel is een PDF
+  met een tekstlaag; die tekst gebruiken is foutloos en duizend keer sneller dan
+  OCR. `tekst_uit_pdf` gaat daarom vóór `plaatje_uit_pdf`. Let op de valkuil die
+  dit opleverde: `pdfimages` haalt uit zo'n PDF alleen het logo en de streepjes-
+  code, en "het grootste plaatje" was dus het logo. Vandaar `_groot_genoeg`.
 - **Wat een echte bon anders maakt dan een nepbon** (gevonden in 2.2.1, allemaal op
   één Karwei-bon): de OCR verhaspelt woorden, dus vergelijk ze met `_lijkt_op` en
   niet met `in`. Een winkel kent meer soorten aftrek dan "korting", en sommige zijn

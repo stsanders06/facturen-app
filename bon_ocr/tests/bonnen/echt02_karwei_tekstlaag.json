@@ -1,0 +1,29 @@
+{
+ "winkel": "Karwei",
+ "datum": "2026-10-26",
+ "regels": [
+  {
+   "omschrijving": "KABELDOOS MET 12    INGANGEN IP55 ZWART",
+   "aantal": 1,
+   "stukprijs": 3.29,
+   "regelbedrag": 3.29
+  },
+  {
+   "omschrijving": "STEKKER RA RUBBER   10/16A ZWART",
+   "aantal": 1,
+   "stukprijs": 3.89,
+   "regelbedrag": 3.89
+  }
+ ],
+ "korting": -1.08,
+ "btw": [
+  {
+   "tarief": 21,
+   "bedrag": 1.06
+  }
+ ],
+ "btw_totaal": 1.06,
+ "totaal": 6.1,
+ "betaalwijze": "pin",
+ "soort": "echte bon uit de winkel-app, geanonimiseerd; PDF met tekstlaag"
+}

@@ -21,11 +21,13 @@ from bon_parser import lees_bon
 
 # Groter dan dit is geen bon. Dezelfde grens als de app per scan aanhoudt.
 MAX_BYTES = 25 * 1024 * 1024
-# Wat de iPhone en de app aanleveren. Al het andere weigeren we meteen: een
-# onbekend soort door de OCR duwen kost alleen tijd.
+# Wat de app aanlevert. Al het andere weigeren we meteen: een onbekend soort
+# door de OCR duwen kost alleen tijd. HEIC staat er expres niet bij, net als in
+# BON_OCR_TYPES aan de kant van de app: opencv leest het niet, en dan is een
+# duidelijke weigering beter dan een poging die altijd misgaat.
 SOORTEN = {
     "image/jpeg": ".jpg", "image/jpg": ".jpg", "image/png": ".png",
-    "image/heic": ".heic", "image/heif": ".heif", "application/pdf": ".pdf",
+    "application/pdf": ".pdf",
 }
 # Poppler mag niet blijven hangen op een kapotte PDF.
 PDF_TIJD = 20
@@ -90,6 +92,36 @@ def regels_uit_vakken(vakken, teksten):
     return ["   ".join(t for x, t in sorted(r["delen"])) for r in uit]
 
 
+# Een bon met een tekstlaag levert honderden tekens. Een gescande PDF levert
+# niets, of een enkel los teken dat de scanner erbij heeft verzonnen.
+TEKSTLAAG_MINIMUM = 120
+TEKSTLAAG_REGELS = 6
+# Kleiner dan dit is geen bon maar een logo of een barcode. De bon van de
+# Karwei-app heeft een logo van 114x87 en een barcode van 350x25; die eruit
+# halen en lezen gaf alleen de winkelnaam en verder niets.
+PLAATJE_MINIMUM = 500
+
+
+def tekst_uit_pdf(pad):
+    """De tekstlaag van een PDF, als die er is.
+
+    Een bon die je rechtstreeks uit de app van een winkel deelt is geen scan
+    maar een PDF met echte tekst erin. Die tekst gebruiken is niet alleen veel
+    sneller dan OCR (milliseconden tegen tien tot twintig seconden op een Pi),
+    hij is ook foutloos: geen 'Subtoteal' en geen verwisselde letters.
+    """
+    try:
+        klaar = subprocess.run(["pdftotext", "-layout", pad, "-"],
+                               capture_output=True, text=True, timeout=PDF_TIJD)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    tekst = klaar.stdout or ""
+    regels = [r for r in tekst.splitlines() if r.strip()]
+    if len(tekst.strip()) < TEKSTLAAG_MINIMUM or len(regels) < TEKSTLAAG_REGELS:
+        return None
+    return "\n".join(regels)
+
+
 def plaatje_uit_pdf(pad):
     """Het plaatje uit een PDF, voor de OCR.
 
@@ -103,8 +135,9 @@ def plaatje_uit_pdf(pad):
         subprocess.run(["pdfimages", "-png", "-f", "1", "-l", "1", pad, stam],
                        check=True, timeout=PDF_TIJD,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        gevonden = sorted(p for p in _naast(stam) if p.endswith(".png"))
-        # Een bon met een logo levert twee plaatjes; het grootste is de bon.
+        gevonden = [p for p in _naast(stam) if p.endswith(".png")
+                    and _groot_genoeg(p)]
+        # Een bon met een logo levert meer plaatjes; het grootste is de bon.
         if gevonden:
             return max(gevonden, key=lambda p: os.path.getsize(p))
     except (OSError, subprocess.SubprocessError):
@@ -118,6 +151,21 @@ def plaatje_uit_pdf(pad):
         return None
     gevonden = sorted(p for p in _naast(stam) if p.endswith(".png"))
     return gevonden[0] if gevonden else None
+
+
+def _groot_genoeg(pad):
+    """Of dit plaatje de bon kan zijn, of alleen een logo of barcode."""
+    try:
+        import cv2
+        beeld = cv2.imread(pad)
+        if beeld is None:
+            return False
+        hoogte, breedte = beeld.shape[:2]
+        return max(hoogte, breedte) >= PLAATJE_MINIMUM
+    except Exception:
+        # Kunnen we het niet meten, dan maar proberen: een te klein plaatje
+        # levert hooguit een lege bon op, en die valt op.
+        return True
 
 
 def _naast(stam):
@@ -138,32 +186,41 @@ def lees():
     if not ruw:
         return jsonify({"fout": "Er zat geen bestand bij het verzoek."}), 400
 
+    tekst = None
+    via = "ocr"
     with tempfile.TemporaryDirectory(prefix="bon-") as tijdelijk:
         pad = os.path.join(tijdelijk, "bon" + SOORTEN[soort])
         with open(pad, "wb") as doel:
             doel.write(ruw)
         if SOORTEN[soort] == ".pdf":
-            pad = plaatje_uit_pdf(pad)
-            if not pad:
-                return jsonify({"fout": "Uit deze PDF komt geen plaatje."}), 422
-        try:
-            gelezen = ocr()(pad)
-        except Exception:
-            # Wat de OCR ook overkomt: de app hoort hier geen 500 op te krijgen,
-            # want dan lijkt het of de scan stuk is in plaats van onleesbaar.
-            log.exception("De OCR liep vast op een bon")
-            return jsonify({"fout": "De bon is niet te lezen."}), 422
+            # Heeft de PDF echte tekst, dan is dat beter dan wat OCR ervan
+            # maakt: foutloos en in een oogwenk klaar.
+            tekst = tekst_uit_pdf(pad)
+            if tekst is not None:
+                via = "tekstlaag"
+            else:
+                pad = plaatje_uit_pdf(pad)
+                if not pad:
+                    return jsonify({"fout": "Uit deze PDF komt geen plaatje."}), 422
+        if tekst is None:
+            try:
+                gelezen = ocr()(pad)
+            except Exception:
+                # Wat de OCR ook overkomt: de app hoort hier geen 500 op te
+                # krijgen, want dan lijkt het of de scan stuk is in plaats van
+                # onleesbaar.
+                log.exception("De OCR liep vast op een bon")
+                return jsonify({"fout": "De bon is niet te lezen."}), 422
+            tekst = ("" if gelezen.boxes is None
+                     else "\n".join(regels_uit_vakken(gelezen.boxes, gelezen.txts)))
 
-    if gelezen.boxes is None:
-        tekst = ""
-    else:
-        tekst = "\n".join(regels_uit_vakken(gelezen.boxes, gelezen.txts))
     uit = lees_bon(tekst)
     # De regels gaan mee terug: de app bewaart ze bij een correctie, zodat er
     # later te meten is waar de parser misging. Zie DOCKER.md.
     uit["ocr_regels"] = tekst.splitlines()
-    log.info("Bon gelezen: %s regels tekst, %s artikelen, onzeker: %s",
-             len(uit["ocr_regels"]), len(uit["regels"]), ",".join(uit["onzeker"]) or "-")
+    log.info("Bon gelezen via %s: %s regels tekst, %s artikelen, onzeker: %s",
+             via, len(uit["ocr_regels"]), len(uit["regels"]),
+             ",".join(uit["onzeker"]) or "-")
     return jsonify(uit)
 
 
