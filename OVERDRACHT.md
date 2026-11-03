@@ -118,8 +118,19 @@ Gaat een bon van een nieuwe winkel mis, dan is dat vrijwel zeker de parser.
       Deze app heeft twee keer eerder een iOS-bug gehad met de breedte van
       datumvelden.
 - [ ] **`test_lichtbak.py::test_een_notitiefoto_opent_in_de_lichtbak`** faalt op
-      WebKit (focus na navigatie). Bestaand, faalt ook op `main`, niet van deze
-      wijzigingen.
+      Chromium (niet WebKit, zoals eerder is genoteerd). De test drukt Tab vanaf
+      de sluitknop van de fotoviewer en verwacht de focus op «vorige»; in plaats
+      daarvan staat `document.activeElement` op `body`. De vier knoppen zijn op
+      dat moment alle zichtbaar, dus de focusval in `_lichtbak.html` is niet het
+      probleem: die grijpt bewust alleen aan de randen in en laat de browser hier
+      zijn gang gaan.
+
+      Nog niet vastgesteld of dit in een echte browser ook gebeurt — headless
+      Chromium zonder vensterfocus kan Tab anders afhandelen. Na te gaan door in
+      een gewone browser een foto te openen en op Tab te drukken: springt de
+      focusring naar het pijltje links, dan klopt de app en moet de test mee.
+      Bestaand, faalt ook op `main`, niet van deze wijzigingen. Raakt alleen
+      toetsenbordnavigatie in de fotoviewer.
 - [ ] **Opruimpunten uit PR #46**: koude-start-404 op `/factuur/<id>/miniatuur`,
       nette fout zonder WebKit, filtersegment role/label.
 - [ ] **Persistent logboek op de Pi.** `journald` schrijft naar geheugen, dus na
