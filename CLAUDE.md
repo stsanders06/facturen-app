@@ -141,6 +141,10 @@ voor bestanden op schijf: de opruiming leegt `PDF_DIR` en `BIJLAGE_DIR`.
 
 ### Over de bonnenlezer
 
+Het hele verhaal — architectuur, gemeten tijden, wat is afgevallen en waarom, en
+hoe je een nieuwe winkel toevoegt — staat in [OVERDRACHT.md](OVERDRACHT.md).
+Hieronder alleen wat je tijdens het werken moet weten.
+
 - **De parser is het onderhoud, niet de OCR.** In de proef las RapidOCR alle zes
   echte bonnen goed en had de parser er nul helemaal goed. Gaat er iets mis met
   een nieuwe winkel, kijk dan eerst naar `bon_ocr/bon_parser.py` en pas daarna
