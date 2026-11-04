@@ -216,6 +216,10 @@ uitgesteld:
 ## Uitbrengen
 
 `config.yaml` en de constante `VERSIE` in `main.py` horen hetzelfde versienummer te
-hebben. Bij een push naar `main` bouwt de CI het image; Home Assistant biedt de update
-daarna zelf aan. Zet in `CHANGELOG.md` wat er voor de gebruiker verandert — in gewone
+hebben. Zet in `CHANGELOG.md` wat er voor de gebruiker verandert — in gewone
 taal, niet in technische termen.
+
+**De app draait niet meer in Home Assistant, maar los met docker compose op een
+eigen Pi.** De CI test bij een push naar `main` alleen of het bouwt; er komt
+niets vanzelf op de Pi. Bijwerken doe je op de Pi zelf, zie DOCKER.md hoofdstuk 3
+(back-up, dan `git pull && docker compose up -d --build`).
