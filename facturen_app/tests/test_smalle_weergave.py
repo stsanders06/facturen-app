@@ -169,7 +169,7 @@ def test_een_oud_adres_met_lege_regels_komt_netjes_op_de_pagina(client, db):
 def test_het_adres_blijft_tikbaar_zonder_de_rij_hoger_te_maken(client, db):
     """Een min-height van 44px op de summary trok de adresrij uit elkaar, naast
     e-mail en telefoon. Het tikvlak zit daarom in ::after en telt niet mee,
-    zoals bij het intake-vinkje."""
+    zoals bij de vinkjes van een taak."""
     klant_id = db.execute(
         "INSERT INTO klanten (naam, adres) VALUES ('Jan Jansen', 'Voorbeeldstraat 1')"
     ).lastrowid
@@ -278,30 +278,6 @@ def test_een_bedrag_onder_een_tegel_breekt_ook_niet_na_het_euroteken(client, db)
     inhoud = client.get("/klussen").data.decode()
     assert '<small class="geldregel">' in inhoud
     assert "nowrap" in regel_met(css_van(inhoud), ".overzicht small.geldregel")
-
-
-def test_het_intakevinkje_lijnt_uit_en_blijft_tikbaar(client, db):
-    """Een knop van 44px in de rij schoof het rondje en de tekst naar rechts.
-    Het rondje blijft daarom 22px, net als de andere stappen. Het tikvlak is
-    een onzichtbare 44px eromheen en telt niet mee in de rij."""
-    db.execute("""INSERT INTO klussen (naam, uurtarief, status, gestart, aangevraagd_op)
-                  VALUES ('Dakgoot', 55, 'aangevraagd', '2026-10-01', '2026-10-01')""")
-    db.commit()
-    klus_id = db.execute("SELECT id FROM klussen").fetchone()[0]
-    css = css_van(client.get(f"/klus/{klus_id}").data.decode())
-    knop = regel_met(css, ".stappen .vink-knop")
-    assert "width: 22px" in knop
-    assert "height: 22px" in knop
-    # Het taak-vinkje is 44px. Zonder min-width hier wint die minimumbreedte
-    # en wordt het rondje van de intake groter én naar links geschoven.
-    rondje = regel_met(css, ".stappen .vink")
-    assert "min-width: 22px" in rondje
-    assert "min-height: 22px" in rondje
-    assert "align-items: center" in rondje
-    tik = regel_met(css, ".stappen .vink-knop::after")
-    assert "position: absolute" in tik
-    assert "width: 44px" in tik
-    assert "height: 44px" in tik
 
 
 def test_een_open_menu_rekt_de_knop_ernaast_niet_op(client):

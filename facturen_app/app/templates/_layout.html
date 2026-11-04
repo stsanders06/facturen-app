@@ -1912,6 +1912,15 @@
     });
   });
 
+  // Een keuzelijst die zelf opslaat, zoals de stand van een aanvraag. Een losse
+  // opslaanknop ernaast vergeet je, en dan lijkt de keuze bewaard terwijl hij weg is.
+  document.querySelectorAll('select[data-verstuurt]').forEach(function (veld) {
+    veld.addEventListener('change', function () {
+      bewaarSchuif();
+      veld.form.submit();
+    });
+  });
+
   // Zodra het balkje leeg is, is de mail de deur uit en valt er niets meer tegen te
   // houden. De knop laten staan zou je een klik kosten om te horen dat het te laat
   // is. De tekst blijft zoals hij is: of het versturen ook écht lukte weten we hier

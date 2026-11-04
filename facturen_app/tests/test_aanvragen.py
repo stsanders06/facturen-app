@@ -1,8 +1,8 @@
 """Een klus begint als aanvraag en loopt door tot hij af is.
 
 Iemand belt dat hij iets wil: dat zat eerst alleen in je hoofd. Nu staat het als
-aanvraag in de lijst, met daaronder de stappen die nog moeten gebeuren. Uren zijn
-stap vier — die komen pas als de klus echt loopt.
+aanvraag in de lijst, met daarbij de stand van zaken. Uren komen pas als de
+klus echt loopt.
 """
 import re
 from datetime import date, timedelta
@@ -27,7 +27,7 @@ def test_een_nieuwe_klus_begint_als_aanvraag(post, db):
     rij = db.execute("SELECT * FROM klussen WHERE id=?", (klus_id,)).fetchone()
     assert rij["status"] == "aangevraagd"
     assert rij["aangevraagd_op"] == date.today().isoformat()
-    assert rij["intake_op"] == ""
+    assert rij["stand"] == "aanvraag"
 
 
 def test_je_kunt_er_ook_meteen_aan_beginnen(post, db):
@@ -36,53 +36,75 @@ def test_je_kunt_er_ook_meteen_aan_beginnen(post, db):
     assert db.execute("SELECT status FROM klussen").fetchone()[0] == "open"
 
 
-def test_de_intake_gaat_aan_en_weer_uit(post, db):
+def test_de_stand_kies_je_uit_een_keuzelijst(post, db):
     klus_id = maak_aanvraag(post, db)
 
-    post(f"/klus/{klus_id}/intake")
-    assert db.execute("SELECT intake_op FROM klussen WHERE id=?",
-                      (klus_id,)).fetchone()[0] == date.today().isoformat()
+    post(f"/klus/{klus_id}/stand", {"stand": "intake_geweest"})
+    rij = db.execute("SELECT stand, stand_op FROM klussen WHERE id=?", (klus_id,)).fetchone()
+    assert rij["stand"] == "intake_geweest"
+    assert rij["stand_op"] == date.today().isoformat()
 
-    post(f"/klus/{klus_id}/intake")
-    assert db.execute("SELECT intake_op FROM klussen WHERE id=?",
-                      (klus_id,)).fetchone()[0] == ""
-
-
-def formulier_rond(inhoud, actie):
-    """De openingstag van het formulier waarvan de actie dit stuk bevat."""
-    gevonden = re.search(
-        rf'<form method="post" action="[^"]*{re.escape(actie)}"[^>]*>', inhoud)
-    assert gevonden, actie
-    return gevonden.group(0)
+    # Geen volgorde: elke stand mag na elke andere, ook terug naar het begin.
+    post(f"/klus/{klus_id}/stand", {"stand": "aanvraag"})
+    assert db.execute("SELECT stand FROM klussen WHERE id=?",
+                      (klus_id,)).fetchone()[0] == "aanvraag"
 
 
-def test_het_vinkje_zelf_zet_de_intake_aan(client, post, db):
-    """Geen losse knop meer: het vakje is de knop, ook als het nog leeg is."""
+def test_een_onbekende_stand_wordt_geweigerd(post, db):
     klus_id = maak_aanvraag(post, db)
+    antwoord = post(f"/klus/{klus_id}/stand", {"stand": "verzonnen"})
+    assert antwoord.status_code == 400
+    assert db.execute("SELECT stand FROM klussen WHERE id=?",
+                      (klus_id,)).fetchone()[0] == "aanvraag"
+
+
+def test_een_stand_bij_een_klus_die_er_niet_is(post):
+    assert post("/klus/999/stand", {"stand": "besteld"}).status_code == 404
+
+
+def test_de_keuzelijst_staat_op_de_aanvraag_met_alle_standen(client, post, db):
+    klus_id = maak_aanvraag(post, db)
+    post(f"/klus/{klus_id}/stand", {"stand": "besteld"})
     inhoud = client.get(f"/klus/{klus_id}").data.decode()
 
-    assert 'class="vink-knop"' in inhoud
-    assert 'aria-pressed="false"' in inhoud
-    # De naam blijft gelijk; de stand zit alleen in aria-pressed.
-    assert 'aria-label="Intake geweest"' in inhoud
-    assert 'aria-label="Intake afvinken"' not in inhoud
-    assert "data-bevestig" not in formulier_rond(inhoud, f"/klus/{klus_id}/intake")
-    assert ">Toch niet<" not in inhoud
-    assert ">Afvinken<" not in inhoud
+    assert '<select id="stand" name="stand" data-verstuurt="1">' in inhoud
+    for sleutel, naam in facturen.AANVRAAG_STANDEN.items():
+        assert f'value="{sleutel}"' in inhoud
+        assert naam in inhoud
+    assert '<option value="besteld" selected>' in inhoud
+    # Starten blijft een eigen knop; het staat niet in de lijst.
+    assert 'value="open"' in inhoud
+    assert ">Klus starten<" in inhoud
+    assert "vink-knop" not in inhoud
 
 
-def test_uitvinken_vraagt_eerst_omdat_de_datum_dan_weg_is(client, post, db):
-    """Aanvinken is één tik. Uitvinken wist de datum, dus daar vraagt de app het."""
-    klus_id = maak_aanvraag(post, db)
-    post(f"/klus/{klus_id}/intake")
-    inhoud = client.get(f"/klus/{klus_id}").data.decode()
+def test_oude_intake_en_offerte_gaan_mee_naar_de_stand(db):
+    """Wie al een intake had afgevinkt staat na de update niet weer bij het begin."""
+    try:
+        db.execute("ALTER TABLE klussen DROP COLUMN stand")
+        db.execute("ALTER TABLE klussen DROP COLUMN stand_op")
+        db.commit()
+    except Exception:
+        import pytest
+        pytest.skip("SQLite hier kan geen kolom laten vallen")
+    offerte_id = db.execute(
+        """INSERT INTO offertes (nummer, datum, klant_naam, totaal)
+           VALUES ('O-1', '2026-10-01', 'Jan', 0)""").lastrowid
+    db.executemany(
+        """INSERT INTO klussen (naam, uurtarief, status, gestart, aangevraagd_op,
+                                intake_op, offerte_id) VALUES (?, 50, 'aangevraagd',
+                                '2026-10-01', '2026-10-01', ?, ?)""",
+        [("Niets", "", None), ("Intake", "2026-10-03", None),
+         ("Offerte", "2026-10-03", offerte_id)])
+    db.commit()
 
-    formulier = formulier_rond(inhoud, f"/klus/{klus_id}/intake")
-    assert 'aria-pressed="true"' in inhoud
-    assert 'aria-label="Intake geweest"' in inhoud
-    assert 'aria-label="Intake weer openzetten"' not in inhoud
-    assert "Intake weer openzetten? De datum gaat dan weg." in formulier
-    assert ">Toch niet<" not in inhoud
+    facturen.init_db()
+
+    standen = dict(db.execute("SELECT naam, stand FROM klussen").fetchall())
+    assert standen == {"Niets": "aanvraag", "Intake": "intake_geweest",
+                       "Offerte": "offerte_gestuurd"}
+    assert db.execute("SELECT stand_op FROM klussen WHERE naam='Intake'").fetchone()[0] \
+        == "2026-10-03"
 
 
 def test_een_offerte_hoeft_niet(post, db):
@@ -97,7 +119,7 @@ def test_een_offerte_hoeft_niet(post, db):
 
 
 def test_een_offerte_vanaf_een_aanvraag_blijft_eraan_hangen(post, db):
-    """Anders zie je op de klus niet dat die stap is gedaan, en met welke offerte."""
+    """Anders zie je op de klus niet dat er een offerte is, en welke."""
     klus_id = maak_aanvraag(post, db)
     post("/offertes/nieuw", {
         "klant_naam": "Jan Jansen", "datum": "2026-08-14", "voor_klus": str(klus_id),
@@ -160,7 +182,7 @@ def test_terugzetten_wist_dagen_notities_en_bonnen_niet(post, db, client):
 
     inhoud = client.get(f"/klus/{klus_id}").data.decode()
     assert "<h2>Gewerkte dagen</h2>" not in inhoud
-    assert "<h2>Hoe ver staat het</h2>" in inhoud
+    assert "<h2>Stand van zaken</h2>" in inhoud
     assert "1 gewerkte dag bewaard" in inhoud
     assert "Tegellijm" in inhoud
     assert "Sleutel bij de buren" in inhoud
@@ -255,17 +277,17 @@ def test_een_aanvraag_telt_niet_mee_als_lopende_klus(post, db, client):
     assert ">1<" in inhoud
 
 
-def test_op_een_aanvraag_staan_geen_uren_maar_wel_de_stappen(post, db, client):
-    """Uren zijn stap vier; die blokken horen er pas te staan als de klus loopt."""
+def test_op_een_aanvraag_staan_geen_uren_maar_wel_de_stand(post, db, client):
+    """Uren horen er pas te staan als de klus loopt."""
     klus_id = maak_aanvraag(post, db)
     inhoud = client.get(f"/klus/{klus_id}").data.decode()
-    assert "<h2>Hoe ver staat het</h2>" in inhoud
+    assert "<h2>Stand van zaken</h2>" in inhoud
     assert "<h2>Gewerkte dagen</h2>" not in inhoud
 
     post(f"/klus/{klus_id}/status", {"naar": "open"})
     inhoud = client.get(f"/klus/{klus_id}").data.decode()
     assert "<h2>Gewerkte dagen</h2>" in inhoud
-    assert "<h2>Hoe ver staat het</h2>" not in inhoud
+    assert "<h2>Stand van zaken</h2>" not in inhoud
 
 
 def test_bestaande_klussen_blijven_gewoon_lopen(db):

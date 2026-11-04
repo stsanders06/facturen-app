@@ -104,18 +104,18 @@ offerte("", "Voorbeeld Garage", vandaag(-2), "concept",
         [("Voorterrein reinigen", "arbeid_uur", 8, 55.0)], kenmerk="Nog bespreken")
 
 # Klussen in elke fase.
-def klus(naam, klant, status, gestart, tarief=55.0, aangevraagd=None, intake="", dagen=()):
+def klus(naam, klant, status, gestart, tarief=55.0, aangevraagd=None, stand="aanvraag", dagen=()):
     kid = conn.execute(
         """INSERT INTO klussen (naam, klant_id, uurtarief, notitie, status, gestart,
-           aangevraagd_op, intake_op) VALUES (?, ?, ?, '', ?, ?, ?, ?)""",
-        (naam, klant_id.get(klant), tarief, status, gestart, aangevraagd or gestart, intake)).lastrowid
+           aangevraagd_op, stand) VALUES (?, ?, ?, '', ?, ?, ?, ?)""",
+        (naam, klant_id.get(klant), tarief, status, gestart, aangevraagd or gestart, stand)).lastrowid
     for datum, van, tot, notitie in dagen:
         conn.execute("""INSERT INTO uren (klus_id, datum, van, tot, notitie)
                         VALUES (?, ?, ?, ?, ?)""", (kid, datum, van, tot, notitie))
     return kid
 
 lopend = klus("Gevel reinigen Voorbeeldstraat", "Voorbeeld Bedrijf BV", "open", vandaag(-8),
-              aangevraagd=vandaag(-18), intake=vandaag(-14),
+              aangevraagd=vandaag(-18), stand="offerte_gestuurd",
               dagen=[(vandaag(-8), "08:00", "12:30", "Steiger opgebouwd, voorzijde"),
                      (vandaag(-7), "08:00", "11:00", "Zijgevel en kozijnen"),
                      (vandaag(-6), "13:00", "15:30", "Achtergevel, nabehandeling"),
@@ -124,7 +124,7 @@ klus("Oprit Voorbeeld Garage", "Voorbeeld Garage", "open", vandaag(-3), tarief=5
      dagen=[(vandaag(-3), "09:00", "16:30", "Hele oprit gedaan")])
 klus("Dakgoot Voorbeeldstraat", "Testklant A", "aangevraagd", vandaag(-9), aangevraagd=vandaag(-9))
 klus("Terras Voorbeeldstraat", "Voorbeeld VvE", "aangevraagd", vandaag(-3),
-     aangevraagd=vandaag(-3), intake=vandaag(-1))
+     aangevraagd=vandaag(-3), stand="intake_geweest")
 klus("Zonnepanelen Testklant B", "Testklant B", "afgerond", vandaag(-45), tarief=55.0,
      dagen=[(vandaag(-45), "08:00", "13:00", "")])
 klus("Losse klus zonder klant", None, "open", vandaag(-1), tarief=0)

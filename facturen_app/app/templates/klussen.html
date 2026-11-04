@@ -207,13 +207,11 @@
       <div class="onderkant">
         <span class="chips">
           {# Dezelfde chip als op de klus en bij de klant, anders is een aanvraag
-             in de lijst alleen grijs (intake) terwijl lopend en afgerond hun
+             in de lijst alleen de stand terwijl lopend en afgerond hun
              status wel tonen. #}
           <span class="chip chip-aangevraagd">{{ fases['aangevraagd'].label }}</span>
-          <span class="chip {{ 'chip-betaald' if kl.intake_op else 'chip-concept' }}">
-            {{ 'Intake geweest' if kl.intake_op else 'Nog geen intake' }}</span>
-          {% if kl.offerte_id %}
-          <span class="chip chip-verzonden">Offerte gestuurd</span>
+          {% if kl.stand and kl.stand != 'aanvraag' %}
+          <span class="chip chip-verzonden">{{ aanvraag_standen[kl.stand] }}</span>
           {% endif %}
         </span>
         <div class="acties">

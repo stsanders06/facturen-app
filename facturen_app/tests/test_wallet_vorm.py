@@ -371,7 +371,7 @@ def test_op_een_mac_blijft_de_rij_zo_hoog_als_eerder(client, db, maak_factuur, m
 
 
 def test_de_klantnaam_op_een_klus_raakt_de_buren_niet(client, db):
-    """Zelfde duimmaat op de klus, zonder over het vinkje of de status te liggen."""
+    """Zelfde duimmaat op de klus, zonder over de standkeuze of de status te liggen."""
     from browser import meetbrowser, playwright_verplicht
 
     sync_playwright = playwright_verplicht()
@@ -393,7 +393,7 @@ def test_de_klantnaam_op_een_klus_raakt_de_buren_niet(client, db):
                 """() => {
                   const link = document.querySelector('.opsomming a');
                   const doos = link.getBoundingClientRect();
-                  const knop = document.querySelector('.vink-knop');
+                  const knop = document.querySelector('#stand');
                   const chip = document.querySelector('.opsomming .chip');
                   function overlapt(a, b) {
                     return a.left < b.right - 0.5 && a.right > b.left + 0.5
@@ -615,67 +615,6 @@ def test_regel_erbij_ligt_niet_onder_de_balk(client, db, maak_factuur):
             assert uit["zelf"], uit
             assert not uit["balk"], uit
             assert not uit["tab"], uit
-        finally:
-            browser.close()
-
-
-def test_het_aanvraagvinkje_is_op_een_telefoon_te_raken(client, db):
-    """Het rondje blijft 22 px, in lijn met de andere stappen. Het tikvlak
-    van 44 px zit eromheen en pakt de volgende regel niet mee."""
-    from browser import meetbrowser, playwright_verplicht
-
-    sync_playwright = playwright_verplicht()
-    db.execute(
-        """INSERT INTO klussen (naam, uurtarief, status, gestart, aangevraagd_op)
-           VALUES ('Badkamer Voorbeeldstraat', 50, 'aangevraagd', '2026-10-01', '2026-10-01')"""
-    )
-    db.commit()
-    klus_id = db.execute("SELECT id FROM klussen").fetchone()[0]
-
-    with sync_playwright() as p:
-        browser = meetbrowser(p)
-        pagina = browser.new_page(viewport={"width": 390, "height": 844})
-        try:
-            pagina.set_content(client.get(f"/klus/{klus_id}").data.decode())
-            uit = pagina.evaluate(
-                """() => {
-                  const knop = document.querySelector('.vink-knop');
-                  const li = knop.closest('li');
-                  const kr = knop.getBoundingClientRect();
-                  const lr = li.getBoundingClientRect();
-                  const vr = knop.querySelector('.vink').getBoundingClientRect();
-                  const stappen = [...document.querySelectorAll('.stappen li .wat')];
-                  const volgende = li.nextElementSibling.querySelector('.wat');
-                  const wr = volgende.getBoundingClientRect();
-                  const cx = kr.left + kr.width / 2;
-                  const cy = kr.top + kr.height / 2;
-                  function raakt(x, y) {
-                    const n = document.elementFromPoint(x, y);
-                    return !!(n && (n === knop || knop.contains(n)));
-                  }
-                  const buur = document.elementFromPoint(wr.left + wr.width / 2, wr.top + wr.height / 2);
-                  return {
-                    breed: kr.width,
-                    hoog: kr.height,
-                    rondje: vr.width,
-                    inDeRij: kr.top >= lr.top - 0.5 && kr.bottom <= lr.bottom + 0.5,
-                    inspring: Math.abs(stappen[0].getBoundingClientRect().left - stappen[1].getBoundingClientRect().left),
-                    boven: raakt(cx, cy - 16),
-                    onder: raakt(cx, cy + 16),
-                    buur: !!(buur && buur.closest('.vink-knop')),
-                    zelf: raakt(cx, cy),
-                  };
-                }"""
-            )
-            assert 20 <= uit["breed"] <= 24, uit
-            assert 20 <= uit["hoog"] <= 24, uit
-            assert 20 <= uit["rondje"] <= 24, uit
-            assert uit["inDeRij"], uit
-            assert uit["inspring"] <= 2, uit
-            assert uit["boven"], uit
-            assert uit["onder"], uit
-            assert not uit["buur"], uit
-            assert uit["zelf"], uit
         finally:
             browser.close()
 

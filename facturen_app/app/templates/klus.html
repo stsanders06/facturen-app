@@ -527,8 +527,7 @@
     min-width: 0;
   }
   .taak-vink, .taak-tekst, .taak-nieuw { margin: 0; min-width: 0; }
-  /* Alleen het vinkje van een taak. .vink op de stappen van een aanvraag
-     erfde deze 44px en liep daardoor over de tekst ernaast. */
+  /* Alleen het vinkje van een taak; een los .vink elders hoort deze 44px niet te erven. */
   .taak .vink, .taak-knoppen .btn, .taak-nieuw input {
     min-height: 44px;
     min-width: 44px;
@@ -641,75 +640,14 @@
 
   .kop-acties { display: flex; gap: 8px; flex-wrap: wrap; }
 
-  /* ---------- De stappen van een aanvraag ---------- */
-  .stappen { list-style: none; margin: 0; padding: 0; }
-  .stappen li {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 0;
-    border-bottom: 1px solid var(--divider);
+  /* ---------- De stand van een aanvraag ---------- */
+  .standkeuze { margin: 0; display: flex; gap: 8px; align-items: flex-end; }
+  .standkeuze .field { flex: 1; min-width: 0; margin: 0; }
+  .offerteregel {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+    gap: 4px 12px; margin: 12px 0 0; padding-top: 10px;
+    border-top: 1px solid var(--divider); color: var(--text-secondary);
   }
-  .stappen li:last-child { border-bottom: none; }
-  .stappen .vink {
-    flex: none;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 22px;
-    height: 22px;
-    min-width: 22px;
-    min-height: 22px;
-    padding: 0;
-    box-sizing: border-box;
-    border-radius: 50%;
-    border: 2px solid var(--border);
-    color: var(--card);
-    font-size: 13px;
-    line-height: 1;
-    text-align: center;
-  }
-  .stappen li.af .vink { background: var(--ok); border-color: var(--ok); }
-  .stappen .wat { flex: 1; min-width: 0; }
-  .stappen .wat small { display: block; font-size: 12.5px; color: var(--text-secondary); }
-  .stappen li:not(.af) .wat { color: var(--text-secondary); }
-  .stappen form { margin: 0; display: flex; flex: none; align-items: center; }
-  /* Het vinkje is zelf de knop, maar de knop blijft 22px — even groot als de
-     rondjes ernaast. Een knop van 44px in deze rij schoof het rondje én de
-     tekst naar rechts. Het tikvlak zit in ::after en telt niet mee in de rij. */
-  .stappen .vink-knop {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex: none;
-    width: 22px;
-    height: 22px;
-    margin: 0;
-    padding: 0;
-    border: none;
-    border-radius: 50%;
-    background: transparent;
-    color: inherit;
-    font: inherit;
-    cursor: pointer;
-    appearance: none;
-    -webkit-appearance: none;
-  }
-  .stappen .vink-knop::after {
-    content: "";
-    position: absolute;
-    left: -11px;
-    top: -11px;
-    width: 44px;
-    height: 44px;
-  }
-  .stappen .vink-knop:focus-visible {
-    outline: 2px solid var(--primary);
-    outline-offset: 2px;
-  }
-  .stappen li:not(.af) .vink-knop .vink { border-color: var(--primary); }
-  .stappen .vink-knop:hover .vink { filter: brightness(0.92); }
   .weer-aanvraag { margin: 12px 0 0; }
   .bewaarde-dagen { margin-top: 12px; }
   .lege-lijst { color: var(--text-secondary); font-size: 14px; margin: 0; }
@@ -829,45 +767,33 @@
   {% if klus.status == 'aangevraagd' %}
   <section class="card">
     <div class="card-head">
-      <h2>Hoe ver staat het</h2>
+      <h2>Stand van zaken</h2>
     </div>
-    <ol class="stappen">
-      <li class="af">
-        <span class="vink" aria-hidden="true">✓</span>
-        <span class="wat">Aangevraagd<small>{{ klus.aangevraagd_op|datum_nl }}</small></span>
-      </li>
-      <li class="{{ 'af' if klus.intake_op }}">
-        {#- Het vinkje zelf schakelt. Uitvinken vraagt eerst: de datum gaat
-            dan weg, en per ongeluk tikken is op een telefoon zo gebeurd.
-            Aanvinken is één tik; dat draai je met hetzelfde vinkje terug. -#}
-        <form method="post" action="{{ url_for('klus_intake', klus_id=klus.id) }}"
-              {%- if klus.intake_op %} data-bevestig="Intake weer openzetten? De datum gaat dan weg."{% endif %}>
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          {#- Eén patroon: de naam blijft "Intake geweest", de stand zit alleen
-              in aria-pressed. Een label dat óók wisselt zegt de stand twee keer. -#}
-          <button type="submit" class="vink-knop"
-                  aria-pressed="{{ 'true' if klus.intake_op else 'false' }}"
-                  aria-label="Intake geweest">
-            <span class="vink" aria-hidden="true">{{ '✓' if klus.intake_op else '' }}</span>
-          </button>
-        </form>
-        <span class="wat">Intake geweest
-          {%- if klus.intake_op %}<small>{{ klus.intake_op|datum_nl }}</small>{% endif %}</span>
-      </li>
-      <li class="{{ 'af' if offerte }}">
-        <span class="vink" aria-hidden="true">{{ '✓' if offerte else '' }}</span>
-        <span class="wat">Offerte gestuurd
-          {%- if offerte %}<small>{{ offerte.nummer }} · {{ offerte_status[offerte.status] }}</small>
-          {%- else %}<small>hoeft niet</small>{% endif %}</span>
-        {% if not offerte %}
-        <a class="btn btn-text"
-           href="{{ url_for('offerte_nieuw') }}?voor_klus={{ klus.id }}{% if klus.klant_id %}&klant={{ klus.klant_id }}{% endif %}">
-          Offerte maken</a>
-        {% else %}
-        <a class="btn btn-text" href="{{ url_for('offerte_bewerk', offerte_id=offerte.id) }}">Bekijken</a>
-        {% endif %}
-      </li>
-    </ol>
+    {#- Eén keuzelijst en geen vinkjes: het is geen volgorde die je afloopt,
+        maar wat er nu speelt. Kiezen slaat meteen op, net als een foto bij een notitie. -#}
+    <form method="post" class="standkeuze" action="{{ url_for('klus_stand', klus_id=klus.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="field">
+        <label for="stand">Stand</label>
+        <select id="stand" name="stand" data-verstuurt="1">
+          {% for sleutel, naam in aanvraag_standen.items() %}
+          <option value="{{ sleutel }}"{% if klus.stand == sleutel %} selected{% endif %}>{{ naam }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <noscript><button type="submit" class="btn btn-outline">Opslaan</button></noscript>
+    </form>
+    <p class="hint">Binnengekomen {{ klus.aangevraagd_op|datum_nl }}
+      {%- if klus.stand_op and klus.stand != 'aanvraag' %} · bijgewerkt {{ klus.stand_op|datum_nl }}{% endif %}</p>
+    <p class="offerteregel">
+      {% if offerte %}Offerte {{ offerte.nummer }} · {{ offerte_status[offerte.status] }}
+      <a class="btn btn-text" href="{{ url_for('offerte_bewerk', offerte_id=offerte.id) }}">Bekijken</a>
+      {% else %}Nog geen offerte — hoeft ook niet
+      <a class="btn btn-text"
+         href="{{ url_for('offerte_nieuw') }}?voor_klus={{ klus.id }}{% if klus.klant_id %}&klant={{ klus.klant_id }}{% endif %}">
+        Offerte maken</a>
+      {% endif %}
+    </p>
     {% if dagen %}
     <p class="hint bewaarde-dagen">Er {{ 'staat' if dagen|length == 1 else 'staan' }}
       {{ dagen|length }} gewerkte {{ 'dag' if dagen|length == 1 else 'dagen' }} bewaard.
@@ -1366,7 +1292,7 @@
 
   (function () {
     var blok = document.getElementById('gewerkte-dagen');
-    // Bij een aanvraag staan de urenblokken er nog niet: uren zijn de stap daarna.
+    // Bij een aanvraag staan de urenblokken er nog niet: uren komen pas als de klus loopt.
     if (!blok) return;
     var lijst = document.getElementById('dagen');
     var tarief = parseFloat(blok.dataset.tarief) || 0;

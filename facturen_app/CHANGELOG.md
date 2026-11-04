@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.5.0
+
+Bij een **aanvraag** kies je nu uit een keuzelijst hoe het ervoor staat, in
+plaats van losse vinkjes.
+
+- De keuzes zijn: Aanvraag, Intake gepland, Intake geweest, Offerte gestuurd,
+  Akkoord van klant, Materiaal besteld en Ingepland. Het is geen vaste volgorde:
+  je kiest gewoon wat nu klopt. Een offerte hoeft niet, en iets kan ingepland
+  staan voordat het besteld is. Een nieuwe aanvraag begint op Aanvraag.
+- Kiezen slaat meteen op. Onder de lijst zie je wanneer je hem voor het laatst
+  hebt bijgewerkt.
+- In het overzicht van de klussen staat de stand als label bij de aanvraag.
+- **Klus starten** blijft een eigen knop eronder.
+- Aanvragen waarbij je de intake al had afgevinkt of een offerte had gemaakt,
+  staan na de update meteen goed.
+
 ## 2.4.0
 
 Het scherm **Scan als bon** is rustiger geworden.

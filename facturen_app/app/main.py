@@ -50,7 +50,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "2.4.0"
+VERSIE = os.environ.get("ADDON_VERSION") or "2.5.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -1205,6 +1205,22 @@ KLUS_FASES = {
     "afgerond": {"label": "Afgerond", "melding": "Klus afgerond."},
 }
 
+# Hoe het er nu voor staat bij een aanvraag. Geen stappenplan: niet elke klus
+# krijgt een offerte, en soms wordt iets ingepland voordat het besteld is. Je
+# kiest dus gewoon wat nu klopt; de volgorde hieronder is alleen die van de lijst.
+# Starten staat er expres niet tussen; dat is de fase hierboven en die laat de
+# uren zien, dus dat blijft een eigen knop.
+AANVRAAG_STANDEN = {
+    "aanvraag": "Aanvraag",
+    "intake_gepland": "Intake gepland",
+    "intake_geweest": "Intake geweest",
+    "offerte_gestuurd": "Offerte gestuurd",
+    "akkoord": "Akkoord van klant",
+    "besteld": "Materiaal besteld",
+    "ingepland": "Ingepland",
+}
+app.jinja_env.globals["aanvraag_standen"] = AANVRAAG_STANDEN
+
 
 def vraag_weer_als_aanvraag(aantal_dagen, op_rekening=False):
     """De vraag voordat een lopende klus terug een aanvraag wordt.
@@ -2063,6 +2079,15 @@ def init_db():
     # is de dag waarop het werk begon weg zodra je opnieuw start.
     if "gestart_was" not in kluskolommen:
         conn.execute("ALTER TABLE klussen ADD COLUMN gestart_was TEXT DEFAULT ''")
+    # De losse intake-vink werd een keuzelijst. Wat al was afgevinkt neemt de
+    # nieuwe stand mee, anders staat een aanvraag ineens weer bij het begin.
+    if "stand" not in kluskolommen:
+        conn.execute("ALTER TABLE klussen ADD COLUMN stand TEXT DEFAULT 'aanvraag'")
+        conn.execute("ALTER TABLE klussen ADD COLUMN stand_op TEXT DEFAULT ''")
+        conn.execute("""UPDATE klussen SET stand='intake_geweest', stand_op=intake_op
+                        WHERE intake_op != ''""")
+        conn.execute("""UPDATE klussen SET stand='offerte_gestuurd'
+                        WHERE offerte_id IS NOT NULL""")
 
     # Een foto kan bij een notitie horen in plaats van bij de bonnen. Zo blijven de
     # foto's van wat je hebt gezien los van de bonnetjes die de klant moet zien.
@@ -4133,20 +4158,20 @@ def klus_status(klus_id):
     return redirect(terug_naar(url_for("klussen")))
 
 
-@app.route("/klus/<int:klus_id>/intake", methods=["POST"])
-def klus_intake(klus_id):
-    """Vinkt de intake af of haalt hem weer weg."""
+@app.route("/klus/<int:klus_id>/stand", methods=["POST"])
+def klus_stand(klus_id):
+    """Zet de stand van een aanvraag op een van AANVRAAG_STANDEN."""
+    stand = request.form.get("stand", "")
+    if stand not in AANVRAAG_STANDEN:
+        abort(400, "Onbekende stand voor een aanvraag.")
     conn = get_db()
-    gegevens = conn.execute("SELECT intake_op FROM klussen WHERE id=?", (klus_id,)).fetchone()
-    if gegevens is None:
-        conn.close()
-        abort(404)
-    weg = bool(gegevens["intake_op"])
-    conn.execute("UPDATE klussen SET intake_op=? WHERE id=?",
-                 ("" if weg else vandaag().isoformat(), klus_id))
+    klaar = conn.execute("UPDATE klussen SET stand=?, stand_op=? WHERE id=?",
+                         (stand, vandaag().isoformat(), klus_id)).rowcount
     conn.commit()
     conn.close()
-    melding("Intake weer opengezet." if weg else "Intake afgevinkt.")
+    if not klaar:
+        abort(404)
+    melding(f"Stand: {AANVRAAG_STANDEN[stand].lower()}.")
     return redirect(terug_naar(url_for("klus", klus_id=klus_id)))
 
 
