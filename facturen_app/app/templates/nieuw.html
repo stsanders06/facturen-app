@@ -505,9 +505,14 @@
         <label for="betaalmethode">Betaalmethode</label>
         <select id="betaalmethode" name="betaalmethode">
           {% set methode = factuur.betaalmethode if factuur else betaalmethode|default('bank') %}
-          <option value="bank" {% if methode != 'cash' %}selected{% endif %}>Bank</option>
+          <option value="bank" {% if methode not in ('cash', 'tikkie') %}selected{% endif %}>Bank</option>
           <option value="cash" {% if methode == 'cash' %}selected{% endif %}>Contant</option>
+          <option value="tikkie" {% if methode == 'tikkie' %}selected{% endif %}>Tikkie</option>
         </select>
+        {#- Deels contant en deels Tikkie is geen vierde keuze: de keuze hier is
+            hoe de rest betaald wordt, de betalingen houden bij wat er al is. -#}
+        <p class="hint" style="margin:6px 0 0">Deels contant, deels Tikkie of bank? Kies hoe de
+          rest betaald wordt en boek het contante deel onder Betalingen.</p>
       </div>
       <div class="field">
         <label for="vervalt_op">Vervaldatum</label>
@@ -603,7 +608,9 @@
                    value="{{ tekst_van_getal(r.prijs) if r else '' }}">
           </div>
           <input type="hidden" name="regel_klus" value="{{ r.klus_id if r and r.klus_id else '' }}">
-          <input type="hidden" name="regel_inkoop" value="{{ r.inkoop_id if r and r.inkoop_id else '' }}">
+          {#- Een materiaalregel van een bon draagt die bon hier ook, zodat de bon
+              niet opnieuw in het menu verschijnt; bon_id is waar hij bewaard staat. -#}
+          <input type="hidden" name="regel_inkoop" value="{{ r.inkoop_id if r and r.inkoop_id else (r.bon_id if r and r.bon_id else '') }}">
           <input type="hidden" name="regel_uur" value="{{ r.uur_id if r and r.uur_id else '' }}">
           {#- Het id, zodat een ongewijzigde regel zijn bedrag uit de database
               houdt en niet uit een afgeronde tekst in dit formulier. -#}
@@ -667,16 +674,19 @@
         {% call menu('Bon van een klus toevoegen', 'Bon van een klus') %}
           {#- Een bon die al op déze rekening staat begint verborgen. Het script
               zet hem terug als je de regel weghaalt, vóór je opslaat. -#}
-          {% set gebruikte_bonnen = (regels or [])|map(attribute='inkoop_id')|list %}
+          {% set gebruikte_bonnen = (regels or [])|map(attribute='inkoop_id')|list
+                                    + (regels or [])|map(attribute='bon_id')|list %}
           <button type="button" class="menu-item" id="alle-bonnen">Alle bonnen toevoegen</button>
           {% for b in open_inkopen %}
           <button type="button" class="menu-item bon-keuze"
                   data-inkoop="{{ b.id }}"
                   data-naam="{{ b.omschrijving }}"
                   data-bedrag="{{ '%.2f'|format(b.bedrag or 0) }}"
+                  data-materialen="{{ b.materialen|tojson|forceescape }}"
                   data-klant="{{ b.klant_id or '' }}"
                   {% if not b.past or b.id in gebruikte_bonnen %}hidden{% endif %}>
-            {{ b.omschrijving }} · €&nbsp;{{ b.bedrag|bedrag }}{% if b.klus_naam %}&nbsp;·&nbsp;{{ b.klus_naam }}{% endif %}
+            {{ b.omschrijving }} · €&nbsp;{{ b.bedrag|bedrag }}
+            {%- if b.materialen %} · {{ b.materialen|length }} materia{{ 'al' if b.materialen|length == 1 else 'len' }}{% endif %}{% if b.klus_naam %}&nbsp;·&nbsp;{{ b.klus_naam }}{% endif %}
           </button>
           {% endfor %}
         {% endcall %}
@@ -723,7 +733,7 @@
 </details>
 {% endif %}
 
-{% if factuur and ((not is_offerte and not factuur.nummer) or factuur.klant_email) %}
+{% if factuur and (not is_offerte or factuur.klant_email) %}
 <div class="fabs">
   {% if not is_offerte and not factuur.nummer %}
   <form method="post" action="{{ url_for('definitief', factuur_id=factuur.id) }}"
@@ -732,8 +742,10 @@
     <button type="submit" class="btn btn-outline">Definitief maken</button>
   </form>
   {% endif %}
-  {% if factuur.klant_email %}
-  <a class="btn" href="{{ url_for('offerte_mail', offerte_id=factuur.id) if is_offerte else url_for('mail_voorbeeld', factuur_id=factuur.id) }}">Mailen</a>
+  {% if not is_offerte %}
+  <a class="btn" href="{{ url_for('sturen', factuur_id=factuur.id) }}">Sturen</a>
+  {% elif factuur.klant_email %}
+  <a class="btn" href="{{ url_for('offerte_mail', offerte_id=factuur.id) }}">Mailen</a>
   {% endif %}
 </div>
 {% endif %}
@@ -1379,10 +1391,38 @@
       });
     }
 
+    // Een bon met materialen komt als losse materiaalregels op de rekening:
+    // de klant ziet wat hij betaalt, niet 'Bon Karwei' met één totaal. Elke
+    // regel draagt de bon, zodat hij daarna niet nog eens in het menu staat.
+    function zetMaterialenOpRekening(optie, materialen) {
+      materialen.forEach(function (m) {
+        var regel = regelErbij();
+        regel.querySelector('.soort').value = 'materiaal';
+        pasRegelAan(regel);
+        regel.querySelector('[name="omschrijving"]').value = m.omschrijving || '';
+        regel.querySelector('[name="aantal"]').value = String(m.aantal || 1);
+        regel.querySelector('[name="prijs"]').value = Number(m.prijs || 0).toFixed(2);
+        regel.querySelector('[name="regel_inkoop"]').value = optie.dataset.inkoop;
+        zetOpen(regel, false);
+        pasSamenvattingAan(regel);
+      });
+    }
+
     var zetBonOpRekening = function (optie) {
         if (!optie || !optie.dataset.inkoop) return false;
         if (idsOpHetFormulier('regel_inkoop')[optie.dataset.inkoop]) return false;
         allesTonen = true;
+        var materialen = [];
+        try { materialen = JSON.parse(optie.dataset.materialen || '[]'); } catch (e) {}
+        if (materialen.length) {
+          zetMaterialenOpRekening(optie, materialen);
+          legeBeginregelWeg();
+          klantVanOptie(optie);
+          pasInklappenAan();
+          berekenTotaal();
+          verversBonnen();
+          return true;
+        }
         var regel = regelErbij();
         regel.querySelector('.soort').value = 'bon';
         pasRegelAan(regel);

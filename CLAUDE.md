@@ -71,6 +71,9 @@ Assistant: daar hoort alleen het standaardnetwerk te gelden.
 
 ## Afspraken
 
+- **Geef Stone altijd de complete code om te plakken.** Geen "doe dan X op
+  de Pi" of een commando met `<adres>` erin, maar het hele blok, inclusief
+  `ssh` ervoor als het op de Pi moet gebeuren. Zie hoofdstuk Uitbrengen.
 - **Alles in het Nederlands**: variabelen, functienamen, commentaar, meldingen aan de
   gebruiker en commitberichten. Ook de tests, inclusief de testnamen.
 - **Commentaar legt uit waaróm**, niet wat er staat. Kijk hoe het er nu staat: bij
@@ -96,6 +99,16 @@ rand. Die selector heeft zoveel specificiteit dat een eigen `border`-regel er
 niet van wint zonder `!important`. Gebruik `outline` met een negatieve
 `outline-offset`: dat is een andere eigenschap, dus geen strijd, hij volgt de
 afgeronde hoeken, en de breedte van het veld verandert niet.
+
+### Een bon met materialen op de rekening
+
+Sinds 2.6.0 zet het bonnenmenu op het rekeningformulier een bon met materialen
+neer als losse materiaalregels. `regels.inkoop_id` is uniek; die houdt de
+eerste regel van een bon, en de volgende regels van dezelfde bon wijzen ernaar
+met `regels.bon_id`. `_herbouw_regels` neemt `bon_id` mee. In het formulier en in de tupels tot
+`bewaar_regels` dragen beide soorten de bon op dezelfde plek (`regel_inkoop`,
+index 6), zodat de controles op klant en "staat al elders" voor allebei
+gelden. Pas `bewaar_regels` splitst ze.
 
 ### Valkuil bij de tests
 
@@ -212,6 +225,9 @@ uitgesteld:
   hooguit 35 dagen geldig en maximaal 30 betalingen — een vaste link in de instellingen
   gaat dus regelmatig dood en dat is vervelender dan geen QR. Is er in 1.3.0 uitgegaan en
   in 1.12.0 zijn de laatste resten opgeruimd. Niet opnieuw voorstellen.
+  **Wel sinds 2.6.0, op verzoek van Stone:** Tikkie als *betaalwijze*
+  (`betaalmethode='tikkie'`, `betalingen.wijze`). Dat is alleen een
+  aantekening hoe er betaald wordt; er staat geen link of QR op de PDF.
 
 ## Uitbrengen
 

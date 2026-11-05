@@ -1,0 +1,64 @@
+{% extends "_layout.html" %}
+{% block title %}Rekening {{ naam }} sturen{% endblock %}
+{% block head %}
+<style>
+  .stuurknoppen { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; }
+  .stuurknoppen form { margin: 0; }
+  .bonlijst { margin: 8px 0 0; padding-left: 18px; font-size: 14px; color: var(--text-secondary); }
+  .bonlijst li { overflow-wrap: anywhere; }
+</style>
+{% endblock %}
+{% block content %}
+
+<div class="page-head">
+  <h1>Rekening sturen</h1>
+  <a class="btn btn-outline" href="{{ url_for('index') }}">Terug naar rekeningen</a>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2 style="margin:0 0 4px;font-size:16px">Per mail</h2>
+    <p>De app mailt de rekening{% if bonnen %} en de bonnen{% endif %} naar de klant. Je ziet de mail eerst.</p>
+  </div>
+  {% if factuur.klant_email %}
+  <a class="btn" href="{{ url_for('mail_voorbeeld', factuur_id=factuur.id) }}">Mail naar {{ factuur.klant_email }}</a>
+  {% else %}
+  <p class="hint">Deze klant heeft geen mailadres.
+    <a href="{{ url_for('bewerk', factuur_id=factuur.id) }}">Zet het op de rekening</a> om te mailen.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2 style="margin:0 0 4px;font-size:16px">Via WhatsApp</h2>
+    <p>Download één PDF en stuur die in WhatsApp door.
+      {%- if not factuur.nummer %} De rekening krijgt daarbij zijn nummer en staat daarna op verzonden.
+      {%- elif factuur.status == 'concept' %} De rekening staat daarna op verzonden.{% endif %}</p>
+  </div>
+  {% set passen = bonnen|selectattr('in_pdf')|list %}
+  <div class="stuurknoppen">
+    {% if passen %}
+    <form method="post" action="{{ url_for('sturen', factuur_id=factuur.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="bonnen" value="ja">
+      <button type="submit" class="btn">PDF met bonnen</button>
+    </form>
+    {% endif %}
+    <form method="post" action="{{ url_for('sturen', factuur_id=factuur.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="bonnen" value="nee">
+      <button type="submit" class="btn {{ 'btn-outline' if passen }}">PDF zonder bonnen</button>
+    </form>
+  </div>
+  {% if bonnen %}
+  <ul class="bonlijst">
+    {% for bon in bonnen %}
+    <li>{{ bon.naam }}{% if not bon.in_pdf %} — kan niet in de PDF (HEIC); stuur deze foto los{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="hint">Er zit geen foto of PDF van een bon bij deze rekening.</p>
+  {% endif %}
+</div>
+
+{% endblock %}

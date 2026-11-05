@@ -73,12 +73,12 @@ def test_zonder_mailserver_zie_je_waarom_en_geen_verstuurknop(client, maak_factu
     assert "2026-001.pdf" in pagina
 
 
-def test_mailen_op_de_kaart_opent_het_voorbeeld(client, maak_factuur):
+def test_sturen_op_de_kaart_opent_de_keuze_tussen_mail_en_whatsapp(client, maak_factuur):
     concept = maak_factuur(nummer="", status="concept", email="jan@example.com")
     verzonden = maak_factuur(nummer="2026-002", status="verzonden", email="jan@example.com")
     inhoud = client.get("/").data.decode()
-    assert f'href="/factuur/{concept}/mail">Mailen</a>' in inhoud
-    assert f'href="/factuur/{verzonden}/mail">Nogmaals mailen</a>' in inhoud
+    assert f'href="/factuur/{concept}/sturen">Sturen</a>' in inhoud
+    assert f'href="/factuur/{verzonden}/sturen">Opnieuw sturen</a>' in inhoud
     assert f'action="/factuur/{concept}/verstuur"' not in inhoud
     assert f'action="/factuur/{verzonden}/verstuur"' not in inhoud
 

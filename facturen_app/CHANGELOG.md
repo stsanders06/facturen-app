@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.6.0
+
+**Sturen**, **betalen** en **bonnen met materialen** zijn duidelijker.
+
+- Op een rekening staat nu **Sturen**. Je kiest daar: per mail (zoals altijd,
+  de app verstuurt hem) of via WhatsApp. Voor WhatsApp download je één PDF,
+  met of zonder de bonnen erachter. Een concept krijgt daarbij zijn nummer en
+  staat daarna op verzonden. Een bon die als HEIC-foto is bewaard kan niet in
+  de PDF; dat staat er dan bij.
+- Als betaalmethode kun je nu ook **Tikkie** kiezen, naast bank en contant.
+  Op de PDF staat dan dat de klant een Tikkie-betaalverzoek krijgt, zonder
+  IBAN. Is hij betaald, dan staat er "Voldaan via Tikkie".
+- Bij een betaling kies je **hoe** hij binnenkwam: contant, bank of Tikkie.
+  Betaalt een klant een deel contant en de rest met Tikkie, kies dan Tikkie op
+  de rekening en boek het contante deel onder Betalingen. Op de PDF staat
+  bijvoorbeeld "€ 50,00 contant" bij al betaald.
+- Een **bon met materialen** komt nu als losse regels op de rekening: elk
+  materiaal op een eigen regel met aantal en prijs, zonder de naam en het
+  totaal van de bon. Een bon zonder materialen blijft één regel, zoals eerst.
+
 ## 2.5.0
 
 Bij een **aanvraag** kies je nu uit een keuzelijst hoe het ervoor staat, in

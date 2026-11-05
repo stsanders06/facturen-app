@@ -35,6 +35,7 @@
   }
   /* Safari maakt een datumveld hoger dan een tekstveld, en het label
      schuift dan mee omhoog. Dezelfde hoogte houdt de rij recht. */
+  .boekregel select { height: 44px; }
   .boekregel input {
     height: 44px;
     min-height: 44px;
@@ -91,9 +92,17 @@
         <input type="text" inputmode="decimal" id="bedrag" name="bedrag"
                placeholder="{{ (openstaand if openstaand > 0 else 0)|bedrag }}" required>
       </div>
+      <div>
+        <label for="wijze">Hoe</label>
+        <select id="wijze" name="wijze">
+          {% for sleutel, naam in betaalwijzen.items() %}
+          <option value="{{ sleutel }}" {% if sleutel == standaard_wijze %}selected{% endif %}>{{ naam|capitalize }}</option>
+          {% endfor %}
+        </select>
+      </div>
       <div style="flex:2 1 220px">
         <label for="notitie">Notitie</label>
-        <input type="text" id="notitie" name="notitie" placeholder="Aanbetaling, contant, tikkie">
+        <input type="text" id="notitie" name="notitie" placeholder="Bijv. aanbetaling">
       </div>
       <button type="submit" class="btn">Boeken</button>
     </div>
@@ -111,6 +120,7 @@
   <div class="boeking">
     <span class="boeking-tekst">
       <span class="wanneer">{{ b.datum|datum_nl }}</span>
+      {% if b.wijze %}<span class="notitie">&middot; {{ betaalwijzen[b.wijze] or b.wijze }}</span>{% endif %}
       {% if b.notitie %}<span class="notitie">&middot; {{ b.notitie|met_links }}</span>
       {% elif b.automatisch %}<span class="notitie">&middot; geboekt met de knop Betaald</span>{% endif %}
     </span>

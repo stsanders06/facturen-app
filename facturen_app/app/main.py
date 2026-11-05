@@ -36,6 +36,7 @@ from flask import (
     render_template, send_file, flash, session,
 )
 from markupsafe import Markup, escape
+from PIL import Image, ImageOps
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.lib import colors
@@ -50,7 +51,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "2.5.0"
+VERSIE = os.environ.get("ADDON_VERSION") or "2.6.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -2182,6 +2183,23 @@ def init_db():
     _uur_koppeling_uniek(conn)
     _bon_koppeling_uniek(conn)
 
+    # Ná de herbouw hierboven, die alleen de kolommen kopieert die hij kent.
+    # Een bon met materialen komt als losse materiaalregels op de rekening.
+    # inkoop_id is uniek (één bon, één regel), dus die regels wijzen hier naar
+    # hun bon. Zonder koppeling zou de bon na opslaan weer als open in het
+    # menu staan en kon hij een tweede keer op een rekening.
+    regelkolommen = {rij["name"] for rij in conn.execute("PRAGMA table_info(regels)")}
+    if "bon_id" not in regelkolommen:
+        conn.execute(
+            "ALTER TABLE regels ADD COLUMN bon_id INTEGER "
+            "REFERENCES inkopen (id) ON DELETE SET NULL"
+        )
+    # Hoe een betaling binnenkwam. Leeg bij betalingen van vóór deze kolom:
+    # dat weten we niet, en gokken zet iets op de PDF wat niet klopt.
+    betaalkolommen = {rij["name"] for rij in conn.execute("PRAGMA table_info(betalingen)")}
+    if "wijze" not in betaalkolommen:
+        conn.execute("ALTER TABLE betalingen ADD COLUMN wijze TEXT DEFAULT ''")
+
     # Inbox voor scans vanaf de iPhone. Geen verwijzing naar een klus: die
     # koppeling komt pas als je de scan indeelt, en dan verhuist het bestand
     # naar de bijlagen.
@@ -2379,6 +2397,7 @@ _REGELS_NIEUW = """
         klus_id INTEGER,
         inkoop_id INTEGER UNIQUE,
         uur_id INTEGER UNIQUE,
+        bon_id INTEGER REFERENCES inkopen (id) ON DELETE SET NULL,
         FOREIGN KEY (factuur_id) REFERENCES facturen (id),
         FOREIGN KEY (inkoop_id) REFERENCES inkopen (id) ON DELETE SET NULL,
         FOREIGN KEY (uur_id) REFERENCES uren (id) ON DELETE SET NULL
@@ -2680,18 +2699,22 @@ def _herbouw_regels(conn):
     die pragma en weigert de kopie een regel waarvan de rekening er even niet
     is. Valt het proces daarna weg, dan draait CREATE, INSERT, DROP en RENAME
     allemaal terug."""
+    # bon_id meenemen als hij er al is. Anders verliezen de materiaalregels
+    # van een bon hun koppeling, en kan die bon nog eens op een rekening.
+    kolommen = {rij["name"] for rij in conn.execute("PRAGMA table_info(regels)")}
+    bon_id = "bon_id" if "bon_id" in kolommen else "NULL"
     _zonder_transactie(conn, "PRAGMA foreign_keys=OFF")
     try:
         conn.execute("BEGIN")
         conn.execute(_REGELS_NIEUW)
         _crash_op("insert")
         conn.execute(
-            """
+            f"""
             INSERT INTO regels_nieuw
                 (id, factuur_id, omschrijving, type, aantal, prijs, subtotaal,
-                 klus_id, inkoop_id, uur_id)
+                 klus_id, inkoop_id, uur_id, bon_id)
             SELECT id, factuur_id, omschrijving, type, aantal, prijs, subtotaal,
-                   klus_id, inkoop_id, uur_id FROM regels
+                   klus_id, inkoop_id, uur_id, {bon_id} FROM regels
             """
         )
         _crash_op("drop")
@@ -2943,6 +2966,14 @@ def _herstel_inkoop_regels(conn, koppelingen):
 
     Verwijderen van de bon zet die kolom op NULL (ON DELETE SET NULL). Zonder
     deze stap staat de regel erna los van de bon, terwijl de bon er weer is."""
+    # Materiaalregels hebben geen unieke koppeling, dus geen botsing om te
+    # controleren: terugzetten kan altijd.
+    for paar in koppelingen.get("bon_regels") or []:
+        if paar.get("bon_id") and paar.get("regel_id"):
+            conn.execute(
+                "UPDATE regels SET bon_id=? WHERE id=? AND bon_id IS NULL",
+                (paar["bon_id"], paar["regel_id"]),
+            )
     for paar in koppelingen.get("inkoop_regels") or []:
         inkoop_id = paar.get("inkoop_id")
         regel_id = paar.get("regel_id")
@@ -2987,7 +3018,7 @@ def _dag_op_andere_rekening(conn, regel):
 
 def _bon_op_andere_rekening(conn, regel):
     """De rekening waar deze bon nu op staat, als dat niet de terug te zetten is."""
-    inkoop_id = regel.get("inkoop_id")
+    inkoop_id = regel.get("inkoop_id") or regel.get("bon_id")
     if not inkoop_id:
         return None
     factuur_id = regel.get("factuur_id")
@@ -2995,9 +3026,9 @@ def _bon_op_andere_rekening(conn, regel):
         """SELECT f.id, f.nummer, f.klant_naam, f.datum, i.omschrijving
            FROM regels r
            JOIN facturen f ON f.id = r.factuur_id
-           JOIN inkopen i ON i.id = r.inkoop_id
-           WHERE r.inkoop_id=? AND r.factuur_id<>?""",
-        (inkoop_id, factuur_id),
+           JOIN inkopen i ON i.id = ?
+           WHERE ? IN (r.inkoop_id, r.bon_id) AND r.factuur_id<>?""",
+        (inkoop_id, inkoop_id, factuur_id),
     ).fetchone()
     if bezet:
         return bezet
@@ -3250,6 +3281,44 @@ def betalingen_van(conn, factuur_id):
     return conn.execute(
         "SELECT * FROM betalingen WHERE factuur_id=? ORDER BY datum, id", (factuur_id,)
     ).fetchall()
+
+
+# Hoe een betaling binnenkomt, en hoe hij op de PDF heet. 'cash' is de oude
+# waarde van de betaalmethode op een rekening; die blijft, anders verandert
+# elke bestaande contante rekening van smaak.
+BETAALWIJZEN = {"contant": "contant", "bank": "bank", "tikkie": "Tikkie"}
+WIJZE_VAN_METHODE = {"cash": "contant", "bank": "bank", "tikkie": "tikkie"}
+
+
+def betaalwijze(waarde, standaard=""):
+    """Een betaalwijze uit een formulier, of de standaard als hij onbekend is."""
+    waarde = (waarde or "").strip().lower()
+    return waarde if waarde in BETAALWIJZEN else standaard
+
+
+def betaald_per_wijze(conn, factuur_id):
+    """Wat er binnen is, per betaalwijze, in een vaste volgorde.
+
+    Een betaling zonder wijze (van vóór die kolom) telt als '' en krijgt op
+    de PDF geen naam: we weten niet hoe hij binnenkwam."""
+    som = {}
+    for rij in conn.execute(
+        "SELECT COALESCE(wijze, '') AS wijze, SUM(bedrag) AS som FROM betalingen "
+        "WHERE factuur_id=? GROUP BY COALESCE(wijze, '')", (factuur_id,)
+    ):
+        if round(rij["som"] or 0, 2) > 0:
+            som[rij["wijze"]] = round(rij["som"], 2)
+    return [(w, som[w]) for w in [*BETAALWIJZEN, ""] if w in som]
+
+
+def zin_al_betaald(per_wijze):
+    """'€ 50,00 contant, € 30,00 Tikkie' voor de strook. Eén wijze zonder
+    naam is gewoon het bedrag, zoals het er altijd stond."""
+    delen = []
+    for wijze, bedrag in per_wijze:
+        naam = BETAALWIJZEN.get(wijze, "")
+        delen.append(f"€ {nl_bedrag(bedrag)}" + (f" {naam}" if naam else ""))
+    return ", ".join(delen)
 
 
 def betaald_op(conn, factuur_id):
@@ -4258,7 +4327,14 @@ def klus_verwijder(klus_id):
          "inkoop_materialen": materialen,
          "bijlagen": bijlagen},
         bestanden=[b["bestand"] for b in bijlagen],
-        koppelingen={"uur_regels": uur_regels, "inkoop_regels": inkoop_regels},
+        koppelingen={"uur_regels": uur_regels, "inkoop_regels": inkoop_regels,
+                     "bon_regels": [
+                         {"regel_id": rij["id"], "bon_id": rij["bon_id"]}
+                         for rij in conn.execute(
+                             """SELECT r.id, r.bon_id FROM regels r
+                                JOIN inkopen i ON i.id = r.bon_id
+                                WHERE i.klus_id=?""", (klus_id,))
+                     ]},
     )
     for inkoop in inkopen:
         conn.execute("DELETE FROM inkoop_materialen WHERE inkoop_id=?", (inkoop["id"],))
@@ -4989,7 +5065,11 @@ def inkoop_verwijder(inkoop_id):
         conn, f"Bon {rij['omschrijving']}",
         {"inkopen": [rij], "inkoop_materialen": materialen, "bijlagen": bestanden},
         bestanden=[b["bestand"] for b in bestanden],
-        koppelingen={"inkoop_regels": inkoop_regels},
+        koppelingen={"inkoop_regels": inkoop_regels, "bon_regels": [
+            {"regel_id": regel["id"], "bon_id": inkoop_id}
+            for regel in conn.execute(
+                "SELECT id FROM regels WHERE bon_id=?", (inkoop_id,))
+        ]},
     )
     conn.execute("DELETE FROM inkoop_materialen WHERE inkoop_id=?", (inkoop_id,))
     conn.execute("DELETE FROM bijlagen WHERE inkoop_id=?", (inkoop_id,))
@@ -5002,8 +5082,8 @@ def inkoop_verwijder(inkoop_id):
 
 @app.route("/inkoop/<int:inkoop_id>/materiaal", methods=["POST"])
 def inkoop_materiaal_erbij(inkoop_id):
-    """Optioneel: wat er in de tas zat, als notitie onder de bon — geen aparte
-    factuurregel."""
+    """Wat er in de tas zat. Zet je de bon daarna op een rekening, dan komt elk
+    materiaal als eigen regel op de rekening in plaats van de bon als geheel."""
     conn = get_db()
     rij = conn.execute("SELECT * FROM inkopen WHERE id=?", (inkoop_id,)).fetchone()
     if rij is None:
@@ -7208,12 +7288,15 @@ def zonder_dubbele_dagen(regels):
         if uur_id and uur_id in dagen:
             dag_dubbel = True
             continue
-        if inkoop_id and inkoop_id in bonnen:
+        # Alleen een regel die de hele bon is, telt. De materialen van één bon
+        # delen die bon, en zijn juist bedoeld als meer regels.
+        hele_bon = inkoop_id and regel[1] == "bon"
+        if hele_bon and inkoop_id in bonnen:
             bon_dubbel = True
             continue
         if uur_id:
             dagen.add(uur_id)
-        if inkoop_id:
+        if hele_bon:
             bonnen.add(inkoop_id)
         uit.append(regel)
     return uit, dag_dubbel, bon_dubbel
@@ -7726,12 +7809,19 @@ def geboekte_inkopen(factuur_id=None, klant_id=None):
                ORDER BY i.toegevoegd DESC, i.id DESC""",
             (factuur_id,),
         ).fetchall()
-    conn.close()
     lijst = []
     for rij in rijen:
         bon = dict(rij)
         bon["past"] = inkoop_past_bij_klant(bon["klant_id"], klant_id)
+        bon["materialen"] = [
+            {"omschrijving": m["omschrijving"], "aantal": m["aantal"] or 1,
+             "prijs": m["prijs"] or 0}
+            for m in conn.execute(
+                "SELECT * FROM inkoop_materialen WHERE inkoop_id=? ORDER BY id",
+                (rij["id"],))
+        ]
         lijst.append(bon)
+    conn.close()
     return lijst
 
 
@@ -8180,11 +8270,21 @@ def kenmerk_van_de_klussen(conn, factuur_id):
 
 def bewaar_regels(conn, factuur_id, regels):
     conn.execute("DELETE FROM regels WHERE factuur_id=?", (factuur_id,))
+    al_gekoppeld = set()
     for o, t, a, p, subtotaal, klus_id, inkoop_id, uur_id in regels:
+        # Tot hier draagt elke regel zijn bon in dezelfde plek, zodat de
+        # controles op klant en 'staat al elders' voor allemaal gelden. De
+        # eerste regel van een bon krijgt de unieke koppeling, zoals altijd;
+        # de volgende materialen van dezelfde bon wijzen ernaar met bon_id.
+        bon_id = None
+        if inkoop_id in al_gekoppeld:
+            inkoop_id, bon_id = None, inkoop_id
+        elif inkoop_id:
+            al_gekoppeld.add(inkoop_id)
         conn.execute(
             """INSERT INTO regels (factuur_id, omschrijving, type, aantal, prijs, subtotaal,
-               klus_id, inkoop_id, uur_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (factuur_id, o, t, a, p, subtotaal, klus_id, inkoop_id, uur_id),
+               klus_id, inkoop_id, uur_id, bon_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (factuur_id, o, t, a, p, subtotaal, klus_id, inkoop_id, uur_id, bon_id),
         )
     meldingen = boek_uren(conn, factuur_id, regels)
     boek_inkopen(conn, factuur_id, [r[6] for r in regels if r[6]])
@@ -8453,6 +8553,12 @@ def _bon_staat_elders(conn, inkoop_id, eigen_factuur_id):
     )
 
 
+def _betaalmethode(waarde):
+    """Bank, contant ('cash') of Tikkie; iets anders wordt bank, zoals een
+    leeg veld altijd al deed."""
+    return waarde if waarde in WIJZE_VAN_METHODE else "bank"
+
+
 def formulier_van_post(conn, form, eigen_factuur_id=None):
     """Wat er op het scherm terug moet na een geweigerde opslag.
 
@@ -8487,7 +8593,7 @@ def formulier_van_post(conn, form, eigen_factuur_id=None):
         "vervalt": (form.get("vervalt_op") or "") if form.get("betaaltermijn") == "ja" else "",
         "termijn_aan": form.get("betaaltermijn") == "ja",
         "kenmerk": form.get("kenmerk", ""),
-        "betaalmethode": form.get("betaalmethode") or "bank",
+        "betaalmethode": _betaalmethode(form.get("betaalmethode")),
         "regels": regels,
     }
 
@@ -8587,7 +8693,7 @@ def nieuw():
                     request.form.get("klant_naam", ""),
                     net_adres(request.form.get("klant_adres", "")),
                     request.form.get("klant_email", ""),
-                    request.form.get("betaalmethode", "bank"),
+                    _betaalmethode(request.form.get("betaalmethode")),
                     totaal,
                     request.form.get("kenmerk", "").strip(),
                 ),
@@ -8693,7 +8799,7 @@ def bewerk(factuur_id):
                     request.form.get("klant_naam", ""),
                     net_adres(request.form.get("klant_adres", "")),
                     request.form.get("klant_email", ""),
-                    request.form.get("betaalmethode", "bank"),
+                    _betaalmethode(request.form.get("betaalmethode")),
                     totaal,
                     request.form.get("kenmerk", "").strip(),
                     factuur_id,
@@ -9268,10 +9374,12 @@ def maak_pdf(factuur_id, weergavenummer=None, pad=None):
     # Is er al iets binnen, dan hoort de strook te zeggen wat er nog moet komen. Anders
     # maakt een klant die de helft heeft betaald na een herinnering het hele bedrag over.
     betaald = betaald_op(conn, factuur_id)
+    per_wijze = betaald_per_wijze(conn, factuur_id)
     s = get_settings()
     conn.close()
 
     doc = dict(factuur)
+    doc["betaald_per_wijze"] = per_wijze
     if weergavenummer is not None:
         doc["nummer"] = weergavenummer
     doc["soort"] = "factuur"
@@ -9710,7 +9818,14 @@ def _teken_betaalstrook(vel, doc, s, vervalt):
     c.setDash()
 
     contant = doc.get("betaalmethode") == "cash"
-    gespreid = " ".join("VOLDAAN" if contant else "BETAALSTROOK")
+    tikkie = doc.get("betaalmethode") == "tikkie"
+    betaald = round(doc.get("betaald") or 0, 2)
+    openstaand = round(doc["totaal"] - betaald, 2)
+    al_betaald = zin_al_betaald(doc.get("betaald_per_wijze") or [])
+    if betaald > 0 and not al_betaald:
+        al_betaald = f"€ {nl_bedrag(betaald)}"
+    voldaan = contant or (tikkie and openstaand <= 0)
+    gespreid = " ".join("VOLDAAN" if voldaan else "BETAALSTROOK")
     tekstbreedte = c.stringWidth(gespreid, "Helvetica-Bold", 6.5)
     midden = vel.links + (vel.rechts - vel.links) / 2
     # Wit vlak zodat de stippellijn niet door de tekst heen loopt.
@@ -9730,26 +9845,43 @@ def _teken_betaalstrook(vel, doc, s, vervalt):
         c.drawString(vel.links, strook_y - 22 * mm, "Deze rekening is ter plekke voldaan.")
         return
 
-    betaald = round(doc.get("betaald") or 0, 2)
-    openstaand = round(doc["totaal"] - betaald, 2)
+    if tikkie and openstaand <= 0:
+        c.setFillColor(INKT)
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(vel.links, strook_y - 16 * mm, "Voldaan via Tikkie.")
+        c.setFont("Helvetica", 9)
+        c.setFillColor(GRIJS_DONKER)
+        # Deels contant en deels Tikkie: dan staat erbij hoe het verdeeld is,
+        # anders lijkt het alsof alles per Tikkie kwam.
+        meer_wijzen = len(doc.get("betaald_per_wijze") or []) > 1
+        c.drawString(vel.links, strook_y - 22 * mm,
+                     f"Ontvangen: {al_betaald}." if meer_wijzen
+                     else "Deze rekening is betaald met een Tikkie-betaalverzoek.")
+        return
 
-    vel.label("Overmaken naar", vel.links, strook_y - 8 * mm)
+    if tikkie:
+        # Geen IBAN: wie hem ziet, maakt anders over in plaats van op het
+        # verzoek te tikken, en dan komt het geld er twee keer of verkeerd.
+        vel.label("Betalen via Tikkie", vel.links, strook_y - 8 * mm)
+        regels = [("", "U ontvangt een Tikkie-betaalverzoek.")]
+    else:
+        vel.label("Overmaken naar", vel.links, strook_y - 8 * mm)
+        regels = [
+            ("IBAN", s.get("iban", "")),
+            ("T.n.v.", tenaamstelling(s)),
+        ]
     regel_y = strook_y - 14 * mm
-    regels = [
-        ("IBAN", s.get("iban", "")),
-        ("T.n.v.", tenaamstelling(s)),
-    ]
     # Geen termijn op de rekening: dan ook geen "Vóór" op de strook.
     if vervalt:
         regels.append(("Vóór", filter_datum_nl(vervalt)))
     if betaald > 0:
-        regels.append(("Al betaald", f"€ {nl_bedrag(betaald)}"))
+        regels.append(("Al betaald", al_betaald))
     for naam, waarde in regels:
         c.setFont("Helvetica", 9)
         c.setFillColor(GRIJS)
         c.drawString(vel.links, regel_y, naam)
         c.setFillColor(INKT)
-        c.drawString(vel.links + 18 * mm, regel_y, waarde or "")
+        c.drawString(vel.links + (18 * mm if naam else 0), regel_y, waarde or "")
         regel_y -= 5.2 * mm
 
     vak_b, vak_h = 58 * mm, 20 * mm
@@ -10250,7 +10382,7 @@ def bonnen_bij_factuur(conn, factuur_id):
         """SELECT DISTINCT b.id AS id, b.bestand AS bestand, b.naam AS naam,
                   COALESCE(i.omschrijving, '') AS bon, COALESCE(k.naam, '') AS klus
            FROM bijlagen b
-           JOIN regels r ON r.inkoop_id = b.inkoop_id
+           JOIN regels r ON b.inkoop_id IN (r.inkoop_id, r.bon_id)
            LEFT JOIN inkopen i ON i.id = b.inkoop_id
            LEFT JOIN klussen k ON k.id = b.klus_id
            WHERE r.factuur_id = ?
@@ -10551,6 +10683,89 @@ def _pdf_pad(factuur_id):
     return pad, pdf_bestandsnaam(factuur)
 
 
+def past_in_een_pdf(bon):
+    """Of een bon als pagina achter de rekening kan. Een PDF of een gewoon
+    plaatje wel; HEIC niet, want Pillow leest dat zonder extra pakket niet."""
+    ext = os.path.splitext(bon["pad"])[1].lower()
+    return ext == ".pdf" or ext in BIJLAGE_PLAATJES
+
+
+def rekening_met_bonnen(rekening_pad, bonnen, map_):
+    """Eén PDF: de rekening, daarna elke bon als eigen pagina('s).
+
+    Voor WhatsApp: daar stuur je één bestand, niet een rij losse foto's waar
+    de klant zelf de rekening tussen moet zoeken. pdfunite zit al in de
+    container voor de miniaturen; een PDF-bibliotheek erbij is niet nodig."""
+    delen = [rekening_pad]
+    for nummer, bon in enumerate(bonnen):
+        ext = os.path.splitext(bon["pad"])[1].lower()
+        if ext == ".pdf":
+            delen.append(bon["pad"])
+            continue
+        pagina = os.path.join(map_, f"bon-{nummer}.pdf")
+        with Image.open(bon["pad"]) as plaatje:
+            # Een telefoonfoto staat vaak alleen via EXIF rechtop.
+            ImageOps.exif_transpose(plaatje).convert("RGB").save(pagina, "PDF")
+        delen.append(pagina)
+    if len(delen) == 1:
+        return rekening_pad
+    uit = os.path.join(map_, "samen.pdf")
+    subprocess.run(["pdfunite", *delen, uit], check=True, timeout=60,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return uit
+
+
+@app.route("/factuur/<int:factuur_id>/sturen", methods=["GET", "POST"])
+def sturen(factuur_id):
+    """Kiezen hoe de rekening naar de klant gaat: per mail of via WhatsApp.
+
+    Mailen doet de app zelf (het bestaande controlescherm). Voor WhatsApp maakt
+    de app één PDF om te downloaden, met of zonder de bonnen erachter. Wie hem
+    downloadt om te versturen, stuurt hem: dus krijgt een concept hier zijn
+    nummer en gaat de rekening op verzonden, net als na een mail."""
+    conn = get_db()
+    factuur = conn.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
+    if factuur is None:
+        conn.close()
+        abort(404)
+    bonnen = meegestuurde_bonnen(conn, factuur_id)
+
+    if request.method == "GET":
+        conn.close()
+        for bon in bonnen:
+            bon["in_pdf"] = past_in_een_pdf(bon)
+        return render_template(
+            "sturen.html", factuur=factuur, naam=factuurnaam(factuur),
+            bonnen=bonnen, actief="index",
+        )
+
+    if request.form.get("bonnen") != "ja":
+        bonnen = []
+    bonnen = [b for b in bonnen if past_in_een_pdf(b)]
+    factuur = maak_definitief(conn, factuur_id)
+    if factuur["status"] == "concept":
+        conn.execute("UPDATE facturen SET status='verzonden' WHERE id=?", (factuur_id,))
+        conn.commit()
+    conn.close()
+    rekening_pad = maak_pdf(factuur_id)
+    naam = pdf_bestandsnaam(factuur)
+    with tempfile.TemporaryDirectory() as map_:
+        try:
+            pad = rekening_met_bonnen(rekening_pad, bonnen, map_)
+        except (OSError, subprocess.SubprocessError) as fout:
+            app.logger.warning("Rekening met bonnen samenvoegen mislukt: %s", fout)
+            melding("De bonnen konden niet in de PDF. Probeer het zonder bonnen, "
+                    "of stuur ze los mee.", "fout")
+            return redirect(url_for("sturen", factuur_id=factuur_id))
+        # Eerst in het geheugen: de tijdelijke map is weg zodra dit blok sluit.
+        with open(pad, "rb") as bestand:
+            data = io.BytesIO(bestand.read())
+    return zet_bestandskoppen(send_file(
+        data, mimetype="application/pdf", as_attachment=True,
+        download_name=veilige_downloadnaam(naam),
+    ))
+
+
 @app.route("/factuur/<int:factuur_id>/bekijk")
 def bekijk_pdf(factuur_id):
     """Toont de rekening in de browser zelf; in de zijbalk wordt het een download."""
@@ -10765,9 +10980,10 @@ def markeer_betaald(factuur_id):
             # Als automatische boeking, zodat "toch niet betaald" hem weer weghaalt
             # zonder aan je eigen deelbetalingen te komen.
             conn.execute(
-                """INSERT INTO betalingen (factuur_id, datum, bedrag, notitie, automatisch)
-                   VALUES (?, ?, ?, '', 1)""",
-                (factuur_id, vandaag().isoformat(), rest),
+                """INSERT INTO betalingen (factuur_id, datum, bedrag, notitie, automatisch, wijze)
+                   VALUES (?, ?, ?, '', 1, ?)""",
+                (factuur_id, vandaag().isoformat(), rest,
+                 WIJZE_VAN_METHODE.get(factuur["betaalmethode"], "")),
             )
         # Onthoud waar de rekening vandaan komt, zodat terugzetten geen gok is.
         conn.execute(
@@ -10875,13 +11091,14 @@ def betalingen(factuur_id):
             return redirect(url_for("betalingen", factuur_id=factuur_id))
 
         conn.execute(
-            """INSERT INTO betalingen (factuur_id, datum, bedrag, notitie, automatisch)
-               VALUES (?, ?, ?, ?, 0)""",
+            """INSERT INTO betalingen (factuur_id, datum, bedrag, notitie, automatisch, wijze)
+               VALUES (?, ?, ?, ?, 0, ?)""",
             (
                 factuur_id,
                 geldige_datum(request.form.get("datum")),
                 bedrag,
                 request.form.get("notitie", "").strip(),
+                betaalwijze(request.form.get("wijze")),
             ),
         )
         herzie_betaalstatus(conn, factuur_id)
@@ -10899,6 +11116,8 @@ def betalingen(factuur_id):
         "betalingen.html", factuur=factuur, naam=factuurnaam(factuur),
         betalingen=lijst, betaald=betaald,
         openstaand=round(factuur["totaal"] - betaald, 2),
+        betaalwijzen=BETAALWIJZEN,
+        standaard_wijze=WIJZE_VAN_METHODE.get(factuur["betaalmethode"], "bank"),
         vandaag=vandaag().isoformat(), actief="index",
     )
 
