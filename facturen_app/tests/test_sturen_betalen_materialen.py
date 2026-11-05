@@ -327,3 +327,12 @@ def test_herbouw_van_regels_houdt_de_koppeling_met_de_bon(db, post):
     db.execute("PRAGMA foreign_keys=ON")
     assert db.execute("SELECT COUNT(*) FROM regels WHERE ? IN (inkoop_id, bon_id)",
                       (inkoop_id,)).fetchone()[0] == 2
+
+
+def test_kaarten_op_sturen_en_betalingen_staan_niet_tegen_elkaar(client, maak_factuur):
+    """.card heeft geen eigen marge; de ruimte komt van de .cards eromheen.
+    Zonder die omhulling plakten de kaarten aan elkaar."""
+    factuur_id = maak_factuur()
+    for url in (f"/factuur/{factuur_id}/sturen", f"/factuur/{factuur_id}/betalingen"):
+        pagina = client.get(url).data.decode()
+        assert pagina.index('<div class="cards">') < pagina.index('<div class="card">')
