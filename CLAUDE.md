@@ -110,6 +110,12 @@ met `regels.bon_id`. `_herbouw_regels` neemt `bon_id` mee. In het formulier en i
 index 6), zodat de controles op klant en "staat al elders" voor allebei
 gelden. Pas `bewaar_regels` splitst ze.
 
+Sinds 2.7.0 zijn de materialen ook de prijs van de bon: `herreken_bon` zet
+`inkopen.bedrag` op hun som, per regel eerst naar centen. Roep hem aan na
+elke wijziging aan `inkoop_materialen`. Een bon met `factuur_id` ligt vast
+(`_bon_vast`): geen materialen erbij, eraf of anders, en geen herrekening,
+want de rekening is met het oude bedrag gemaakt.
+
 ### Valkuil bij de tests
 
 `conftest.py` maakt de database schoon tussen tests via de lijst `TABELLEN`. **Voeg je een

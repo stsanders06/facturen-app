@@ -3,6 +3,16 @@
    waarin het toevallig is opgeschreven.
    Zonder script verstuurt elke knop gewoon het formulier. #}
 <div class="takenlijst" id="taken" data-klus="{{ klus.id }}">
+  {#- Bovenaan en dicht tot je op + Taak tikt, net als bij dagen, notities en
+      inkopen. Na een taak blijft het veld open: vaak volgt er nog een. -#}
+  <form method="post" class="taak-nieuw invoerform" action="{{ url_for('taak_erbij', klus_id=klus.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="text" name="tekst" maxlength="{{ taak_max_tekens }}"
+           placeholder="Nog een taak, Enter voegt toe"
+           aria-label="Nieuwe taak" enterkeyhint="done"
+           {% if request.args.get('taak') %}autofocus{% endif %}>
+  </form>
+  <p class="hint invoerleeg" id="taken-leeg"{% if taken %} hidden{% endif %}>Nog geen taken bij deze klus.</p>
   <button type="button" class="btn btn-text taken-verberg" hidden>Verberg afgevinkte</button>
   <ul class="taken">
     {% for t in taken %}
@@ -49,11 +59,4 @@
     </li>
     {% endfor %}
   </ul>
-  <form method="post" class="taak-nieuw" action="{{ url_for('taak_erbij', klus_id=klus.id) }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <input type="text" name="tekst" maxlength="{{ taak_max_tekens }}"
-           placeholder="Nog een taak, Enter voegt toe"
-           aria-label="Nieuwe taak" enterkeyhint="done"
-           {% if request.args.get('taak') %}autofocus{% endif %}>
-  </form>
 </div>

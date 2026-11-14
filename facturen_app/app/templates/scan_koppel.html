@@ -177,9 +177,13 @@
       <div class="field{{ stand('totaal', gelezen and gelezen.totaal is not none) }}">
         <label for="bedrag">Totaalbedrag</label>
         <input type="number" step="any" id="bedrag" name="bedrag" inputmode="decimal"
-               placeholder="0,00"
+               placeholder="0,00" data-materiaal-totaal
                value="{{ '%.2f'|format(gelezen.totaal) if gelezen and gelezen.totaal is not none }}"
                {{- waarom('totaal', 'Het totaal is niet zeker. Vergelijk het met de bon.') }}>
+        <p class="hint" data-materiaal-hint hidden>De som van de materialen.</p>
+        <p class="hint materiaal-verschil" data-materiaal-verschil role="status" hidden></p>
+        {#- Voor de correctie-log: het totaal op de bon zelf, niet de som. -#}
+        <input type="hidden" name="bon_totaal" value="">
       </div>
       {% else %}
       <div class="field">
@@ -327,6 +331,8 @@
             maakRij(r.omschrijving, r.aantal, r.stukprijs);
           });
         }
+        // De gelezen regels zijn de prijs van de bon; het totaal volgt ze.
+        werkMateriaalTotalenBij();
         // Niet weghalen maar omzetten: een regel die verdwijnt laat je in het
         // ongewisse of er iets gebeurd is.
         bezig.classList.add('klaar');

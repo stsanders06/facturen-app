@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.7.0
+
+**Materialen bepalen nu de prijs van een bon**, en zijn achteraf te wijzigen.
+
+- Heeft een bon materialen, dan is het totaal de som daarvan: aantal maal
+  prijs, bij elkaar opgeteld. Haal je een materiaal weg of zet je er een bij,
+  dan verandert het totaal mee. Een bon zonder materialen houdt het bedrag dat
+  je zelf intypt.
+- Tellen de materialen op tot iets anders dan het totaal op de bon, dan zie
+  je een oranje waarschuwing. Vaak zit er korting op de bon: zet die erbij
+  als materiaal met een min-prijs.
+- Bonnen die je al had zijn bij deze update meteen herrekend. Een bon die al
+  op een rekening staat is niet aangeraakt.
+- Materialen pas je aan met **Bewerken** bij de bon: omschrijving, aantal en
+  prijs staan dan in het formulier.
+- Staat een bon op een rekening, dan liggen de materialen vast, net als een
+  gewerkte dag. De rekening is ermee gemaakt; haal de bon daar eerst af.
+- De vakjes voor een nieuw materiaal staan niet meer standaard open. Tik op
+  **+ Materiaal** en bewaar met **Bewaren**.
+- **Taken** ziet er nu uit als de andere kaarten: een **+ Taak**-knop
+  rechtsboven en een dun lijntje tussen de taken.
+
 ## 2.6.0
 
 **Sturen**, **betalen** en **bonnen met materialen** zijn duidelijker.
