@@ -348,6 +348,8 @@
   .row { display: flex; gap: 14px; flex-wrap: wrap; }
   .row > * { flex: 1 1 200px; min-width: 0; }
   .hint { color: var(--text-secondary); font-size: 13px; margin: 0; }
+  /* Oranje, net als een veld dat je moet nakijken: geen fout, wel kijken. */
+  .hint.materiaal-verschil { color: var(--nakijk); margin-top: 4px; }
 
   /* ---------- Knoppen ---------- */
   .btn {
@@ -2117,6 +2119,53 @@
       veld.addEventListener('blur', sluit);
     });
   })();
+
+  // Een bon met materialen kost wat de materialen samen kosten. De server
+  // rekent het zelf ook uit; dit laat alleen al zien wat het wordt. Een rij
+  // zonder omschrijving telt niet mee, die bewaart de server ook niet.
+  function werkMateriaalTotalenBij() {
+    document.querySelectorAll('[data-materiaal-totaal]').forEach(function (veld) {
+      var form = veld.form;
+      if (!form) return;
+      var centen = 0, rijen = 0;
+      form.querySelectorAll('[name="materiaal_omschrijving"]').forEach(function (oms) {
+        if (!oms.value.trim()) return;
+        var rij = oms.closest('.materiaal-rij');
+        var aantal = parseFloat(rij.querySelector('[name="materiaal_aantal"]').value) || 1;
+        var prijs = parseFloat(rij.querySelector('[name="materiaal_prijs"]').value) || 0;
+        centen += Math.round(aantal * prijs * 100);
+        rijen++;
+      });
+      // Wat er stond voordat de materialen het overnamen: het totaal dat je
+      // zelf intypte of dat van de bon is gelezen. Dat is wat je betaald hebt.
+      if (!veld.readOnly && veld.value) veld.dataset.opDeBon = veld.value;
+      var hint = form.querySelector('[data-materiaal-hint]');
+      if (hint) hint.hidden = !rijen;
+      if (veld.dataset.materiaalTotaal !== 'altijd') veld.readOnly = rijen > 0;
+      if (rijen) veld.value = (centen / 100).toFixed(2);
+      var opDeBon = Math.round(parseFloat(veld.dataset.opDeBon) * 100);
+      var bewaar = form.querySelector('[name="bon_totaal"]');
+      if (bewaar) bewaar.value = isNaN(opDeBon) ? '' : (opDeBon / 100).toFixed(2);
+      // Korting staat op een bon als aparte regel, niet bij een artikel. Wie
+      // alleen de artikelen overneemt, rekent de klant dan te veel.
+      var verschil = form.querySelector('[data-materiaal-verschil]');
+      if (!verschil) return;
+      verschil.hidden = !rijen || isNaN(opDeBon) || opDeBon === centen;
+      if (!verschil.hidden) {
+        var euro = function (c) {
+          return '€\u00a0' + (c / 100).toLocaleString('nl-NL',
+            { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        };
+        verschil.textContent = 'Op de bon staat ' + euro(opDeBon)
+          + ', de materialen zijn samen ' + euro(centen) + '. Zit er korting op'
+          + ' de bon? Zet die erbij als materiaal met een min-prijs.';
+      }
+    });
+  }
+  document.addEventListener('input', werkMateriaalTotalenBij);
+  // Een kruisje haalt een rij weg zonder input-gebeurtenis.
+  document.addEventListener('click', function () { setTimeout(werkMateriaalTotalenBij, 0); });
+  werkMateriaalTotalenBij();
 </script>
 
 {% include "_lichtbak.html" %}

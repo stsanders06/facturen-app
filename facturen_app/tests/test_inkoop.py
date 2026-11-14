@@ -425,8 +425,9 @@ def _tegel(html, tegel_id):
 
 def test_bovenaan_de_klus_staat_wat_de_bonnen_opleveren(post, db, client, klus_id):
     """Naast de urenopbrengst staat de som van de aankopen bij deze klus: wat je
-    terugkrijgt op de rekening. Materiaalregels en bonnen van een andere klus
-    tellen niet mee; een bon die al op een rekening staat nog wel."""
+    terugkrijgt op de rekening. Bij een bon met materialen tellen die (sinds
+    2.7.0 zijn zij het bedrag); bonnen van een andere klus tellen niet mee,
+    een bon die al op een rekening staat nog wel."""
     post(f"/klus/{klus_id}/dag", {"datum": "2026-08-14", "van": "09:00", "tot": "17:00"})
     post(f"/klus/{klus_id}/inkoop", {"omschrijving": "Gamma", "bedrag": "24,95"})
     post(f"/klus/{klus_id}/inkoop", {"omschrijving": "Praxis", "bedrag": "10,10"})
@@ -442,17 +443,16 @@ def test_bovenaan_de_klus_staat_wat_de_bonnen_opleveren(post, db, client, klus_i
         "SELECT id FROM klussen WHERE naam='Andere klus'").fetchone()[0]
     post(f"/klus/{andere}/inkoop", {"omschrijving": "Hornbach", "bedrag": "999"})
 
-    assert facturen.bonnen_totaal(facturen.inkopen_van(db, klus_id)) == 35.05
+    assert facturen.bonnen_totaal(facturen.inkopen_van(db, klus_id)) == 210.10
 
     pagina = client.get(f"/klus/{klus_id}").data.decode()
     bonnen = _tegel(pagina, "tegel-bonnen")
-    assert "35,05" in bonnen
+    assert "210,10" in bonnen
     assert "terug te krijgen" in bonnen
     assert "999" not in bonnen
-    assert "200" not in bonnen
     # 8 uur × € 45 staat apart, in de urentegel.
     assert "360,00" in _tegel(pagina, "tegel-bedrag")
-    assert "35,05" not in _tegel(pagina, "tegel-bedrag")
+    assert "210,10" not in _tegel(pagina, "tegel-bedrag")
 
 
 def test_zonder_bonnen_staat_er_nul_bovenaan_de_klus(client, klus_id):

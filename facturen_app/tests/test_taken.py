@@ -660,6 +660,8 @@ def test_een_net_toegevoegde_lange_taak_groeit_meteen(client, post, db, klus_id)
         pagina.route("http://facturen.test/**", afhandelen)
         try:
             pagina.set_content(html)
+            # Sinds 2.7.0 staat het veld dicht tot je op + Taak tikt.
+            pagina.locator(".invoerkaart:has(#taken) .invoer-plus").click()
             nieuw = pagina.locator(".taak-nieuw input[name=tekst]")
             nieuw.fill(lange)
             nieuw.press("Enter")

@@ -222,7 +222,8 @@
   .invoer-plus { min-height: 44px; }
   /* Het toevoegformulier is dicht tot je op + tikt. Zonder JavaScript blijft
      het open, anders kun je niets toevoegen. */
-  html.js .invoerkaart:not(.is-toevoegen) > .invoerform { display: none; }
+  html.js .invoerkaart:not(.is-toevoegen) > .invoerform,
+  html.js .invoerkaart:not(.is-toevoegen) .takenlijst > .invoerform { display: none; }
   html.js .dag-samenvatting,
   html.js [id$="-tekst"] { cursor: pointer; }
   html.js .dag-formulier { display: none; }
@@ -433,6 +434,14 @@
     align-items: center;
     margin-top: 10px;
   }
+  /* Dicht tot je op + Materiaal tikt: open stonden er bij elke bon drie lege
+     vakjes. Zonder JavaScript blijft hij open, anders kun je niets toevoegen. */
+  html.js .invoerrij .mat-toevoegen:not(.is-open) { display: none; }
+  /* Tijdens Bewerken staan de materialen in het formulier; de lijst eronder
+     zou ze een tweede keer tonen. */
+  .invoerrij .tekst-form:not([hidden]) ~ .materialen,
+  .invoerrij .tekst-form:not([hidden]) ~ .mat-toevoegen { display: none; }
+  html:not(.js) [data-mat-open] { display: none; }
   .invoerrij .mat-toevoegen input[name="omschrijving"] { width: 9rem; flex: 1 1 9rem; }
   .invoerrij .mat-toevoegen input[name="aantal"] { width: 4rem; }
   .invoerrij .mat-toevoegen input[name="prijs"] { width: 5rem; }
@@ -516,14 +525,18 @@
     color: var(--text-secondary);
     font-size: 13px;
   }
-  .taken { list-style: none; margin: 0; padding: 0; min-width: 0; }
+  /* Zelfde lijntjes als een invoerrij: de bovenrand van de eerste taak is
+     het lijntje onder het formulier. */
+  .taken { list-style: none; margin: 16px 0 0; padding: 0; min-width: 0; }
   .taak {
     display: grid;
     grid-template-columns: 44px minmax(0, 1fr);
     column-gap: 8px;
     row-gap: 0;
     align-items: center;
-    margin: 0 0 4px;
+    margin: 0;
+    padding: 12px 0;
+    border-top: 1px solid var(--divider);
     min-width: 0;
   }
   .taak-vink, .taak-tekst, .taak-nieuw { margin: 0; min-width: 0; }
@@ -591,7 +604,7 @@
   .taak-knoppen .btn:hover { background: var(--neutral-soft); color: var(--text); }
   .taak-knoppen .taak-prullen svg { display: block; width: 18px; height: 18px; }
   .takenlijst.is-ingeklapt .taak.is-klaar { display: none; }
-  .taak-nieuw { margin-top: 4px; }
+  .taak-nieuw { margin: 0; }
 
   @media (max-width: 620px) {
     /* Twee foto's naast elkaar in plaats van één: met 160px als ondergrens paste de
@@ -633,8 +646,10 @@
       min-height: 44px;
       display: inline-flex;
       align-items: center;
-      padding-left: 12px;
-      padding-right: 12px;
+      /* 8 en niet 12: met + Materiaal erbij staan er drie knoppen, en op 390px
+         zakte + Bestand anders naar een eigen regel. Hoog blijft 44px. */
+      padding-left: 8px;
+      padding-right: 8px;
     }
   }
 
@@ -1090,7 +1105,7 @@
     {% endif %}
   {% endcall %}
 
-  {% call invoerkaart('Taken') %}
+  {% call invoerkaart('Taken', plus='Taak') %}
     {#- Eén lijst voor de klus, onder de notities. De teller stond tot 2.2.1 in
         de notitiekaart; daar hoort hij niet meer, want de taken staan er niet
         meer in. Eén teller: per notitie stond er vroeger ook een, en dat werd
@@ -1112,7 +1127,9 @@
         <div class="field">
           <label for="inkoop-bedrag">Totaalbedrag</label>
           <input type="number" step="any" id="inkoop-bedrag" name="bedrag"
-                 placeholder="0,00">
+                 placeholder="0,00" data-materiaal-totaal>
+          <p class="hint" data-materiaal-hint hidden>De som van de materialen.</p>
+        <p class="hint materiaal-verschil" data-materiaal-verschil role="status" hidden></p>
         </div>
       </div>
       <div class="materiaal-rijen" id="inkoop-materialen">
@@ -1161,11 +1178,34 @@
             </div>
             <div class="field">
               <label for="inkoop-bedrag-{{ i.id }}">Totaalbedrag</label>
-              <input type="number" step="any" id="inkoop-bedrag-{{ i.id }}" name="bedrag"
-                     aria-label="Totaalbedrag"
+              {#- Met materialen is het totaal hun som. Het veld heeft dan geen
+                  naam: de server rekent het zelf uit, wat hier ook staat. -#}
+              <input type="number" step="any" id="inkoop-bedrag-{{ i.id }}"
+                     {%- if i.materialen %} readonly data-materiaal-totaal="altijd"{% else %} name="bedrag"{% endif %}
                      value="{{ '%.2f'|format(i.bedrag or 0) }}">
+              {% if i.materialen %}<p class="hint">De som van de materialen.</p>{% endif %}
             </div>
           </div>
+          {% if i.materialen and not i.factuur_id %}
+          <div class="materiaal-rijen">
+            {% for m in i.materialen %}
+            <div class="materiaal-rij">
+              <input type="hidden" name="materiaal_id" value="{{ m.id }}">
+              <div class="field mat-oms"><label for="mat-oms-{{ m.id }}">Materiaal</label>
+                <input type="text" id="mat-oms-{{ m.id }}" name="materiaal_omschrijving"
+                       value="{{ m.omschrijving }}"></div>
+              <div class="field"><label for="mat-aantal-{{ m.id }}">Aantal</label>
+                <input type="number" step="any" id="mat-aantal-{{ m.id }}" name="materiaal_aantal"
+                       value="{{ '%g'|format(m.aantal or 1) }}"></div>
+              <div class="field"><label for="mat-prijs-{{ m.id }}">Prijs</label>
+                <input type="number" step="any" id="mat-prijs-{{ m.id }}" name="materiaal_prijs"
+                       value="{{ '%.2f'|format(m.prijs or 0) }}"></div>
+            </div>
+            {% endfor %}
+          </div>
+          {% elif i.materialen %}
+          <p class="hint">Deze bon staat op een rekening. De materialen liggen vast.</p>
+          {% endif %}
           <div class="tekst-form-knoppen">
             <button type="button" class="btn btn-text" data-stopt="inkoop-{{ i.id }}">Annuleren</button>
             <button type="submit" class="btn">Opslaan</button>
@@ -1213,10 +1253,11 @@
         <ul class="materialen">
           {% for m in i.materialen %}
           <li>
-            <span>{{ m.omschrijving }}{% if m.aantal and m.aantal != 1 %} × {{ '%g'|format(m.aantal) }}{% endif %}{% if m.prijs %} · €&nbsp;{{ '%.2f'|format(m.prijs) }}{% endif %}</span>
+            <span>{{ m.omschrijving }}{% if m.aantal and m.aantal != 1 %} × {{ '%g'|format(m.aantal) }}{% endif %}{% if m.prijs %} · €&nbsp;{{ m.prijs|bedrag }}{% endif %}</span>
             {#- Een lange naam in het label maakt de knop onbruikbaar voor
                 een schermlezer. De vraag bij het verwijderen houdt de hele naam. -#}
             {% set oms = (m.omschrijving[:59] ~ '…') if m.omschrijving|length > 60 else m.omschrijving %}
+            {% if not i.factuur_id %}
             <form method="post" class="mat-weg"
                   action="{{ url_for('inkoop_materiaal_verwijder', materiaal_id=m.id) }}"
                   data-bevestig="{{ m.omschrijving }} verwijderen?">
@@ -1227,24 +1268,32 @@
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M7 7l1 12h8l1-12"/></svg>
               </button>
             </form>
+            {% endif %}
           </li>
           {% endfor %}
         </ul>
         {% endif %}
 
+        {% if not i.factuur_id %}
         <form method="post" action="{{ url_for('inkoop_materiaal_erbij', inkoop_id=i.id) }}"
-              class="mat-toevoegen">
+              class="mat-toevoegen" id="mat-erbij-{{ i.id }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="text" name="omschrijving" placeholder="Materiaal"
                  aria-label="Materiaal bij deze bon">
           <input type="number" step="any" name="aantal" placeholder="1" aria-label="Aantal">
           <input type="number" step="any" name="prijs" placeholder="€" aria-label="Prijs">
-          <button type="submit" class="btn btn-text">+ Materiaal</button>
+          <button type="submit" class="btn btn-outline">Bewaren</button>
         </form>
+        {% endif %}
 
         <div class="invoerrij-acties">
           <button type="button" class="btn btn-text" data-bewerkt="inkoop-{{ i.id }}">
             Bewerken</button>
+          {% if not i.factuur_id %}
+          <button type="button" class="btn btn-text" data-mat-open="mat-erbij-{{ i.id }}"
+                  aria-controls="mat-erbij-{{ i.id }}" aria-expanded="false">
+            + Materiaal</button>
+          {% endif %}
           <form method="post" enctype="multipart/form-data" class="erbij-form"
                 action="{{ url_for('bijlage_erbij', klus_id=klus.id) }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -1545,6 +1594,15 @@
     }
   })();
 
+  document.querySelectorAll('[data-mat-open]').forEach(function (knop) {
+    knop.addEventListener('click', function () {
+      var form = document.getElementById(knop.dataset.matOpen);
+      var open = form.classList.toggle('is-open');
+      knop.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (open) form.querySelector('[name="omschrijving"]').focus();
+    });
+  });
+
   (function () {
     var lijst = document.getElementById('inkoop-materialen');
     var knop = document.getElementById('materiaal-erbij');
@@ -1670,6 +1728,8 @@
         klus.textContent = gegevens.voortgang || '';
         klus.hidden = !gegevens.totaal;
       }
+      var leeg = document.getElementById('taken-leeg');
+      if (leeg) leeg.hidden = !!gegevens.totaal;
     }
     function zetLabels(rij, tekst) {
       var vink = rij.querySelector('.vink');

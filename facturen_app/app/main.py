@@ -51,7 +51,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "2.6.0"
+VERSIE = os.environ.get("ADDON_VERSION") or "2.7.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -2232,6 +2232,15 @@ def init_db():
     # ooit is opgeschreven.
     _taken_naar_de_klus(conn)
 
+    # Sinds 2.7.0 is de som van de materialen het bedrag van een bon. Tot dan
+    # waren ze een notitie, en stond er vaak een ander totaal. Een bon op een
+    # rekening blijft staan: die rekening is met het oude bedrag gemaakt.
+    for bon in conn.execute(
+        """SELECT DISTINCT inkoop_id FROM inkoop_materialen
+           WHERE inkoop_id IN (SELECT id FROM inkopen WHERE factuur_id IS NULL)"""
+    ).fetchall():
+        herreken_bon(conn, bon["inkoop_id"])
+
     conn.commit()
     conn.close()
 
@@ -2894,6 +2903,12 @@ def prullenbak_terug(prullenbak_id):
         gemist = _herstel_koppelingen(conn, inhoud.get("koppelingen") or {})
         _herstel_uur_regels(conn, inhoud.get("koppelingen") or {})
         _herstel_inkoop_regels(conn, inhoud.get("koppelingen") or {})
+        # Een teruggehaald materiaal telt weer mee in het bedrag van zijn bon.
+        for mat in inhoud["rijen"].get("inkoop_materialen") or []:
+            bon = conn.execute("SELECT factuur_id FROM inkopen WHERE id=?",
+                               (mat.get("inkoop_id"),)).fetchone()
+            if bon is not None and not bon["factuur_id"]:
+                herreken_bon(conn, mat["inkoop_id"])
         conn.execute("DELETE FROM prullenbak WHERE id=?", (prullenbak_id,))
         conn.commit()
     except sqlite3.IntegrityError:
@@ -4424,8 +4439,8 @@ def bonnen_totaal(inkopen):
     """Som van de aankoopbedragen bij een klus.
 
     Dat is wat je zelf betaalt en via de rekening terugkrijgt. Alleen
-    inkopen.bedrag telt: de materiaalregels eronder zijn een notitie, geen
-    tweede bedrag, en een bon die al op een rekening staat hoort er nog bij.
+    inkopen.bedrag telt; bij een bon met materialen is dat al hun som (zie
+    herreken_bon). Een bon die al op een rekening staat hoort er nog bij.
     """
     return round(sum(float(rij["bedrag"] or 0) for rij in inkopen), 2)
 
@@ -4943,6 +4958,33 @@ def _lees_bedrag(waarde):
         return 0.0
 
 
+def herreken_bon(conn, inkoop_id):
+    """Een bon met materialen kost wat de materialen samen kosten.
+
+    Per regel eerst naar centen, net als op de rekening: daar komt elk
+    materiaal als eigen regel, en het bedrag bij de klus hoort daar gelijk
+    aan te zijn. Zonder materialen blijft het ingetypte totaal staan."""
+    materialen = conn.execute(
+        "SELECT aantal, prijs FROM inkoop_materialen WHERE inkoop_id=?", (inkoop_id,)
+    ).fetchall()
+    if not materialen:
+        return
+    som = sum(rond_centen((m["aantal"] or 0) * (m["prijs"] or 0)) for m in materialen)
+    conn.execute("UPDATE inkopen SET bedrag=? WHERE id=?", (round(som, 2), inkoop_id))
+
+
+def _bon_vast(conn, rij):
+    """Een bon op een rekening: de materialen liggen dan vast.
+
+    De rekening heeft er eigen regels van gemaakt. Wijzig je hier een
+    materiaal, dan lopen de bon en de rekening stil uit elkaar."""
+    if not rij["factuur_id"]:
+        return False
+    melding("Deze bon staat op een rekening. Haal hem daar eerst af om de "
+            "materialen te wijzigen.", "fout")
+    return True
+
+
 def _bewaar_materialen(conn, inkoop_id):
     """De materiaalregels van het formulier bij de bon zetten.
 
@@ -4996,6 +5038,7 @@ def inkoop_erbij(klus_id):
     ).lastrowid
 
     _bewaar_materialen(conn, inkoop_id)
+    herreken_bon(conn, inkoop_id)
 
     erbij, geweigerd = bewaar_bestanden(
         conn, klus_id, bestanden, inkoop_id=inkoop_id)
@@ -5025,10 +5068,39 @@ def inkoop_bewerk(inkoop_id):
         melding("Geef de bon een omschrijving.", "fout")
         return redirect(url_for("klus", klus_id=rij["klus_id"]))
 
+    # Bij een bon met materialen staat er geen totaalveld in het formulier:
+    # dat bedrag volgt uit de materialen. Ontbreekt het veld, dan blijft het.
+    bedrag = (_lees_bedrag(request.form["bedrag"]) if "bedrag" in request.form
+              else rij["bedrag"])
     conn.execute(
         "UPDATE inkopen SET omschrijving=?, bedrag=? WHERE id=?",
-        (omschrijving, _lees_bedrag(request.form.get("bedrag")), inkoop_id),
+        (omschrijving, bedrag, inkoop_id),
     )
+    # Materialen wijzigen gaat mee met Opslaan. Alleen die van deze bon: een
+    # id uit een ander formulier mag hier niets aanraken.
+    materiaal_ids = request.form.getlist("materiaal_id")
+    if materiaal_ids and not _bon_vast(conn, rij):
+        for mat_id, oms, aantal, prijs in zip_longest(
+            materiaal_ids,
+            request.form.getlist("materiaal_omschrijving"),
+            request.form.getlist("materiaal_aantal"),
+            request.form.getlist("materiaal_prijs"),
+            fillvalue="",
+        ):
+            oms = (oms or "").strip()
+            # Een leeg gemaakte omschrijving is geen verwijderen: daar is het
+            # prullenbakje voor, met de vraag erbij en de weg terug.
+            if not oms:
+                continue
+            conn.execute(
+                """UPDATE inkoop_materialen SET omschrijving=?, aantal=?, prijs=?
+                   WHERE id=? AND inkoop_id=?""",
+                (oms, _lees_bedrag(aantal) or 1.0, _lees_bedrag(prijs),
+                 mat_id, inkoop_id),
+            )
+    # Een bon op een rekening houdt zijn bedrag: dat is wat er gefactureerd is.
+    if not rij["factuur_id"]:
+        herreken_bon(conn, inkoop_id)
     erbij, geweigerd = bewaar_bestanden(
         conn, rij["klus_id"], request.files.getlist("bijlage"), inkoop_id=inkoop_id)
     conn.commit()
@@ -5089,6 +5161,9 @@ def inkoop_materiaal_erbij(inkoop_id):
     if rij is None:
         conn.close()
         abort(404)
+    if _bon_vast(conn, rij):
+        conn.close()
+        return redirect(url_for("klus", klus_id=rij["klus_id"]))
     omschrijving = (request.form.get("omschrijving") or "").strip()
     if not omschrijving:
         conn.close()
@@ -5101,6 +5176,7 @@ def inkoop_materiaal_erbij(inkoop_id):
          _lees_bedrag(request.form.get("aantal")) or 1.0,
          _lees_bedrag(request.form.get("prijs"))),
     )
+    herreken_bon(conn, inkoop_id)
     conn.commit()
     conn.close()
     melding("Materiaal bij de bon gezet.")
@@ -5116,10 +5192,16 @@ def inkoop_materiaal_verwijder(materiaal_id):
         conn.close()
         abort(404)
     inkoop = conn.execute(
-        "SELECT klus_id FROM inkopen WHERE id=?", (rij["inkoop_id"],)).fetchone()
+        "SELECT klus_id, factuur_id FROM inkopen WHERE id=?", (rij["inkoop_id"],)).fetchone()
+    if inkoop is not None and _bon_vast(conn, inkoop):
+        conn.close()
+        return redirect(url_for("klus", klus_id=inkoop["klus_id"]))
     prullenbak_id = naar_prullenbak(
         conn, f"Materiaal {rij['omschrijving']}", {"inkoop_materialen": [rij]})
     conn.execute("DELETE FROM inkoop_materialen WHERE id=?", (materiaal_id,))
+    # Het laatste materiaal weg laat het bedrag staan zoals het was: dat is de
+    # som van wat er stond, en een bon van € 0 is zelden wat je bedoelt.
+    herreken_bon(conn, rij["inkoop_id"])
     conn.commit()
     conn.close()
     melding(f"{rij['omschrijving']} verwijderd.", knop=terugknop(prullenbak_id))
@@ -6857,6 +6939,7 @@ def _koppel_als_bon(conn, rij):
         (klus["id"], omschrijving, bedrag, wanneer),
     ).lastrowid
     _bewaar_materialen(conn, inkoop_id)
+    herreken_bon(conn, inkoop_id)
     if not _scan_naar_bijlage(conn, rij, klus["id"], inkoop_id=inkoop_id):
         conn.rollback()
         conn.close()
@@ -6865,8 +6948,12 @@ def _koppel_als_bon(conn, rij):
         return redirect(url_for("scans"))
     conn.commit()
     conn.close()
+    # Het bedrag is sinds 2.7.0 de som van de materialen. Voor de log telt het
+    # totaal dat op de bon staat: daar wordt de lezer op afgerekend.
+    totaal_op_bon = (_lees_bedrag(request.form["bon_totaal"])
+                     if (request.form.get("bon_totaal") or "").strip() else bedrag)
     _log_correctie(rij, gelezen,
-                   {"omschrijving": omschrijving, "datum": wanneer, "bedrag": bedrag})
+                   {"omschrijving": omschrijving, "datum": wanneer, "bedrag": totaal_op_bon})
     melding(f"Scan bij de bon '{omschrijving}' gezet.")
     return redirect(url_for("klus", klus_id=klus["id"]))
 
