@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.7.1
+
+**Marges en witruimte rechtgezet**, vooral op de telefoon.
+
+- Een regel op een rekening of offerte openklikken: "Nieuwe regel", het
+  bedrag en het kruisje staan niet meer tegen de rand van het witte vlak.
+- Bij een nieuwe klant op een rekening of offerte zit er weer ruimte tussen
+  Klantnaam, Adres en E-mailadres.
+- Geen rand meer om een rand bij de knoppen onderaan: nieuwe rekening,
+  nieuwe offerte, klanten importeren, mailen en Klus starten.
+- Betalingen: een bedrag breekt niet meer af na het euroteken.
+- Aanbetaling: de uitleg onder het percentage plakt niet meer tegen het
+  volgende veld, en de velden zien eruit als op de andere formulieren.
+- Klantpagina: Betaald, Betalingen en PDF passen weer op één regel.
+- Klussen: op een heel smal scherm schuift het bedrag in het overzicht naar
+  de volgende regel in plaats van tegen de rand.
+
 ## 2.7.0
 
 **Materialen bepalen nu de prijs van een bon**, en zijn achteraf te wijzigen.

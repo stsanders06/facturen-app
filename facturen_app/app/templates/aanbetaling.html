@@ -24,17 +24,23 @@
   <form method="post" action="{{ url_for('offerte_aanbetaling', offerte_id=offerte.id) }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-    <label for="percentage">Hoeveel procent vooraf</label>
-    <input type="text" inputmode="decimal" id="percentage" name="percentage" value="30" required>
-    <p class="hint" id="uitkomst">30% van &euro; {{ offerte.totaal|bedrag }}</p>
-
-    <label for="omschrijving" style="margin-top:16px">Wat er op de rekening komt te staan</label>
-    <input type="text" id="omschrijving" name="omschrijving"
-           placeholder="Aanbetaling 30% van offerte {{ offerte.nummer }}">
-    <p class="hint">Laat je dit leeg, dan vult de app het bovenstaande in.</p>
-
-    <div style="margin-top:20px">
-      <button type="submit" class="btn">Concept-rekening maken</button>
+    {# .fields zoals op de andere formulieren. Losse labels zijn inline, en
+       daar deed margin-top niets: de uitleg plakte tegen het volgende label. #}
+    <div class="fields">
+      <div class="field">
+        <label for="percentage">Hoeveel procent vooraf</label>
+        <input type="text" inputmode="decimal" id="percentage" name="percentage" value="30" required>
+        <p class="hint" id="uitkomst">30% van &euro; {{ offerte.totaal|bedrag }}</p>
+      </div>
+      <div class="field">
+        <label for="omschrijving">Wat er op de rekening komt te staan</label>
+        <input type="text" id="omschrijving" name="omschrijving"
+               placeholder="Aanbetaling 30% van offerte {{ offerte.nummer }}">
+        <p class="hint">Laat je dit leeg, dan vult de app het bovenstaande in.</p>
+      </div>
+      <div>
+        <button type="submit" class="btn">Concept-rekening maken</button>
+      </div>
     </div>
   </form>
 </div>

@@ -69,7 +69,10 @@
   .rekening .rechts {
     display: flex;
     align-items: center;
-    gap: 14px;
+    /* Een tekstknop heeft zelf al 14px opvulling per kant. Met 14px gap
+       ertussen stond er 42px tussen twee woorden, paste "PDF" op een telefoon
+       niet meer en kwam hij los op een regel met een gat erboven. */
+    gap: 0 4px;
     flex-wrap: wrap;
     /* Boven de kaartlink, anders vangt die de knoppen af. */
     position: relative;

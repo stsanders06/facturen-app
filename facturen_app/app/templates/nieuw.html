@@ -152,7 +152,10 @@
       column-gap: 8px;
       row-gap: 0;
       align-items: baseline;
-      padding: 0;
+      /* Open krijgt dit kopje een witte achtergrond. Met padding 0 plakten
+         "Nieuwe regel", het bedrag en "1×" dan tegen de rand. Dicht en open
+         dezelfde binnenmarge, zodat de tekst niet verspringt bij het openen. */
+      padding: 8px;
       min-height: 0;
     }
     /* De kinderen doen mee in het raster, anders centreert het kruisje op
@@ -288,6 +291,11 @@
     scroll-margin-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
   }
   form.cards .indienen {
+    /* De gap van .cards geeft al de afstand tot de kaart erboven. */
+    margin-top: 0;
+    /* Hier altijd onderaan, zoals toen hij nog in een kaart stond. Zwevend
+       over een lang formulier dekte hij de velden af tijdens het invullen. */
+    position: static;
     scroll-margin-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   }
   .menu-uitleg {
@@ -358,6 +366,9 @@
   /* Bestaande klant: gegevens ingeklapt achter een korte samenvatting */
   #klant-gegevens[hidden],
   #klant-samenvatting[hidden] { display: none; }
+  /* Deze div staat binnen .fields, dus de gap van .fields kwam alleen erbuiten.
+     Erbinnen plakten Klantnaam, Adres en E-mailadres dan op elkaar. */
+  #klant-gegevens { display: flex; flex-direction: column; gap: 16px; }
   .klant-samenvatting {
     display: flex;
     align-items: center;
@@ -716,17 +727,15 @@
     </div>
   </section>
 
-  <section class="card">
-    <div class="fields">
-      <div class="indienen">
-        <a class="btn btn-outline" href="{{ url_for('offertes') if is_offerte else url_for('index') }}">Annuleren</a>
-        <button type="submit" class="btn">
-          {% if factuur %}Wijzigingen opslaan
-          {%- else %}{{ 'Offerte aanmaken' if is_offerte else 'Rekening aanmaken' }}{% endif %}
-        </button>
-      </div>
-    </div>
-  </section>
+  {# Niet in een eigen kaart: de balk heeft op een telefoon al een eigen rand,
+     en in een kaart gaf dat een rand in een rand. #}
+  <div class="indienen">
+    <a class="btn btn-outline" href="{{ url_for('offertes') if is_offerte else url_for('index') }}">Annuleren</a>
+    <button type="submit" class="btn">
+      {% if factuur %}Wijzigingen opslaan
+      {%- else %}{{ 'Offerte aanmaken' if is_offerte else 'Rekening aanmaken' }}{% endif %}
+    </button>
+  </div>
 
 </form>
 {% if factuur %}
