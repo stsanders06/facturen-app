@@ -200,8 +200,7 @@ dan kun je zo altijd terug.
 
 ```sh
 cd ~/facturen-app
-docker compose stop
-sudo tar -czf ~/facturen-backup-$(date +%F).tar.gz data
+python3 backup.py ~/backups data
 git pull && docker compose up -d --build
 ```
 
@@ -210,35 +209,56 @@ Je administratie in `data` blijft staan. Oude images opruimen:
 
 ## 4. Back-up
 
-Alles staat in de map `data`. Zet de app een paar seconden stil, zodat de
-database niet halverwege een wijziging wordt gekopieerd:
+`backup.py` pakt de map `data` in, terwijl de app gewoon doordraait: de
+database wordt via sqlite zelf gekopieerd, dus nooit halverwege een wijziging.
+Het archief komt in `~/backups`, is alleen voor jou leesbaar, en de laatste 14
+blijven bewaard.
 
 ```sh
-cd ~/facturen-app
-docker compose stop
-sudo tar -czf ~/facturen-backup-$(date +%F).tar.gz data
-docker compose start
+python3 ~/facturen-app/backup.py ~/backups ~/facturen-app/data
 ```
 
-`sudo` bij `tar`: `secret_key` in `data` is alleen leesbaar voor PUID. Zonder
-`sudo` slaat `tar` hem over als je als een andere gebruiker bent ingelogd, en
-dan ben je na het terugzetten overal uitgelogd.
+Wil je er een andere datamap bij, zoals die van het rooster, zet hem er dan
+achter; elke map komt onder zijn eigen naam in hetzelfde archief.
 
-Zet het bestand daarna ergens anders dan op de SD-kaart van de Pi, bijvoorbeeld
-op je Mac:
+### Elke nacht vanzelf
 
-```sh
-# op de Mac
-scp <gebruiker>@<adres-van-de-pi>:~/facturen-backup-*.tar.gz ~/Documents/
-```
-
-Elke zondag om 03:00 automatisch. Dit gaat in de crontab van root (op de Pi
-`sudo crontab -e`), zodat `tar` overal bij kan; vul je gebruikersnaam in bij
-`<gebruiker>`:
+Op de Pi in je eigen crontab (`crontab -e`), niet die van root: de bestanden in
+`data` zijn van PUID, en dat ben jij.
 
 ```cron
-0 3 * * 0 cd /home/<gebruiker>/facturen-app && { docker compose stop; tar -czf /home/<gebruiker>/facturen-backup-$(date +\%F).tar.gz data; docker compose start; }
+30 3 * * * python3 /home/stonesanders/facturen-app/backup.py /home/stonesanders/backups /home/stonesanders/facturen-app/data >> /home/stonesanders/backups/log.txt 2>&1
 ```
+
+### Een tweede kopie op de Mac
+
+Een back-up op dezelfde schijf helpt niet als die schijf het begeeft. De Mac
+haalt de archieven daarom op zodra hij aanstaat, via launchd. Zet dit in
+`~/Library/LaunchAgents/nl.facturen.backup-ophalen.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>nl.facturen.backup-ophalen</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string><string>-c</string>
+    <string>mkdir -p -m 700 "$HOME/Backups/pi" &amp;&amp; rsync -a -e "ssh -o BatchMode=yes" stonesanders@192.168.1.70:backups/ "$HOME/Backups/pi/" &amp;&amp; find "$HOME/Backups/pi" -name 'backup-*.tar.gz' -mtime +60 -delete</string>
+  </array>
+  <!-- Elke dag om 09:00; stond de Mac toen uit of sliep hij, dan bij het wakker worden. -->
+  <key>StartCalendarInterval</key><dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
+  <key>StandardErrorPath</key><string>/tmp/backup-ophalen.log</string>
+</dict>
+</plist>
+```
+
+```sh
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/nl.facturen.backup-ophalen.plist
+```
+
+Op de Mac blijven ze 60 dagen staan, langer dan op de Pi.
 
 ### Terugzetten
 
@@ -246,7 +266,7 @@ Elke zondag om 03:00 automatisch. Dit gaat in de crontab van root (op de Pi
 cd ~/facturen-app
 docker compose down
 mv data data-oud
-sudo tar -xzf ~/facturen-backup-JJJJ-MM-DD.tar.gz
+tar -xzf ~/backups/backup-JJJJ-MM-DD-UUMM.tar.gz --strip-components=1 facturen-app/data
 docker compose up -d
 ```
 

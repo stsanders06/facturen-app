@@ -442,6 +442,14 @@
   }
   .btn-text:hover { background: var(--primary-soft); }
   .btn-text.danger { color: var(--danger); }
+  /* Een tekstknop die los onder een tekst staat: zonder dit sprong zijn tekst
+     de vulling van de knop in ten opzichte van de tekst erboven. De knop zelf
+     schuift naar links, zodat de letters op één lijn komen. Alleen met deze
+     klasse: in een rij met andere knoppen hoort de vulling er juist bij. */
+  .btn-text.aan-de-rand { margin-left: -12px; }
+  @media (pointer: coarse), (max-width: 620px) {
+    .btn-text.aan-de-rand { margin-left: -14px; }
+  }
   .btn-text.danger:hover { background: var(--danger-soft); }
   .btn-outline {
     background: transparent;

@@ -78,6 +78,10 @@
     position: relative;
     z-index: 2;
   }
+  /* Op de Mac bleef er na 4px gap maar 24px over; met een breder lettertype
+     (Linux in CI) zakte PDF alsnog. 10px opvulling per kant houdt elke knop
+     breder dan 44px, dus nog goed met een duim te raken. */
+  .rekening .rechts .btn-text { padding-left: 10px; padding-right: 10px; }
   .rekening .bedrag { font-variant-numeric: tabular-nums; font-weight: 500; white-space: nowrap; }
   .kop-acties { display: flex; gap: 8px; flex-wrap: wrap; }
   /* + Nieuw is de primaire knop. De gedeelde menu-opmaak maakt er anders een
@@ -357,7 +361,7 @@
     <form method="post" action="{{ url_for('klant_verwijder', klant_id=klant.id) }}"
           data-bevestig="{{ klant.naam }} verwijderen uit je klantenbestand?">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <button type="submit" class="btn btn-text danger">Verwijderen</button>
+      <button type="submit" class="btn btn-text danger aan-de-rand">Verwijderen</button>
     </form>
   </section>
 
