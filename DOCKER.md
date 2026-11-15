@@ -247,7 +247,9 @@ haalt de archieven daarom op zodra hij aanstaat, via launchd. Zet dit in
     <string>/bin/sh</string><string>-c</string>
     <string>mkdir -p -m 700 "$HOME/Backups/pi" &amp;&amp; rsync -a -e "ssh -o BatchMode=yes" stonesanders@192.168.1.70:backups/ "$HOME/Backups/pi/" &amp;&amp; find "$HOME/Backups/pi" -name 'backup-*.tar.gz' -mtime +60 -delete</string>
   </array>
-  <!-- Elke dag om 09:00; stond de Mac toen uit of sliep hij, dan bij het wakker worden. -->
+  <!-- Elke dag om 09:00. Sliep de Mac toen, dan bij het wakker worden; stond hij
+       helemaal uit, dan slaat launchd dat over. Daarom ook bij het inloggen. -->
+  <key>RunAtLoad</key><true/>
   <key>StartCalendarInterval</key><dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
   <key>StandardErrorPath</key><string>/tmp/backup-ophalen.log</string>
 </dict>
