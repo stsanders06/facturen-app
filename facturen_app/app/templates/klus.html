@@ -184,6 +184,9 @@
   }
   .invoerrij-acties form { margin: 0; }
   .invoerrij-acties .btn-text { padding: 2px 8px; min-height: 32px; font-size: 13px; }
+  /* De eerste knop van de rij ("Bewerken") onder de datum en tijden laten
+     beginnen, niet 8px ingesprongen. Ook op de telefoon is de vulling 8px. */
+  .invoerrij-acties > .btn-text:first-child { margin-left: -8px; }
   .invoerrij .bijlagen { margin-top: 12px; }
   .invoerrij .erbij-form .btn-text { padding: 4px 10px; min-height: 32px; font-size: 13px; }
 
@@ -774,7 +777,7 @@
           data-bevestig="{{ vraag_weer_als_aanvraag(dagen|length, dagen_op_rekening) }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="naar" value="aangevraagd">
-      <button type="submit" class="btn btn-text">Weer als aanvraag</button>
+      <button type="submit" class="btn btn-text aan-de-rand">Weer als aanvraag</button>
     </form>
     {% endif %}
   </section>
@@ -1319,7 +1322,7 @@
     <form method="post" action="{{ url_for('klus_verwijder', klus_id=klus.id) }}"
           data-bevestig="Klus {{ klus.naam }} en alle uren verwijderen?">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <button type="submit" class="btn btn-text danger">Verwijderen</button>
+      <button type="submit" class="btn btn-text danger aan-de-rand">Verwijderen</button>
     </form>
   </section>
 

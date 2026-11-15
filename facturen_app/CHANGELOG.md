@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.8.0
+
+**Elke nacht een back-up**, en een tweede kopie op je Mac.
+
+- `backup.py` pakt de administratie in terwijl de app gewoon doordraait. De
+  laatste 14 blijven op de Pi staan, alleen voor jou leesbaar. Een kapotte
+  database levert geen back-up op die er goed uitziet, maar een foutmelding.
+- De Mac haalt de back-ups elke dag op en bewaart ze 60 dagen, zodat een
+  kapotte schijf in de Pi niet alles meeneemt.
+
+**Vandaag stelt een herinnering voor.** Bij een rekening die te laat is staat
+nu Herinnering sturen, die meteen naar het controlescherm gaat. Na een
+herinnering zie je een week lang wanneer je hem stuurde in plaats van de vraag.
+
+**Tekstknoppen op één lijn.** Verwijderen op de klant- en kluspagina, Weer als
+aanvraag en Bewerken bij een gewerkte dag stonden een stukje ingesprongen ten
+opzichte van de tekst erboven.
+
 ## 2.7.1
 
 **Marges en witruimte rechtgezet**, vooral op de telefoon.

@@ -51,7 +51,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "2.7.1"
+VERSIE = os.environ.get("ADDON_VERSION") or "2.8.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -2114,6 +2114,10 @@ def init_db():
     # rekening" het restant kan voorstellen en niet nog een keer het volle bedrag.
     if "offerte_id" not in {rij["name"] for rij in conn.execute("PRAGMA table_info(facturen)")}:
         conn.execute("ALTER TABLE facturen ADD COLUMN offerte_id INTEGER")
+    # Wanneer de laatste herinnering wegging. Vandaag stelt een herinnering voor
+    # bij een rekening die te laat is, maar niet opnieuw vlak na de vorige.
+    if "herinnerd_op" not in {rij["name"] for rij in conn.execute("PRAGMA table_info(facturen)")}:
+        conn.execute("ALTER TABLE facturen ADD COLUMN herinnerd_op TEXT DEFAULT ''")
     offertekolommen = {rij["name"] for rij in conn.execute("PRAGMA table_info(offertes)")}
     if "kenmerk" not in offertekolommen:
         conn.execute("ALTER TABLE offertes ADD COLUMN kenmerk TEXT DEFAULT ''")
@@ -3408,6 +3412,9 @@ def factuurlijst(conn, klant_id=None):
     return lijst
 
 
+HERINNER_NA_DAGEN = 7
+
+
 @app.route("/vandaag")
 def vandaag_pagina():
     """Het startscherm: wat openstaat, wat te laat is, en de klussen."""
@@ -3418,6 +3425,10 @@ def vandaag_pagina():
     openstaand = [f for f in facturen if f["status"] != "betaald"]
     te_laat = [f for f in openstaand if f["verlopen"]]
     concepten = [f for f in facturen if not (f["nummer"] or "").strip()]
+    # Een week na de vorige herinnering mag er weer een; eerder is zeuren.
+    week_terug = (nu().date() - timedelta(days=HERINNER_NA_DAGEN)).isoformat()
+    for f in te_laat:
+        f["herinneren"] = bool(f["nummer"]) and (f.get("herinnerd_op") or "") <= week_terug
     return render_template(
         "vandaag.html",
         actief="vandaag",
@@ -10698,6 +10709,12 @@ def herinnering_email(factuur_id, eigen_zin="", bon_ids=None):
     )
     if not gelukt:
         return False, tekst
+    # Pas na een gelukte mail: een mislukte poging is geen herinnering.
+    conn = get_db()
+    conn.execute("UPDATE facturen SET herinnerd_op=? WHERE id=?",
+                 (vandaag().isoformat(), factuur_id))
+    conn.commit()
+    conn.close()
     return True, (f"Herinnering voor rekening {factuur['nummer']} gemaild naar "
                   f"{factuur['klant_email']}.")
 

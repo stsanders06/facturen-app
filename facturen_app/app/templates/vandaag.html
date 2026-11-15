@@ -39,10 +39,12 @@
 <section class="card lijst">
   <div class="card-head"><h2>Te doen</h2></div>
   {% for f in te_laat %}
-  <a class="rij" href="{{ url_for('bewerk', factuur_id=f.id) }}">
+  {# Te laat en de vorige herinnering is meer dan een week oud: dan meteen naar het
+     controlescherm van de herinnering. Daar zie je de mail nog voor hij weggaat. #}
+  <a class="rij" href="{{ url_for('herinnering', factuur_id=f.id) if f.herinneren else url_for('bewerk', factuur_id=f.id) }}">
     <span class="rij-tekst">
-      <b>{{ f.klant_naam or 'Zonder klant' }}</b>
-      <small>{{ f.nummer or 'concept' }} · te laat</small>
+      <b>{% if f.herinneren %}Herinnering sturen: {% endif %}{{ f.klant_naam or 'Zonder klant' }}</b>
+      <small>{{ f.nummer or 'concept' }} · te laat{% if f.herinnerd_op %} · herinnerd op {{ f.herinnerd_op|datum_nl }}{% endif %}</small>
     </span>
     <span class="rij-bedrag laat">&euro; {{ f.openstaand|bedrag }}</span>
   </a>

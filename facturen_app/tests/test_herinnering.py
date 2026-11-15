@@ -135,3 +135,38 @@ def test_mislukte_mail_laat_het_concept_zonder_nummer(monkeypatch, db, post, maa
     factuur = db.execute("SELECT * FROM facturen WHERE id=?", (factuur_id,)).fetchone()
     assert factuur["nummer"] == ""
     assert factuur["status"] == "concept"
+
+
+def test_een_gelukte_herinnering_wordt_onthouden(verstuurd, db, maak_factuur):
+    factuur_id = maak_factuur(datum=dagen_geleden(20), status="verzonden")
+    facturen.herinnering_email(factuur_id)
+    rij = db.execute("SELECT herinnerd_op FROM facturen WHERE id=?", (factuur_id,)).fetchone()
+    assert rij[0] == date.today().isoformat()
+
+
+def test_een_mislukte_herinnering_telt_niet(monkeypatch, verstuurd, db, maak_factuur):
+    monkeypatch.setattr(facturen, "_mail_pdf", lambda *a, **k: (False, "Mailserver weigert"))
+    factuur_id = maak_factuur(datum=dagen_geleden(20), status="verzonden")
+    assert facturen.herinnering_email(factuur_id)[0] is False
+    rij = db.execute("SELECT herinnerd_op FROM facturen WHERE id=?", (factuur_id,)).fetchone()
+    assert rij[0] == ""
+
+
+@pytest.mark.parametrize("herinnerd, voorstel", [
+    ("", True),            # nog nooit herinnerd
+    (8, True),             # langer dan een week geleden
+    (7, True),             # precies een week: mag weer
+    (3, False),            # net gestuurd: niet zeuren
+])
+def test_vandaag_stelt_een_herinnering_voor_bij_te_laat(client, db, maak_factuur, herinnerd, voorstel):
+    factuur_id = maak_factuur(datum=dagen_geleden(30), status="verzonden")
+    if herinnerd != "":
+        db.execute("UPDATE facturen SET herinnerd_op=? WHERE id=?",
+                   (dagen_geleden(herinnerd), factuur_id))
+        db.commit()
+    html = client.get("/vandaag").data.decode()
+    link = f'href="/factuur/{factuur_id}/herinnering"'
+    assert (link in html) is voorstel
+    assert ("Herinnering sturen: Jan Jansen" in html) is voorstel
+    if herinnerd != "":
+        assert "herinnerd op" in html

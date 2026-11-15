@@ -140,3 +140,37 @@ def test_het_bedrag_in_een_tegel_zakt_in_plaats_van_tegen_de_rand(client):
     from test_smalle_weergave import css_van, regel_met
     tegel = regel_met(css_van(client.get("/klussen").data.decode()), ".overzicht div")
     assert "flex-wrap: wrap" in tegel
+
+
+# Hoe ver de tekst van een knop rechts van de binnenrand van zijn blok staat,
+# waar de tekst erboven ook begint. Nul is één lijn.
+_INSPRONG = """(sel) => [...document.querySelectorAll(sel)].map(b => {
+  const r = document.createRange();
+  r.selectNodeContents(b);
+  const blok = b.closest('.card, .dag-samenvatting');
+  const s = getComputedStyle(blok);
+  const rand = blok.getBoundingClientRect().left + parseFloat(s.borderLeftWidth)
+               + parseFloat(s.paddingLeft);
+  return Math.round(r.getBoundingClientRect().left - rand);
+})"""
+
+
+@pytest.mark.parametrize("breedte", [390, 1280])
+def test_een_losse_tekstknop_staat_onder_de_tekst_erboven(client, post, db, meet, breedte):
+    """Verwijderen, Weer als aanvraag en Bewerken sprongen 8 tot 14px in."""
+    _meet, _ = meet
+    post("/klanten/nieuw", {"naam": "Voorbeeld Bedrijf BV"})
+    klant_id = db.execute("SELECT id FROM klanten").fetchone()[0]
+    post("/klussen/nieuw", {"naam": "Gevel", "uurtarief": "45", "klant_id": str(klant_id)})
+    klus_id = db.execute("SELECT id FROM klussen").fetchone()[0]
+    db.execute("UPDATE klussen SET status='open' WHERE id=?", (klus_id,))
+    db.commit()
+    post(f"/klus/{klus_id}/dag", {"datum": "2026-10-01", "van": "08:00", "tot": "12:00"})
+
+    klant = client.get(f"/klant/{klant_id}").data.decode()
+    assert _meet(klant, breedte, f"() => ({_INSPRONG})('.aan-de-rand')") == [0]
+    klus = client.get(f"/klus/{klus_id}").data.decode()
+    assert _meet(klus, breedte, f"() => ({_INSPRONG})('.aan-de-rand')") == [0, 0]
+    bewerken = _meet(klus, breedte,
+                     f"() => ({_INSPRONG})('.dag-samenvatting .invoerrij-acties > .btn-text:first-child')")
+    assert bewerken and all(x == 0 for x in bewerken), bewerken

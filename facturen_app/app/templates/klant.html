@@ -357,7 +357,7 @@
     <form method="post" action="{{ url_for('klant_verwijder', klant_id=klant.id) }}"
           data-bevestig="{{ klant.naam }} verwijderen uit je klantenbestand?">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <button type="submit" class="btn btn-text danger">Verwijderen</button>
+      <button type="submit" class="btn btn-text danger aan-de-rand">Verwijderen</button>
     </form>
   </section>
 

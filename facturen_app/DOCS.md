@@ -129,6 +129,11 @@ daarna gaat de mail weg. Is er al een deel binnen, dan bedankt de mail daar netj
 Bonnetjes die op deze rekening staan en op meesturen staan, gaan ook bij de herinnering
 mee; notitiefoto's nooit.
 
+Op **Vandaag** staat bij elke rekening die te laat is **Herinnering sturen**. Tik je
+erop, dan kom je op hetzelfde controlescherm. Na een verstuurde herinnering staat er
+een week lang alleen wanneer je hem stuurde, zodat je niet elke dag dezelfde vraag
+krijgt; daarna stelt de app een nieuwe voor.
+
 ### Terugkerend werk
 
 Doe je elke maand hetzelfde bij dezelfde klant, kies dan **Kopiëren naar nieuwe rekening**
@@ -294,10 +299,15 @@ klussen, zijn offertes en zijn rekeningen, elk met de knoppen die daarbij horen.
 
 ## Data en back-up
 
-Alle data (database, PDF's, logo) staat in de persistente `/data` map van de add-on.
-Die overleeft add-on updates en herstarts. Een Home Assistant back-up neemt de data
-mee zonder dat de add-on gestopt hoeft te worden, mits je bij het maken van de back-up
-de add-on aanvinkt.
+Alle data (database, PDF's, logo, bijlagen en scans) staat in de map `data`. Die
+overleeft updates en herstarts.
+
+Draait de app los met docker compose, dan maakt `backup.py` elke nacht een
+back-up terwijl de app gewoon doorwerkt, en haalt je Mac de archieven op als
+tweede kopie. Hoe je dat aanzet en terugzet staat in DOCKER.md, hoofdstuk 4.
+
+In Home Assistant neemt een back-up van Home Assistant de data mee, mits je bij
+het maken van de back-up de add-on aanvinkt.
 
 ## Problemen oplossen
 
