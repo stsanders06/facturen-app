@@ -16,6 +16,8 @@
 - Klantpagina: Betaald, Betalingen en PDF passen weer op één regel.
 - Klussen: op een heel smal scherm schuift het bedrag in het overzicht naar
   de volgende regel in plaats van tegen de rand.
+- Een foto groot bekijken: met Tab ga je nu ook in Safari langs Sluiten,
+  Vorige en Volgende. Safari sloeg die knoppen over.
 
 ## 2.7.0
 

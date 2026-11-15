@@ -229,16 +229,16 @@
       if (ev.key !== 'Tab') return;
       var lijst = focusbaar();
       if (!lijst.length) return;
-      var eerste = lijst[0];
-      var laatste = lijst[lijst.length - 1];
-      var binnen = bak.contains(document.activeElement);
-      if (ev.shiftKey && (!binnen || document.activeElement === eerste)) {
-        ev.preventDefault();
-        laatste.focus();
-      } else if (!ev.shiftKey && (!binnen || document.activeElement === laatste)) {
-        ev.preventDefault();
-        eerste.focus();
-      }
+      // Elke stap zelf, niet alleen de randen. Safari slaat met Tab standaard
+      // knoppen over; dan sprong de focus van Sluiten langs Vorige en
+      // Volgende, of de lichtbak uit.
+      ev.preventDefault();
+      var hier = lijst.indexOf(document.activeElement);
+      var stapje = ev.shiftKey ? -1 : 1;
+      var volgende = hier === -1
+        ? (ev.shiftKey ? lijst.length - 1 : 0)
+        : (hier + stapje + lijst.length) % lijst.length;
+      lijst[volgende].focus();
     }
 
     // Alleen een link naar een foto. Een vinkje, verwijderen of een PDF is
