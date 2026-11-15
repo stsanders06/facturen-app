@@ -44,6 +44,12 @@ PAGINAS = [
     ("klant-nieuw", "/klanten/nieuw"),
     ("klanten-import", "/klanten/import"),
     ("instellingen", "/instellingen"),
+    ("vandaag", "/vandaag"),
+    ("scans", "/scans"),
+    ("klant-bewerk", "/klant/1/bewerk"),
+    ("klus-bewerk", "/klus/1/bewerk"),
+    ("rekening-sturen", "/factuur/1/sturen"),
+    ("herinnering", "/factuur/2/herinnering"),
 ]
 
 METING = """() => {
@@ -84,13 +90,68 @@ METING = """() => {
       }
     });
   }
+  // Tekst die tegen de rand van zijn eigen vlak plakt: een blok met een eigen
+  // achtergrond of rand, waar de tekst minder dan 6px vanaf staat. Zo zat
+  // "Nieuwe regel" in het witte kopje van een regel, zonder binnenmarge.
+  const vlak = el => {
+    const s = getComputedStyle(el);
+    const achter = s.backgroundColor !== 'rgba(0, 0, 0, 0)' && s.backgroundColor !== 'transparent';
+    const rand = parseFloat(s.borderLeftWidth) > 0 && s.borderLeftStyle !== 'none';
+    return (achter || rand) && !['BODY', 'HTML', 'INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(el.tagName);
+  };
+  const gemeld = new Set();
+  const loper = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  while (loper.nextNode()) {
+    const tekst = loper.currentNode;
+    if (!tekst.textContent.trim()) continue;
+    const ouder = tekst.parentElement;
+    if (!ouder || ouder.closest('details:not([open]), button, a.btn, .btn, label.vink, svg')) continue;
+    let blok = ouder;
+    while (blok && blok !== document.body && !vlak(blok)) blok = blok.parentElement;
+    if (!blok || blok === document.body || gemeld.has(blok)) continue;
+    // Wat zelf schuift (filters, een voorbeeld-CSV) loopt expres langs de rand.
+    if (['auto', 'scroll'].includes(getComputedStyle(blok).overflowX)) continue;
+    // Een rond badge-cijfer en de onderbalk zijn expres krap; op 320px zijn
+    // de labels van de onderbalk bovendien verborgen.
+    if (blok.closest('nav, .tabbar') || blok.getBoundingClientRect().width < 40) continue;
+    const bereik = document.createRange();
+    bereik.selectNodeContents(tekst);
+    const t = bereik.getBoundingClientRect();
+    if (t.width === 0) continue;
+    const b = blok.getBoundingClientRect();
+    // Alleen links en rechts: boven en onder is een chip of badge expres krap.
+    const krap = Math.min(t.left - b.left, b.right - t.right);
+    if (krap < 6 && b.width < breed) {
+      gemeld.add(blok);
+      fouten.push(`tekst ${Math.round(krap)}px van de rand: ` + blok.tagName.toLowerCase() +
+        (typeof blok.className === 'string' && blok.className.trim() ? '.' + blok.className.trim().split(/\\s+/).join('.') : '') +
+        ' — "' + tekst.textContent.trim().slice(0, 30) + '"');
+    }
+  }
+  // Velden die onder elkaar op elkaar plakken. Gebeurde toen een extra div
+  // binnen .fields stond: de gap gold dan alleen buiten die div.
+  const velden = [...document.querySelectorAll('.field')].filter(v => v.offsetParent);
+  for (let i = 1; i < velden.length; i++) {
+    const a = velden[i - 1].getBoundingClientRect(), b = velden[i].getBoundingClientRect();
+    const tussen = b.top - a.bottom;
+    const onder = Math.abs(a.left - b.left) < 2;
+    if (onder && tussen >= -1 && tussen < 8) {
+      fouten.push(`velden plakken (${Math.round(tussen)}px): "` +
+        (velden[i].textContent || '').trim().slice(0, 30) + '"');
+    }
+  }
   // Een bedrag dat over twee regels valt heeft meer dan één rechthoek: "€" op de
   // ene regel en het getal op de volgende leest als een fout.
   document.querySelectorAll('b, small, span, td, .bedrag').forEach(el => {
     if (el.children.length) return;
     const tekst = (el.textContent || '').trim();
     if (!/^€/.test(tekst)) return;
-    if (el.getClientRects().length > 1) fouten.push(`bedrag valt uiteen: "${tekst}"`);
+    // Per tekstregel, niet per element: een flex-item is één blok, ook als
+    // de tekst erin over twee regels loopt.
+    const bereik = document.createRange();
+    bereik.selectNodeContents(el);
+    const regels = new Set([...bereik.getClientRects()].map(r => Math.round(r.top)));
+    if (regels.size > 1) fouten.push(`bedrag valt uiteen: "${tekst}"`);
   });
   return fouten;
 }"""
@@ -104,7 +165,10 @@ def main():
         for label, breed, hoog in BREEDTES:
             if alleen and alleen != label:
                 continue
+            # De ingress-header slaat de inlog over; zonder komt elke pagina op
+            # het inlogscherm uit en meet je dat, telkens opnieuw.
             context = browser.new_context(viewport={"width": breed, "height": hoog},
+                                          extra_http_headers={"X-Ingress-Path": "/"},
                                           device_scale_factor=2 if breed <= 430 else 1)
             pagina = context.new_page()
             meldingen = []
@@ -117,6 +181,8 @@ def main():
                 if antwoord.status != 200:
                     problemen.append(f"[{breed}] {naam}: status {antwoord.status}")
                     continue
+                if "/inloggen" in pagina.url or "/instellen" in pagina.url:
+                    sys.exit("De app vraagt om in te loggen. Start hem met INGRESS_NETWERK=127.0.0.0/8.")
                 for fout in pagina.evaluate(METING):
                     problemen.append(f"[{breed}] {naam}: {fout}")
                 for m in meldingen:

@@ -852,7 +852,10 @@
     padding: 14px 20px;
     margin-bottom: 12px;
   }
-  .overzicht div { display: flex; align-items: baseline; gap: 8px; }
+  /* wrap: op 320px pasten label, uren en bedrag van een tegel niet op één
+     regel en stond het bedrag tegen de rand van de kaart. Nu zakt het
+     bedrag als geheel naar de volgende regel. */
+  .overzicht div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
   .overzicht small { font-size: 13px; color: var(--text-secondary); }
   .overzicht b {
     font-size: 19px;
@@ -1298,6 +1301,16 @@
       border-radius: 18px;
       padding: 8px;
       margin-top: 12px;
+    }
+    /* In een kaart is de kaart al de omlijsting. Een eigen rand gaf daar een
+       rand in een rand (klanten importeren, mailen, Klus starten). Zweven
+       kan hij er ook niet: sticky blijft binnen de kaart. */
+    .card .indienen {
+      position: static;
+      background: none;
+      border: 0;
+      border-radius: 0;
+      padding: 0;
     }
     .fabs {
       display: flex;

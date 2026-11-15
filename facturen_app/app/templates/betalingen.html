@@ -23,7 +23,10 @@
   /* De notitie zit in de linkerhelft van een flexrij. Zonder min-width duwt
      een lang webadres de bedragen het scherm uit. */
   .boeking-tekst { min-width: 0; overflow-wrap: anywhere; }
-  .boeking .bedrag { font-variant-numeric: tabular-nums; font-weight: 500; }
+  /* nowrap: de tekst links mag krimpen, en dan brak "€ 292,00" na het
+     euroteken af. Het bedrag en Verwijderen houden hun breedte. */
+  .boeking .bedrag { font-variant-numeric: tabular-nums; font-weight: 500; white-space: nowrap; }
+  .boeking > span:last-child { flex: none; }
   .boekregel { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
   .boekregel > div {
     flex: 1 1 140px;
