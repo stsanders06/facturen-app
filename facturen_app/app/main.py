@@ -5968,6 +5968,58 @@ def _melding_geen_scan(link, velden="", bestanden=""):
     )
 
 
+def _bewaar_scans(binnen):
+    """Keurt de bestanden, zet ze in de inbox en laat ze lezen.
+
+    Gedeeld door de opdracht op de iPhone en de uploadknop op Scans, zodat
+    allebei dezelfde grenzen en controles hebben. Geeft de namen terug, of
+    een foutmelding met de status. Roep aan met _SCAN_BEZIG vast.
+    """
+    if len(binnen) > SCAN_MAX_AANTAL:
+        return [], (f"Te veel bestanden. Eén keer mag hooguit {SCAN_MAX_AANTAL} "
+                    "scans bevatten."), 400
+    # Eerst alles keuren. Eén bestand dat niet mag, en er wordt niets bewaard:
+    # anders staat een halve lading in de inbox en denkt de melding dat het
+    # mislukte.
+    goedgekeurd = []
+    for bestand in binnen:
+        goed, fout, status = _ontvang_scanbestand(bestand)
+        if fout:
+            _ruim_scanpaden(stuk.get("pad") for stuk in goedgekeurd)
+            return [], fout, status
+        goedgekeurd.append(goed)
+
+    conn = get_db()
+    definitief = []
+    try:
+        ontvangen = nu().strftime("%Y-%m-%dT%H:%M:%S")
+        for goed in goedgekeurd:
+            opslag = secrets.token_hex(8) + goed["ext"]
+            doel = os.path.join(SCAN_DIR, opslag)
+            os.replace(goed["pad"], doel)
+            goed["pad"] = None
+            definitief.append(opslag)
+            conn.execute(
+                """INSERT INTO scans (bestand, naam, soort, grootte, ontvangen)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (opslag, goed["naam"], goed["soort"], goed["grootte"], ontvangen),
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        _ruim_scanpaden(os.path.join(SCAN_DIR, naam) for naam in definitief)
+        raise
+    finally:
+        conn.close()
+    _ruim_scanpaden(stuk.get("pad") for stuk in goedgekeurd)
+
+    # De bon alvast laten lezen. Dit duurt een paar seconden en gebeurt op de
+    # achtergrond: de opdracht op de iPhone hoort meteen antwoord te krijgen.
+    for opslag in definitief:
+        _plan_bonherkenning({"bestand": opslag})
+    return [goed["naam"] for goed in goedgekeurd], None, None
+
+
 @app.route("/api/scans", methods=["POST"])
 def scans_ontvangen():
     """Scans vanaf de opdracht op de iPhone. Geen sessie, wel de code."""
@@ -6009,40 +6061,9 @@ def scans_ontvangen():
                 400,
             )
 
-        # Eerst alles keuren. Eén bestand dat niet mag, en er wordt niets bewaard:
-        # anders staat een halve lading in de inbox en denkt de melding dat het
-        # mislukte.
-        goedgekeurd = []
-        for bestand in binnen:
-            goed, fout, status = _ontvang_scanbestand(bestand)
-            if fout:
-                _ruim_scanpaden(stuk.get("pad") for stuk in goedgekeurd)
-                return _scan_tekst(fout, status)
-            goedgekeurd.append(goed)
-
-        conn = get_db()
-        definitief = []
-        try:
-            ontvangen = nu().strftime("%Y-%m-%dT%H:%M:%S")
-            for goed in goedgekeurd:
-                opslag = secrets.token_hex(8) + goed["ext"]
-                doel = os.path.join(SCAN_DIR, opslag)
-                os.replace(goed["pad"], doel)
-                goed["pad"] = None
-                definitief.append(opslag)
-                conn.execute(
-                    """INSERT INTO scans (bestand, naam, soort, grootte, ontvangen)
-                       VALUES (?, ?, ?, ?, ?)""",
-                    (opslag, goed["naam"], goed["soort"], goed["grootte"], ontvangen),
-                )
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            _ruim_scanpaden(os.path.join(SCAN_DIR, naam) for naam in definitief)
-            raise
-        finally:
-            conn.close()
-        _ruim_scanpaden(stuk.get("pad") for stuk in goedgekeurd)
+        namen, fout, status = _bewaar_scans(binnen)
+        if fout:
+            return _scan_tekst(fout, status)
     finally:
         for bestand in binnen:
             try:
@@ -6051,12 +6072,7 @@ def scans_ontvangen():
                 pass
         _SCAN_BEZIG.release()
 
-    # De bon alvast laten lezen. Dit duurt een paar seconden en gebeurt op de
-    # achtergrond: de opdracht op de iPhone hoort meteen antwoord te krijgen.
-    for opslag in definitief:
-        _plan_bonherkenning({"bestand": opslag})
-
-    zin = _scans_zin([goed["naam"] for goed in goedgekeurd])
+    zin = _scans_zin(namen)
     if link_erbij:
         zin += " Er kwam ook een link binnen. Die haalt de app niet op."
     return _scan_tekst(zin, 200)
@@ -6849,6 +6865,28 @@ def scans():
         rijen.append(scan)
     conn.close()
     return render_template("scans.html", scans=rijen, actief="scans")
+
+
+@app.route("/scans/uploaden", methods=["POST"])
+def scans_uploaden():
+    """Een bestand vanaf de computer of telefoon in de inbox zetten, zonder
+    de opdracht op de iPhone. Daarna gaat het net zo: lezen en koppelen."""
+    binnen = [b for b in request.files.getlist("bestand") if b and b.filename]
+    if not binnen:
+        melding("Kies eerst een bestand.", "fout")
+        return redirect(url_for("scans"))
+    if not _SCAN_BEZIG.acquire(blocking=False):
+        melding("De app is een andere scan aan het ontvangen. Probeer het zo nog eens.", "fout")
+        return redirect(url_for("scans"))
+    try:
+        namen, fout, _status = _bewaar_scans(binnen)
+    finally:
+        _SCAN_BEZIG.release()
+    if fout:
+        melding(fout, "fout")
+    else:
+        melding(_scans_zin(namen))
+    return redirect(url_for("scans"))
 
 
 @app.route("/scans/<int:scan_id>/bestand")

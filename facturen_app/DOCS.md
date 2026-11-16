@@ -286,6 +286,8 @@ wordt niet opgehaald.
 De code en de stappen staan bij Instellingen, onder iPhone-scans. De code zie je één
 keer, zolang die pagina open is, en je kunt hem daar kopiëren. Een binnengekomen scan
 staat onder Scans. Daar maak je er een bon of een notitie van, of je verwijdert hem.
+Heb je de bon al als bestand, bijvoorbeeld uit een mail of op je computer, dan zet
+je hem met **Uploaden** op dezelfde pagina in de inbox. Hij wordt dan net zo gelezen.
 PDF, JPG, PNG en HEIC mogen, per bestand hooguit 25 MB, samen iets minder dan 100 MB,
 en hooguit 20 bestanden per keer. De aanvraag eromheen telt mee, dus houd een
 beetje ruimte over.
