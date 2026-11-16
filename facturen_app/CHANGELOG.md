@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.8.2
+
+**Personeelskorting als eigen veld bij Scan als bon.** Vindt de lezer
+personeelskorting op de bon, dan staat onder de materialen het veld
+Personeelskorting met het percentage, bijvoorbeeld 15. Je kunt het aanpassen
+of leeg maken; het totaal rekent meteen mee. De materialen houden in het
+formulier de prijzen van de bon, en bij bewaren gaat de korting van elk
+materiaal af. Zonder personeelskorting op de bon staat het veld er niet.
+
 ## 2.8.1
 
 **Personeelskorting zit in de prijs van elk product.** Staat er een korting

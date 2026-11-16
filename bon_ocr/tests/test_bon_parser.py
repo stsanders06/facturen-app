@@ -466,15 +466,15 @@ def test_korting_op_een_aanbieding_telt_niet_nog_een_keer():
     nettoprijsregel, terwijl de stukprijs 5,29 wel goed stond."""
     uit, _ = _lees("echt04_karwei_twee_aanbiedingen")
     assert uit["korting"] == -3.09
-    # Het percentage, zodat de app de korting in elke prijs kan verwerken.
-    assert uit["korting_procent"] == 15.0
+    # Het percentage, zodat het formulier het als eigen veld kan tonen.
+    assert uit["personeelskorting"] == 15.0
     assert uit["regels"][0]["stukprijs"] == 5.29
     assert uit["regels"][0]["regelbedrag"] == 10.58
     assert uit["controles"]["regels_som_klopt"]
     assert uit["onzeker"] == []
 
 
-def test_een_vaste_korting_heeft_geen_percentage():
+def test_een_vaste_personeelskorting_heeft_geen_percentage():
     uit = lees_bon("Karwei\n"
                    "02-10-2026\n"
                    "Plint wit\n"
@@ -484,4 +484,19 @@ def test_een_vaste_korting_heeft_geen_percentage():
                    "TOTAAL   11,25\n"
                    "Maestro   11,25\n")
     assert uit["korting"] == -1.25
-    assert uit["korting_procent"] is None
+    assert uit["personeelskorting"] is None
+
+
+def test_een_andere_procentkorting_is_geen_personeelskorting():
+    """Alleen personeelskorting geldt voor de hele bon; de rest verschilt per
+    product."""
+    uit = lees_bon("Karwei\n"
+                   "02-10-2026\n"
+                   "Plint wit\n"
+                   "12,50   12,50\n"
+                   "Subtotaal   12,50\n"
+                   "10% korting verhuisactie   -1,25\n"
+                   "TOTAAL   11,25\n"
+                   "Maestro   11,25\n")
+    assert uit["korting"] == -1.25
+    assert uit["personeelskorting"] is None

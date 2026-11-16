@@ -501,9 +501,8 @@ def _personeelsbon():
     ]
 
 
-def test_een_procentkorting_zit_in_de_prijs_van_elk_product():
-    uit, verwerkt = facturen.materialen_na_korting(_personeelsbon(), -3.09, 15.0)
-    assert verwerkt
+def test_personeelskorting_gaat_van_de_prijs_van_elk_product():
+    uit = facturen.met_personeelskorting(_personeelsbon(), 15.0)
     # 5,29 min 15% is 4,4965: een halve cent omhoog.
     assert uit[0]["stukprijs"] == 4.50
     # Samen precies wat er betaald is; de cent die het afronden scheelt gaat
@@ -513,40 +512,126 @@ def test_een_procentkorting_zit_in_de_prijs_van_elk_product():
     assert sorted(m["stukprijs"] for m in uit[1:]) == [4.24, 4.25]
 
 
-def test_zonder_cent_verschil_blijven_de_prijzen_netjes_15_procent_lager():
+def test_zonder_cent_verschil_is_elke_prijs_netjes_15_procent_lager():
     regels = [
-        {"omschrijving": "Tegelgatsnijder", "aantal": 1, "stukprijs": 14.49, "regelbedrag": 14.49},
-        {"omschrijving": "Tegellijm", "aantal": 1, "stukprijs": 15.99, "regelbedrag": 15.99},
-        {"omschrijving": "Achterplaat", "aantal": 1, "stukprijs": 39.99, "regelbedrag": 39.99},
+        {"omschrijving": "Tegelgatsnijder", "aantal": 1, "stukprijs": 14.49},
+        {"omschrijving": "Tegellijm", "aantal": 1, "stukprijs": 15.99},
+        {"omschrijving": "Achterplaat", "aantal": 1, "stukprijs": 39.99},
     ]
-    uit, verwerkt = facturen.materialen_na_korting(regels, -10.57, 15.0)
-    assert verwerkt
-    assert [m["stukprijs"] for m in uit] == [12.32, 13.59, 33.99]
+    assert [m["stukprijs"] for m in facturen.met_personeelskorting(regels, 15.0)] == [
+        12.32, 13.59, 33.99]
 
 
-@pytest.mark.parametrize("korting, procent", [
-    (-3.09, None),      # vaste korting, geen percentage: niets omrekenen
-    (-5.00, 15.0),      # percentage past niet bij het bedrag: iets verkeerd gelezen
-    (None, 15.0),
-])
-def test_bij_twijfel_blijven_de_prijzen_van_de_bon(korting, procent):
-    uit, verwerkt = facturen.materialen_na_korting(_personeelsbon(), korting, procent)
-    assert not verwerkt
+@pytest.mark.parametrize("procent", [None, 0, 100, -5])
+def test_zonder_geldige_korting_blijven_de_prijzen_staan(procent):
+    uit = facturen.met_personeelskorting(_personeelsbon(), procent)
     assert [m["stukprijs"] for m in uit] == [5.29, 5.0, 5.0]
 
 
-def test_het_formulier_vult_de_prijzen_met_korting_in(client, post, db, lezer):
-    lezer.antwoord = dict(GELEZEN, regels=_personeelsbon(), korting=-3.09,
-                          korting_procent=15.0, totaal=17.49, btw_totaal=3.04,
-                          btw=[{"tarief": 21, "bedrag": 3.04}])
+def _personeelsantwoord(**anders):
+    return {**GELEZEN, "regels": _personeelsbon(), "korting": -3.09, "personeelskorting": 15.0,
+            "totaal": 17.49, "btw_totaal": 3.04, "btw": [{"tarief": 21, "bedrag": 3.04}], **anders}
+
+
+def test_het_formulier_toont_de_personeelskorting_als_eigen_veld(client, post, db, lezer):
+    lezer.antwoord = _personeelsantwoord()
     klus_erin(db)
     scan_id = scan_erin(client, post, db)
     facturen._wacht_op_herkenning()
     pagina = client.get(f"/scans/{scan_id}/bon").data.decode()
-    assert 'value="4.50"' in pagina and 'value="5.29"' not in pagina
-    assert "15,00%, al in de prijzen" in pagina
-    # Het antwoord voor een formulier dat de uitslag later ophaalt, net zo.
+    veld = re.search(r'<input[^>]*id="personeelskorting"[^>]*>', pagina).group(0)
+    assert 'value="15"' in veld
+    assert 'id="personeelskorting-veld">' in pagina
+    # De prijzen blijven die van de bon; de korting gaat er bij bewaren af.
+    assert 'value="5.29"' in pagina
+    # Een formulier dat de uitslag later ophaalt krijgt hetzelfde.
     bon = client.get(f"/scans/{scan_id}/herkenning").get_json()["bon"]
-    assert [m["stukprijs"] for m in bon["materialen"]][0] == 4.50
-    # Het logboek ziet nog wat de lezer las, niet de omgerekende prijs.
-    assert bon["regels"][0]["stukprijs"] == 5.29
+    assert bon["personeelskorting"] == 15.0
+
+
+def test_een_percentage_dat_niet_bij_het_bedrag_past_blijft_leeg(client, post, db, lezer):
+    lezer.antwoord = _personeelsantwoord(korting=-5.00)
+    klus_erin(db)
+    scan_id = scan_erin(client, post, db)
+    facturen._wacht_op_herkenning()
+    pagina = client.get(f"/scans/{scan_id}/bon").data.decode()
+    veld = re.search(r'<input[^>]*id="personeelskorting"[^>]*>', pagina).group(0)
+    assert 'value=""' in veld
+    # Niet herkend: dan staat het veld er niet in beeld.
+    assert re.search(r'id="personeelskorting-veld" hidden', pagina)
+
+
+def test_zonder_personeelskorting_is_het_veld_niet_te_zien(client, post, db, lezer):
+    klus_erin(db)
+    scan_id = scan_erin(client, post, db)
+    facturen._wacht_op_herkenning()
+    pagina = client.get(f"/scans/{scan_id}/bon").data.decode()
+    assert re.search(r'id="personeelskorting-veld" hidden', pagina)
+
+
+@pytest.mark.parametrize("ingevuld, prijzen, bedrag", [
+    ("15", [4.50, 4.24, 4.25], 17.49),     # zoals gelezen
+    ("10,5", [4.73, 4.48, 4.48], 18.42),   # zelf aangepast: 20,58 min 2,16
+    ("", [5.29, 5.00, 5.00], 20.58),       # weggehaald: geen korting
+])
+def test_bij_bewaren_gaat_de_korting_van_elk_materiaal_af(client, post, db, lezer,
+                                                          ingevuld, prijzen, bedrag):
+    lezer.antwoord = _personeelsantwoord()
+    klus = klus_erin(db)
+    scan_id = scan_erin(client, post, db)
+    facturen._wacht_op_herkenning()
+    post(f"/scans/{scan_id}/bon", {
+        "klus_id": str(klus), "omschrijving": "Karwei", "wanneer": "2026-11-14",
+        "bedrag": "17.49", "bon_totaal": "17.49", "personeelskorting": ingevuld,
+        "materiaal_omschrijving": ["Houtdraadbout M8x70", "Wandtegel wit", "Wandtegel wit"],
+        "materiaal_aantal": ["2", "1", "1"],
+        "materiaal_prijs": ["5.29", "5.00", "5.00"],
+    })
+    rijen = db.execute("SELECT prijs FROM inkoop_materialen ORDER BY id").fetchall()
+    assert [r[0] for r in rijen] == prijzen
+    assert db.execute("SELECT bedrag FROM inkopen").fetchone()[0] == bedrag
+
+
+def test_het_totaal_rekent_de_personeelskorting_mee(client, post, db, lezer):
+    """In de browser: het totaal is wat je betaald hebt, zonder oranje
+    waarschuwing, en een ander percentage rekent meteen door."""
+    from browser import meetbrowser, playwright_verplicht
+    lezer.antwoord = _personeelsantwoord()
+    klus_erin(db)
+    scan_id = scan_erin(client, post, db)
+    facturen._wacht_op_herkenning()
+    html = client.get(f"/scans/{scan_id}/bon").data.decode()
+    sync_playwright = playwright_verplicht()
+    with sync_playwright() as p:
+        browser = meetbrowser(p)
+        pagina = browser.new_page()
+        pagina.set_content(html)
+        stand = """() => ({totaal: document.getElementById('bedrag').value,
+            waarschuwing: !document.querySelector('[data-materiaal-verschil]').hidden,
+            hint: document.querySelector('[data-materiaal-hint]').textContent})"""
+        assert pagina.is_visible("#personeelskorting")
+        voor = pagina.evaluate(stand)
+        assert voor["totaal"] == "17.49"
+        assert not voor["waarschuwing"]
+        assert "15% personeelskorting" in voor["hint"]
+        pagina.fill("#personeelskorting", "10")
+        na = pagina.evaluate(stand)
+        # 20,58 min 2,06 (10% afgerond); nu wijkt het af van de bon.
+        assert na["totaal"] == "18.52"
+        assert na["waarschuwing"]
+        browser.close()
+
+
+def test_zonder_herkende_korting_is_het_veld_echt_onzichtbaar(client, post, db, lezer):
+    from browser import meetbrowser, playwright_verplicht
+    klus_erin(db)
+    scan_id = scan_erin(client, post, db)
+    facturen._wacht_op_herkenning()
+    html = client.get(f"/scans/{scan_id}/bon").data.decode()
+    with playwright_verplicht()() as p:
+        browser = meetbrowser(p)
+        pagina = browser.new_page()
+        pagina.set_content(html)
+        assert not pagina.is_visible("#personeelskorting")
+        assert pagina.evaluate("document.getElementById('bedrag').value") == "19.87"
+        browser.close()

@@ -290,11 +290,13 @@ PDF, JPG, PNG en HEIC mogen, per bestand hooguit 25 MB, samen iets minder dan 10
 en hooguit 20 bestanden per keer. De aanvraag eromheen telt mee, dus houd een
 beetje ruimte over.
 
-Kies je **Scan als bon**, dan staan de materialen al ingevuld. Staat er een korting
-als percentage op de bon, zoals 15% personeelskorting, dan zit die al in de prijs van
-elk product. Samen zijn de materialen dan precies wat je betaald hebt; een cent
-verschil door het afronden komt op het duurste product van één stuk. Een vaste korting
-zonder percentage zet je zelf als materiaal met een min-prijs.
+Kies je **Scan als bon**, dan staan de materialen al ingevuld, met de prijzen zoals
+op de bon. Vindt de lezer personeelskorting op de bon, dan staat onder de materialen
+het veld **Personeelskorting (%)** met het percentage. Dat kun je aanpassen of leeg
+maken. Het totaal rekent meteen mee, en bij bewaren gaat het percentage van de prijs
+van elk materiaal af. Samen zijn de materialen dan precies wat je betaald hebt; een
+cent verschil door het afronden komt op het duurste product van één stuk. Andere
+kortingen verschillen per product en zitten al in de nettoprijs op de bon.
 
 ## De klantpagina
 

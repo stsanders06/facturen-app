@@ -51,7 +51,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "2.8.1"
+VERSIE = os.environ.get("ADDON_VERSION") or "2.8.2"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -4996,30 +4996,31 @@ def _bon_vast(conn, rij):
     return True
 
 
-def _bewaar_materialen(conn, inkoop_id):
+def _bewaar_materialen(conn, inkoop_id, personeelskorting=None):
     """De materiaalregels van het formulier bij de bon zetten.
 
     Parallelle lijsten, net als de regels op een rekening. Een regel zonder
     omschrijving valt weg: dat is een leeg veld dat is blijven staan. Twee
     plekken gebruiken dit: een bon bij een klus en een scan die een bon wordt.
     """
-    aantal_bewaard = 0
-    for oms, aantal, prijs in zip_longest(
-        request.form.getlist("materiaal_omschrijving"),
-        request.form.getlist("materiaal_aantal"),
-        request.form.getlist("materiaal_prijs"),
-        fillvalue="",
-    ):
-        oms = (oms or "").strip()
-        if not oms:
-            continue
+    materialen = [
+        {"omschrijving": oms.strip(), "aantal": _lees_bedrag(aantal) or 1.0,
+         "stukprijs": _lees_bedrag(prijs)}
+        for oms, aantal, prijs in zip_longest(
+            request.form.getlist("materiaal_omschrijving"),
+            request.form.getlist("materiaal_aantal"),
+            request.form.getlist("materiaal_prijs"),
+            fillvalue="",
+        )
+        if (oms or "").strip()
+    ]
+    for m in met_personeelskorting(materialen, personeelskorting):
         conn.execute(
             """INSERT INTO inkoop_materialen (inkoop_id, omschrijving, aantal, prijs)
                VALUES (?, ?, ?, ?)""",
-            (inkoop_id, oms, _lees_bedrag(aantal) or 1.0, _lees_bedrag(prijs)),
+            (inkoop_id, m["omschrijving"], m["aantal"], m["stukprijs"]),
         )
-        aantal_bewaard += 1
-    return aantal_bewaard
+    return len(materialen)
 
 
 @app.route("/klus/<int:klus_id>/inkoop", methods=["POST"])
@@ -6348,37 +6349,34 @@ def _vraag_herkenning(bron, mime):
         return None
 
 
-def materialen_na_korting(regels, korting, procent):
-    """De gelezen regels als materialen, met een procentkorting in elke prijs.
+def met_personeelskorting(materialen, procent):
+    """Haalt de personeelskorting van de prijs van elk materiaal af.
 
-    Stone wil bij personeelskorting op elk product de 15% eraf zien, niet een
-    losse minregel. Per stuk afronden laat soms een cent verschil met wat er
-    echt betaald is (2 x 5,29 met 15% eraf is 9,00, op de bon 8,99); die cent
-    gaat naar het duurste product van één stuk, zodat de materialen samen weer
-    precies het betaalde bedrag zijn.
+    Stone wil bij personeelskorting op elk product de korting eraf zien, niet
+    een losse minregel. De winkel rekent de korting over het subtotaal en rondt
+    die af; per stuk afronden scheelt dan soms een cent (2 x 5,29 met 15% eraf
+    is 9,00, op de bon 8,99). Die cent gaat naar het duurste product van één
+    stuk, zodat de materialen samen weer zijn wat er betaald is. Het formulier
+    rekent het totaal op dezelfde manier uit.
 
-    Alleen als het percentage en het kortingsbedrag bij elkaar passen: anders
-    is er iets verkeerd gelezen en blijven de prijzen van de bon staan."""
-    kaal = [{"omschrijving": r["omschrijving"], "aantal": r["aantal"],
-             "stukprijs": r["stukprijs"]} for r in regels]
-    if not regels or not korting or not procent or not 0 < procent < 100:
-        return kaal, False
-    if any(r["stukprijs"] is None for r in regels):
-        return kaal, False
-    som = sum(als_decimal(r["regelbedrag"]) for r in regels)
-    verwacht = som * als_decimal(procent) / 100
-    if abs(verwacht - abs(als_decimal(korting))) > Decimal("0.05"):
-        return kaal, False
+    materialen: dicts met aantal en stukprijs; geeft nieuwe dicts terug."""
+    uit = [dict(m) for m in materialen]
+    if not procent or not 0 < procent < 100 or not uit:
+        return uit
+    if any(m["stukprijs"] is None for m in uit):
+        return uit
+    som = sum(rond_centen(als_decimal(m["aantal"]) * als_decimal(m["stukprijs"])) for m in uit)
+    betaald = als_decimal(som) - als_decimal(rond_centen(als_decimal(som) * als_decimal(procent) / 100))
     factor = 1 - als_decimal(procent) / 100
-    uit = [dict(m, stukprijs=rond_centen(als_decimal(m["stukprijs"]) * factor)) for m in kaal]
-    betaald = som + als_decimal(korting)
+    for m in uit:
+        m["stukprijs"] = rond_centen(als_decimal(m["stukprijs"]) * factor)
     nu_samen = sum(rond_centen(als_decimal(m["aantal"]) * als_decimal(m["stukprijs"])) for m in uit)
     verschil = rond_centen(betaald - als_decimal(nu_samen))
     enkel = [m for m in uit if m["aantal"] == 1]
     if verschil and enkel:
         duurste = max(enkel, key=lambda m: m["stukprijs"])
         duurste["stukprijs"] = rond_centen(als_decimal(duurste["stukprijs"]) + als_decimal(verschil))
-    return uit, True
+    return uit
 
 
 def _schone_herkenning(ruw):
@@ -6421,17 +6419,18 @@ def _schone_herkenning(ruw):
                         "bedrag": getal(deel.get("bedrag"))})
     onzeker = [tekst(v) for v in (ruw.get("onzeker") or [])[:20] if tekst(v)]
     korting = getal(ruw.get("korting"))
-    procent = getal(ruw.get("korting_procent"))
-    materialen, verwerkt = materialen_na_korting(regels, korting, procent)
+    procent = getal(ruw.get("personeelskorting"))
+    # Alleen invullen als percentage en bedrag bij elkaar passen; anders is er
+    # iets verkeerd gelezen en is een leeg veld eerlijker dan een fout getal.
+    som = sum(r["regelbedrag"] for r in regels)
+    if not (procent and 0 < procent < 100 and korting
+            and abs(som * procent / 100 - abs(korting)) <= 0.05):
+        procent = None
     return {
         "winkel": tekst(ruw.get("winkel")),
         "datum": tekst(ruw.get("datum"))[:10],
         "regels": regels,
-        # Wat in het formulier komt. 'regels' blijft zoals de bon het zegt,
-        # zodat het correctielogboek de lezer zelf beoordeelt.
-        "materialen": materialen,
-        "korting_verwerkt": verwerkt,
-        "korting_procent": procent,
+        "personeelskorting": procent,
         "korting": korting,
         "btw": btw,
         "btw_totaal": getal(ruw.get("btw_totaal")),
@@ -6990,7 +6989,8 @@ def _koppel_als_bon(conn, rij):
            VALUES (?, ?, ?, ?)""",
         (klus["id"], omschrijving, bedrag, wanneer),
     ).lastrowid
-    _bewaar_materialen(conn, inkoop_id)
+    personeelskorting = _lees_bedrag(request.form.get("personeelskorting"))
+    _bewaar_materialen(conn, inkoop_id, personeelskorting)
     herreken_bon(conn, inkoop_id)
     if not _scan_naar_bijlage(conn, rij, klus["id"], inkoop_id=inkoop_id):
         conn.rollback()
@@ -7005,7 +7005,8 @@ def _koppel_als_bon(conn, rij):
     totaal_op_bon = (_lees_bedrag(request.form["bon_totaal"])
                      if (request.form.get("bon_totaal") or "").strip() else bedrag)
     _log_correctie(rij, gelezen,
-                   {"omschrijving": omschrijving, "datum": wanneer, "bedrag": totaal_op_bon})
+                   {"omschrijving": omschrijving, "datum": wanneer, "bedrag": totaal_op_bon,
+                    "personeelskorting": personeelskorting})
     melding(f"Scan bij de bon '{omschrijving}' gezet.")
     return redirect(url_for("klus", klus_id=klus["id"]))
 

@@ -2157,11 +2157,22 @@
         centen += Math.round(aantal * prijs * 100);
         rijen++;
       });
+      // Personeelskorting (alleen bij Scan als bon): net als de winkel over het
+      // subtotaal, afgerond op een cent. Bij bewaren rekent de server de
+      // prijzen per materiaal om en komt op hetzelfde totaal uit.
+      var pkVeld = form.querySelector('[data-personeelskorting]');
+      var pk = pkVeld ? parseFloat(pkVeld.value.replace(',', '.')) : NaN;
+      if (pk > 0 && pk < 100) centen -= Math.round(centen * pk / 100);
       // Wat er stond voordat de materialen het overnamen: het totaal dat je
       // zelf intypte of dat van de bon is gelezen. Dat is wat je betaald hebt.
       if (!veld.readOnly && veld.value) veld.dataset.opDeBon = veld.value;
       var hint = form.querySelector('[data-materiaal-hint]');
-      if (hint) hint.hidden = !rijen;
+      if (hint) {
+        hint.hidden = !rijen;
+        hint.textContent = (pk > 0 && pk < 100)
+          ? 'De som van de materialen, min ' + String(pk).replace('.', ',') + '% personeelskorting.'
+          : 'De som van de materialen.';
+      }
       if (veld.dataset.materiaalTotaal !== 'altijd') veld.readOnly = rijen > 0;
       if (rijen) veld.value = (centen / 100).toFixed(2);
       var opDeBon = Math.round(parseFloat(veld.dataset.opDeBon) * 100);
