@@ -6348,6 +6348,39 @@ def _vraag_herkenning(bron, mime):
         return None
 
 
+def materialen_na_korting(regels, korting, procent):
+    """De gelezen regels als materialen, met een procentkorting in elke prijs.
+
+    Stone wil bij personeelskorting op elk product de 15% eraf zien, niet een
+    losse minregel. Per stuk afronden laat soms een cent verschil met wat er
+    echt betaald is (2 x 5,29 met 15% eraf is 9,00, op de bon 8,99); die cent
+    gaat naar het duurste product van één stuk, zodat de materialen samen weer
+    precies het betaalde bedrag zijn.
+
+    Alleen als het percentage en het kortingsbedrag bij elkaar passen: anders
+    is er iets verkeerd gelezen en blijven de prijzen van de bon staan."""
+    kaal = [{"omschrijving": r["omschrijving"], "aantal": r["aantal"],
+             "stukprijs": r["stukprijs"]} for r in regels]
+    if not regels or not korting or not procent or not 0 < procent < 100:
+        return kaal, False
+    if any(r["stukprijs"] is None for r in regels):
+        return kaal, False
+    som = sum(als_decimal(r["regelbedrag"]) for r in regels)
+    verwacht = som * als_decimal(procent) / 100
+    if abs(verwacht - abs(als_decimal(korting))) > Decimal("0.05"):
+        return kaal, False
+    factor = 1 - als_decimal(procent) / 100
+    uit = [dict(m, stukprijs=rond_centen(als_decimal(m["stukprijs"]) * factor)) for m in kaal]
+    betaald = som + als_decimal(korting)
+    nu_samen = sum(rond_centen(als_decimal(m["aantal"]) * als_decimal(m["stukprijs"])) for m in uit)
+    verschil = rond_centen(betaald - als_decimal(nu_samen))
+    enkel = [m for m in uit if m["aantal"] == 1]
+    if verschil and enkel:
+        duurste = max(enkel, key=lambda m: m["stukprijs"])
+        duurste["stukprijs"] = rond_centen(als_decimal(duurste["stukprijs"]) + als_decimal(verschil))
+    return uit, True
+
+
 def _schone_herkenning(ruw):
     """Neemt alleen over wat we kennen, in het formaat dat we verwachten.
 
@@ -6387,11 +6420,19 @@ def _schone_herkenning(ruw):
             btw.append({"tarief": getal(deel.get("tarief")),
                         "bedrag": getal(deel.get("bedrag"))})
     onzeker = [tekst(v) for v in (ruw.get("onzeker") or [])[:20] if tekst(v)]
+    korting = getal(ruw.get("korting"))
+    procent = getal(ruw.get("korting_procent"))
+    materialen, verwerkt = materialen_na_korting(regels, korting, procent)
     return {
         "winkel": tekst(ruw.get("winkel")),
         "datum": tekst(ruw.get("datum"))[:10],
         "regels": regels,
-        "korting": getal(ruw.get("korting")),
+        # Wat in het formulier komt. 'regels' blijft zoals de bon het zegt,
+        # zodat het correctielogboek de lezer zelf beoordeelt.
+        "materialen": materialen,
+        "korting_verwerkt": verwerkt,
+        "korting_procent": procent,
+        "korting": korting,
         "btw": btw,
         "btw_totaal": getal(ruw.get("btw_totaal")),
         "totaal": getal(ruw.get("totaal")),

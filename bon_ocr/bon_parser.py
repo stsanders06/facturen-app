@@ -541,6 +541,7 @@ def _lees_op_volgorde(ruwe_regels):
     """De velden uit de regels, in de volgorde waarin ze worden aangeleverd."""
     regels = [_normaliseer(r) for r in ruwe_regels if r.strip()]
     uit = {"winkel": None, "datum": None, "regels": [], "korting": None,
+           "korting_procent": None,
            "btw": [], "btw_totaal": None, "totaal": None, "betaalwijze": None,
            "controles": {}, "onzeker": []}
 
@@ -595,6 +596,16 @@ def _lees_op_volgorde(ruwe_regels):
         for regel in regels[eind:(index_totaal if index_totaal is not None else len(regels))]:
             if (any(w in regel.lower() for w in AFTREKPOSTEN)) and _bedragen(regel):
                 uit["korting"] = -abs(_bedragen(regel)[-1])
+
+    # Een korting als percentage ('15,00% Korting personeel') geldt voor elk
+    # artikel; de app verwerkt hem dan in de prijzen in plaats van als losse
+    # minregel. Alleen de regel waarvan het bedrag de gevonden korting is.
+    if uit["korting"] is not None:
+        for regel in regels:
+            procent = re.search(r"(\d{1,2}(?:[,.]\d{1,2})?)\s*%\s*korting", regel, re.I)
+            if procent and _bedragen(regel) and abs(_bedragen(regel)[-1]) == abs(uit["korting"]):
+                uit["korting_procent"] = float(procent.group(1).replace(",", "."))
+                break
 
     # Controle: de artikelen plus de korting horen het totaal te zijn.
     if uit["regels"] and uit["totaal"]:

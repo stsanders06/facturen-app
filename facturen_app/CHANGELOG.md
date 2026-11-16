@@ -2,6 +2,12 @@
 
 ## 2.8.1
 
+**Personeelskorting zit in de prijs van elk product.** Staat er een korting
+als percentage op de bon, zoals 15% personeelskorting, dan vult Scan als bon
+elk materiaal in met die korting eraf. De materialen tellen samen op tot wat
+je betaald hebt, dus ook het bedrag bij de klus klopt meteen. Een cent
+verschil door het afronden komt op het duurste product van één stuk.
+
 **De bonnenlezer leest Karwei-aanbiedingen beter.**
 
 - Een bon met een aanbieding en daarna "Bedrag korting" telde die korting

@@ -206,7 +206,7 @@
     </div>
     <div class="materiaal-rijen" id="bon-regels">
       {% set regels_nakijken = gelezen and 'regels' in onzeker %}
-      {% for r in (gelezen.regels if gelezen else []) %}
+      {% for r in (gelezen.materialen if gelezen else []) %}
       <div class="materiaal-rij {{ 'veld-nakijken' if regels_nakijken else 'veld-zeker' }}"
            {% if regels_nakijken %}title="Deze regels tellen niet op tot het totaal. Kijk ze na."{% endif %}>
         <div class="field mat-oms">
@@ -241,7 +241,7 @@
       Gelezen:
       {%- for b in gelezen.btw %} {{ b.tarief|int }}% btw &euro; {{ b.bedrag|bedrag }}{% if not loop.last %},{% endif %}{% endfor %}
       {%- if gelezen.betaalwijze %} · {{ gelezen.betaalwijze }}{% endif %}
-      {%- if gelezen.korting %} · korting &euro; {{ -gelezen.korting|bedrag }}{% endif %}
+      {%- if gelezen.korting %} · korting &euro; {{ -gelezen.korting|bedrag }}{% if gelezen.korting_verwerkt %} ({{ gelezen.korting_procent|bedrag }}%, al in de prijzen){% endif %}{% endif %}
       {%- if not gelezen.btw and not gelezen.betaalwijze %} niets bruikbaars op deze bon{% endif %}
     </p>
     {% endif %}
@@ -327,7 +327,7 @@
         var datum = document.getElementById('wanneer');
         if (datum && bon.datum) { datum.value = bon.datum; }
         if (!lijst.querySelector('.materiaal-rij')) {
-          (bon.regels || []).forEach(function (r) {
+          (bon.materialen || []).forEach(function (r) {
             maakRij(r.omschrijving, r.aantal, r.stukprijs);
           });
         }

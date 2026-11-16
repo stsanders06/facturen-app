@@ -490,3 +490,63 @@ def test_het_formulier_zegt_dat_het_bezig_is(client, post, db, monkeypatch):
     assert "je kunt alvast een klus kiezen" in pagina
     # Een schermlezer hoort de wijziging te melden zodra hij klaar is.
     assert 'aria-live="polite"' in pagina
+
+
+# Bon 3 van Stone, de bedragen zoals de lezer ze nu leest: 15% personeelskorting.
+def _personeelsbon():
+    return [
+        {"omschrijving": "Houtdraadbout M8x70", "aantal": 2, "stukprijs": 5.29, "regelbedrag": 10.58},
+        {"omschrijving": "Wandtegel wit", "aantal": 1, "stukprijs": 5.0, "regelbedrag": 5.0},
+        {"omschrijving": "Wandtegel wit", "aantal": 1, "stukprijs": 5.0, "regelbedrag": 5.0},
+    ]
+
+
+def test_een_procentkorting_zit_in_de_prijs_van_elk_product():
+    uit, verwerkt = facturen.materialen_na_korting(_personeelsbon(), -3.09, 15.0)
+    assert verwerkt
+    # 5,29 min 15% is 4,4965: een halve cent omhoog.
+    assert uit[0]["stukprijs"] == 4.50
+    # Samen precies wat er betaald is; de cent die het afronden scheelt gaat
+    # naar één product van één stuk.
+    samen = sum(facturen.rond_centen(m["aantal"] * m["stukprijs"]) for m in uit)
+    assert round(samen, 2) == 17.49
+    assert sorted(m["stukprijs"] for m in uit[1:]) == [4.24, 4.25]
+
+
+def test_zonder_cent_verschil_blijven_de_prijzen_netjes_15_procent_lager():
+    regels = [
+        {"omschrijving": "Tegelgatsnijder", "aantal": 1, "stukprijs": 14.49, "regelbedrag": 14.49},
+        {"omschrijving": "Tegellijm", "aantal": 1, "stukprijs": 15.99, "regelbedrag": 15.99},
+        {"omschrijving": "Achterplaat", "aantal": 1, "stukprijs": 39.99, "regelbedrag": 39.99},
+    ]
+    uit, verwerkt = facturen.materialen_na_korting(regels, -10.57, 15.0)
+    assert verwerkt
+    assert [m["stukprijs"] for m in uit] == [12.32, 13.59, 33.99]
+
+
+@pytest.mark.parametrize("korting, procent", [
+    (-3.09, None),      # vaste korting, geen percentage: niets omrekenen
+    (-5.00, 15.0),      # percentage past niet bij het bedrag: iets verkeerd gelezen
+    (None, 15.0),
+])
+def test_bij_twijfel_blijven_de_prijzen_van_de_bon(korting, procent):
+    uit, verwerkt = facturen.materialen_na_korting(_personeelsbon(), korting, procent)
+    assert not verwerkt
+    assert [m["stukprijs"] for m in uit] == [5.29, 5.0, 5.0]
+
+
+def test_het_formulier_vult_de_prijzen_met_korting_in(client, post, db, lezer):
+    lezer.antwoord = dict(GELEZEN, regels=_personeelsbon(), korting=-3.09,
+                          korting_procent=15.0, totaal=17.49, btw_totaal=3.04,
+                          btw=[{"tarief": 21, "bedrag": 3.04}])
+    klus_erin(db)
+    scan_id = scan_erin(client, post, db)
+    facturen._wacht_op_herkenning()
+    pagina = client.get(f"/scans/{scan_id}/bon").data.decode()
+    assert 'value="4.50"' in pagina and 'value="5.29"' not in pagina
+    assert "15,00%, al in de prijzen" in pagina
+    # Het antwoord voor een formulier dat de uitslag later ophaalt, net zo.
+    bon = client.get(f"/scans/{scan_id}/herkenning").get_json()["bon"]
+    assert [m["stukprijs"] for m in bon["materialen"]][0] == 4.50
+    # Het logboek ziet nog wat de lezer las, niet de omgerekende prijs.
+    assert bon["regels"][0]["stukprijs"] == 5.29
