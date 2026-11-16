@@ -51,7 +51,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "2.8.1"
+VERSIE = os.environ.get("ADDON_VERSION") or "2.8.2"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -4996,30 +4996,31 @@ def _bon_vast(conn, rij):
     return True
 
 
-def _bewaar_materialen(conn, inkoop_id):
+def _bewaar_materialen(conn, inkoop_id, personeelskorting=None):
     """De materiaalregels van het formulier bij de bon zetten.
 
     Parallelle lijsten, net als de regels op een rekening. Een regel zonder
     omschrijving valt weg: dat is een leeg veld dat is blijven staan. Twee
     plekken gebruiken dit: een bon bij een klus en een scan die een bon wordt.
     """
-    aantal_bewaard = 0
-    for oms, aantal, prijs in zip_longest(
-        request.form.getlist("materiaal_omschrijving"),
-        request.form.getlist("materiaal_aantal"),
-        request.form.getlist("materiaal_prijs"),
-        fillvalue="",
-    ):
-        oms = (oms or "").strip()
-        if not oms:
-            continue
+    materialen = [
+        {"omschrijving": oms.strip(), "aantal": _lees_bedrag(aantal) or 1.0,
+         "stukprijs": _lees_bedrag(prijs)}
+        for oms, aantal, prijs in zip_longest(
+            request.form.getlist("materiaal_omschrijving"),
+            request.form.getlist("materiaal_aantal"),
+            request.form.getlist("materiaal_prijs"),
+            fillvalue="",
+        )
+        if (oms or "").strip()
+    ]
+    for m in met_personeelskorting(materialen, personeelskorting):
         conn.execute(
             """INSERT INTO inkoop_materialen (inkoop_id, omschrijving, aantal, prijs)
                VALUES (?, ?, ?, ?)""",
-            (inkoop_id, oms, _lees_bedrag(aantal) or 1.0, _lees_bedrag(prijs)),
+            (inkoop_id, m["omschrijving"], m["aantal"], m["stukprijs"]),
         )
-        aantal_bewaard += 1
-    return aantal_bewaard
+    return len(materialen)
 
 
 @app.route("/klus/<int:klus_id>/inkoop", methods=["POST"])
@@ -5967,6 +5968,58 @@ def _melding_geen_scan(link, velden="", bestanden=""):
     )
 
 
+def _bewaar_scans(binnen):
+    """Keurt de bestanden, zet ze in de inbox en laat ze lezen.
+
+    Gedeeld door de opdracht op de iPhone en de uploadknop op Scans, zodat
+    allebei dezelfde grenzen en controles hebben. Geeft de namen terug, of
+    een foutmelding met de status. Roep aan met _SCAN_BEZIG vast.
+    """
+    if len(binnen) > SCAN_MAX_AANTAL:
+        return [], (f"Te veel bestanden. Eén keer mag hooguit {SCAN_MAX_AANTAL} "
+                    "scans bevatten."), 400
+    # Eerst alles keuren. Eén bestand dat niet mag, en er wordt niets bewaard:
+    # anders staat een halve lading in de inbox en denkt de melding dat het
+    # mislukte.
+    goedgekeurd = []
+    for bestand in binnen:
+        goed, fout, status = _ontvang_scanbestand(bestand)
+        if fout:
+            _ruim_scanpaden(stuk.get("pad") for stuk in goedgekeurd)
+            return [], fout, status
+        goedgekeurd.append(goed)
+
+    conn = get_db()
+    definitief = []
+    try:
+        ontvangen = nu().strftime("%Y-%m-%dT%H:%M:%S")
+        for goed in goedgekeurd:
+            opslag = secrets.token_hex(8) + goed["ext"]
+            doel = os.path.join(SCAN_DIR, opslag)
+            os.replace(goed["pad"], doel)
+            goed["pad"] = None
+            definitief.append(opslag)
+            conn.execute(
+                """INSERT INTO scans (bestand, naam, soort, grootte, ontvangen)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (opslag, goed["naam"], goed["soort"], goed["grootte"], ontvangen),
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        _ruim_scanpaden(os.path.join(SCAN_DIR, naam) for naam in definitief)
+        raise
+    finally:
+        conn.close()
+    _ruim_scanpaden(stuk.get("pad") for stuk in goedgekeurd)
+
+    # De bon alvast laten lezen. Dit duurt een paar seconden en gebeurt op de
+    # achtergrond: de opdracht op de iPhone hoort meteen antwoord te krijgen.
+    for opslag in definitief:
+        _plan_bonherkenning({"bestand": opslag})
+    return [goed["naam"] for goed in goedgekeurd], None, None
+
+
 @app.route("/api/scans", methods=["POST"])
 def scans_ontvangen():
     """Scans vanaf de opdracht op de iPhone. Geen sessie, wel de code."""
@@ -6008,40 +6061,9 @@ def scans_ontvangen():
                 400,
             )
 
-        # Eerst alles keuren. Eén bestand dat niet mag, en er wordt niets bewaard:
-        # anders staat een halve lading in de inbox en denkt de melding dat het
-        # mislukte.
-        goedgekeurd = []
-        for bestand in binnen:
-            goed, fout, status = _ontvang_scanbestand(bestand)
-            if fout:
-                _ruim_scanpaden(stuk.get("pad") for stuk in goedgekeurd)
-                return _scan_tekst(fout, status)
-            goedgekeurd.append(goed)
-
-        conn = get_db()
-        definitief = []
-        try:
-            ontvangen = nu().strftime("%Y-%m-%dT%H:%M:%S")
-            for goed in goedgekeurd:
-                opslag = secrets.token_hex(8) + goed["ext"]
-                doel = os.path.join(SCAN_DIR, opslag)
-                os.replace(goed["pad"], doel)
-                goed["pad"] = None
-                definitief.append(opslag)
-                conn.execute(
-                    """INSERT INTO scans (bestand, naam, soort, grootte, ontvangen)
-                       VALUES (?, ?, ?, ?, ?)""",
-                    (opslag, goed["naam"], goed["soort"], goed["grootte"], ontvangen),
-                )
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            _ruim_scanpaden(os.path.join(SCAN_DIR, naam) for naam in definitief)
-            raise
-        finally:
-            conn.close()
-        _ruim_scanpaden(stuk.get("pad") for stuk in goedgekeurd)
+        namen, fout, status = _bewaar_scans(binnen)
+        if fout:
+            return _scan_tekst(fout, status)
     finally:
         for bestand in binnen:
             try:
@@ -6050,12 +6072,7 @@ def scans_ontvangen():
                 pass
         _SCAN_BEZIG.release()
 
-    # De bon alvast laten lezen. Dit duurt een paar seconden en gebeurt op de
-    # achtergrond: de opdracht op de iPhone hoort meteen antwoord te krijgen.
-    for opslag in definitief:
-        _plan_bonherkenning({"bestand": opslag})
-
-    zin = _scans_zin([goed["naam"] for goed in goedgekeurd])
+    zin = _scans_zin(namen)
     if link_erbij:
         zin += " Er kwam ook een link binnen. Die haalt de app niet op."
     return _scan_tekst(zin, 200)
@@ -6348,37 +6365,34 @@ def _vraag_herkenning(bron, mime):
         return None
 
 
-def materialen_na_korting(regels, korting, procent):
-    """De gelezen regels als materialen, met een procentkorting in elke prijs.
+def met_personeelskorting(materialen, procent):
+    """Haalt de personeelskorting van de prijs van elk materiaal af.
 
-    Stone wil bij personeelskorting op elk product de 15% eraf zien, niet een
-    losse minregel. Per stuk afronden laat soms een cent verschil met wat er
-    echt betaald is (2 x 5,29 met 15% eraf is 9,00, op de bon 8,99); die cent
-    gaat naar het duurste product van één stuk, zodat de materialen samen weer
-    precies het betaalde bedrag zijn.
+    Stone wil bij personeelskorting op elk product de korting eraf zien, niet
+    een losse minregel. De winkel rekent de korting over het subtotaal en rondt
+    die af; per stuk afronden scheelt dan soms een cent (2 x 5,29 met 15% eraf
+    is 9,00, op de bon 8,99). Die cent gaat naar het duurste product van één
+    stuk, zodat de materialen samen weer zijn wat er betaald is. Het formulier
+    rekent het totaal op dezelfde manier uit.
 
-    Alleen als het percentage en het kortingsbedrag bij elkaar passen: anders
-    is er iets verkeerd gelezen en blijven de prijzen van de bon staan."""
-    kaal = [{"omschrijving": r["omschrijving"], "aantal": r["aantal"],
-             "stukprijs": r["stukprijs"]} for r in regels]
-    if not regels or not korting or not procent or not 0 < procent < 100:
-        return kaal, False
-    if any(r["stukprijs"] is None for r in regels):
-        return kaal, False
-    som = sum(als_decimal(r["regelbedrag"]) for r in regels)
-    verwacht = som * als_decimal(procent) / 100
-    if abs(verwacht - abs(als_decimal(korting))) > Decimal("0.05"):
-        return kaal, False
+    materialen: dicts met aantal en stukprijs; geeft nieuwe dicts terug."""
+    uit = [dict(m) for m in materialen]
+    if not procent or not 0 < procent < 100 or not uit:
+        return uit
+    if any(m["stukprijs"] is None for m in uit):
+        return uit
+    som = sum(rond_centen(als_decimal(m["aantal"]) * als_decimal(m["stukprijs"])) for m in uit)
+    betaald = als_decimal(som) - als_decimal(rond_centen(als_decimal(som) * als_decimal(procent) / 100))
     factor = 1 - als_decimal(procent) / 100
-    uit = [dict(m, stukprijs=rond_centen(als_decimal(m["stukprijs"]) * factor)) for m in kaal]
-    betaald = som + als_decimal(korting)
+    for m in uit:
+        m["stukprijs"] = rond_centen(als_decimal(m["stukprijs"]) * factor)
     nu_samen = sum(rond_centen(als_decimal(m["aantal"]) * als_decimal(m["stukprijs"])) for m in uit)
     verschil = rond_centen(betaald - als_decimal(nu_samen))
     enkel = [m for m in uit if m["aantal"] == 1]
     if verschil and enkel:
         duurste = max(enkel, key=lambda m: m["stukprijs"])
         duurste["stukprijs"] = rond_centen(als_decimal(duurste["stukprijs"]) + als_decimal(verschil))
-    return uit, True
+    return uit
 
 
 def _schone_herkenning(ruw):
@@ -6421,17 +6435,18 @@ def _schone_herkenning(ruw):
                         "bedrag": getal(deel.get("bedrag"))})
     onzeker = [tekst(v) for v in (ruw.get("onzeker") or [])[:20] if tekst(v)]
     korting = getal(ruw.get("korting"))
-    procent = getal(ruw.get("korting_procent"))
-    materialen, verwerkt = materialen_na_korting(regels, korting, procent)
+    procent = getal(ruw.get("personeelskorting"))
+    # Alleen invullen als percentage en bedrag bij elkaar passen; anders is er
+    # iets verkeerd gelezen en is een leeg veld eerlijker dan een fout getal.
+    som = sum(r["regelbedrag"] for r in regels)
+    if not (procent and 0 < procent < 100 and korting
+            and abs(som * procent / 100 - abs(korting)) <= 0.05):
+        procent = None
     return {
         "winkel": tekst(ruw.get("winkel")),
         "datum": tekst(ruw.get("datum"))[:10],
         "regels": regels,
-        # Wat in het formulier komt. 'regels' blijft zoals de bon het zegt,
-        # zodat het correctielogboek de lezer zelf beoordeelt.
-        "materialen": materialen,
-        "korting_verwerkt": verwerkt,
-        "korting_procent": procent,
+        "personeelskorting": procent,
         "korting": korting,
         "btw": btw,
         "btw_totaal": getal(ruw.get("btw_totaal")),
@@ -6852,6 +6867,28 @@ def scans():
     return render_template("scans.html", scans=rijen, actief="scans")
 
 
+@app.route("/scans/uploaden", methods=["POST"])
+def scans_uploaden():
+    """Een bestand vanaf de computer of telefoon in de inbox zetten, zonder
+    de opdracht op de iPhone. Daarna gaat het net zo: lezen en koppelen."""
+    binnen = [b for b in request.files.getlist("bestand") if b and b.filename]
+    if not binnen:
+        melding("Kies eerst een bestand.", "fout")
+        return redirect(url_for("scans"))
+    if not _SCAN_BEZIG.acquire(blocking=False):
+        melding("De app is een andere scan aan het ontvangen. Probeer het zo nog eens.", "fout")
+        return redirect(url_for("scans"))
+    try:
+        namen, fout, _status = _bewaar_scans(binnen)
+    finally:
+        _SCAN_BEZIG.release()
+    if fout:
+        melding(fout, "fout")
+    else:
+        melding(_scans_zin(namen))
+    return redirect(url_for("scans"))
+
+
 @app.route("/scans/<int:scan_id>/bestand")
 def scan_bestand(scan_id):
     conn = get_db()
@@ -6990,7 +7027,8 @@ def _koppel_als_bon(conn, rij):
            VALUES (?, ?, ?, ?)""",
         (klus["id"], omschrijving, bedrag, wanneer),
     ).lastrowid
-    _bewaar_materialen(conn, inkoop_id)
+    personeelskorting = _lees_bedrag(request.form.get("personeelskorting"))
+    _bewaar_materialen(conn, inkoop_id, personeelskorting)
     herreken_bon(conn, inkoop_id)
     if not _scan_naar_bijlage(conn, rij, klus["id"], inkoop_id=inkoop_id):
         conn.rollback()
@@ -7005,7 +7043,8 @@ def _koppel_als_bon(conn, rij):
     totaal_op_bon = (_lees_bedrag(request.form["bon_totaal"])
                      if (request.form.get("bon_totaal") or "").strip() else bedrag)
     _log_correctie(rij, gelezen,
-                   {"omschrijving": omschrijving, "datum": wanneer, "bedrag": totaal_op_bon})
+                   {"omschrijving": omschrijving, "datum": wanneer, "bedrag": totaal_op_bon,
+                    "personeelskorting": personeelskorting})
     melding(f"Scan bij de bon '{omschrijving}' gezet.")
     return redirect(url_for("klus", klus_id=klus["id"]))
 

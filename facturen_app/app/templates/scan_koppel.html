@@ -100,6 +100,10 @@
     .bon-wordt-gelezen .stip { animation: none; opacity: .6; }
     .bon-wordt-gelezen::after { animation: none; width: 100%; opacity: .15; }
   }
+  .personeelskorting { margin-top: 12px; }
+  .personeelskorting .field { max-width: 220px; }
+  /* .fields zet display, en dat wint anders van het hidden-attribuut. */
+  .personeelskorting[hidden] { display: none; }
 </style>
 
 <div class="page-head">
@@ -206,7 +210,7 @@
     </div>
     <div class="materiaal-rijen" id="bon-regels">
       {% set regels_nakijken = gelezen and 'regels' in onzeker %}
-      {% for r in (gelezen.materialen if gelezen else []) %}
+      {% for r in (gelezen.regels if gelezen else []) %}
       <div class="materiaal-rij {{ 'veld-nakijken' if regels_nakijken else 'veld-zeker' }}"
            {% if regels_nakijken %}title="Deze regels tellen niet op tot het totaal. Kijk ze na."{% endif %}>
         <div class="field mat-oms">
@@ -232,6 +236,24 @@
       </div>
       {% endfor %}
     </div>
+    {#- Personeelskorting geldt voor elk artikel, dus staat hij hier als eigen
+        veld en niet als minregel. De prijzen hierboven blijven die van de bon;
+        bij bewaren gaat het percentage van elk materiaal af, en het totaal
+        rekent nu al mee. Andere kortingen verschillen per product en zitten
+        al in de nettoprijs op de bon. -#}
+    {% set pk = gelezen.personeelskorting if gelezen else none %}
+    {#- Alleen te zien als de lezer personeelskorting vond. Het staat er wel
+        altijd (verborgen), zodat een bon die pas later gelezen wordt het
+        alsnog kan tonen. Verborgen en leeg betekent: geen korting. -#}
+    <div class="fields personeelskorting" id="personeelskorting-veld"{{ ' hidden' if not pk }}>
+      <div class="field{{ ' veld-zeker' if pk }}">
+        <label for="personeelskorting">Personeelskorting (%)</label>
+        <input type="text" inputmode="decimal" id="personeelskorting" name="personeelskorting"
+               placeholder="Geen" data-personeelskorting
+               value="{{ (pk|int if pk == pk|int else pk) if pk }}">
+        <p class="hint">Gaat bij bewaren van de prijs van elk materiaal af.</p>
+      </div>
+    </div>
     {% if gelezen %}
     {#- Btw en betaalwijze bewaren we niet: ze staan hier om te vergelijken met
         de bon, en ze zijn gebruikt om het totaal na te rekenen. Klopt de btw
@@ -241,7 +263,7 @@
       Gelezen:
       {%- for b in gelezen.btw %} {{ b.tarief|int }}% btw &euro; {{ b.bedrag|bedrag }}{% if not loop.last %},{% endif %}{% endfor %}
       {%- if gelezen.betaalwijze %} · {{ gelezen.betaalwijze }}{% endif %}
-      {%- if gelezen.korting %} · korting &euro; {{ -gelezen.korting|bedrag }}{% if gelezen.korting_verwerkt %} ({{ gelezen.korting_procent|bedrag }}%, al in de prijzen){% endif %}{% endif %}
+      {%- if gelezen.korting %} · korting &euro; {{ -gelezen.korting|bedrag }}{% endif %}
       {%- if not gelezen.btw and not gelezen.betaalwijze %} niets bruikbaars op deze bon{% endif %}
     </p>
     {% endif %}
@@ -326,8 +348,14 @@
         }
         var datum = document.getElementById('wanneer');
         if (datum && bon.datum) { datum.value = bon.datum; }
+        var pk = document.getElementById('personeelskorting');
+        if (pk && !pk.value && bon.personeelskorting) {
+          pk.value = String(bon.personeelskorting).replace('.', ',');
+          pk.closest('.field').classList.add('veld-zeker');
+          document.getElementById('personeelskorting-veld').hidden = false;
+        }
         if (!lijst.querySelector('.materiaal-rij')) {
-          (bon.materialen || []).forEach(function (r) {
+          (bon.regels || []).forEach(function (r) {
             maakRij(r.omschrijving, r.aantal, r.stukprijs);
           });
         }

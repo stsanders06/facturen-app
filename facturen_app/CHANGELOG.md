@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.8.2
+
+**Personeelskorting als eigen veld bij Scan als bon.** Vindt de lezer
+personeelskorting op de bon, dan staat onder de materialen het veld
+Personeelskorting met het percentage, bijvoorbeeld 15. Je kunt het aanpassen
+of leeg maken; het totaal rekent meteen mee. De materialen houden in het
+formulier de prijzen van de bon, en bij bewaren gaat de korting van elk
+materiaal af. Zonder personeelskorting op de bon staat het veld er niet.
+
+**Uploaden op Scans.** Met de knop Uploaden zet je een PDF of foto van je
+computer of telefoon in de inbox, zonder de opdracht op de iPhone. Daarna gaat
+het net zo: de bon wordt vanzelf gelezen. Een lege inbox zegt nu wat er
+gebeurt: ingescande bonnen belanden hier en worden automatisch uitgelezen.
+
 ## 2.8.1
 
 **Personeelskorting zit in de prijs van elk product.** Staat er een korting

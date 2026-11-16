@@ -90,15 +90,29 @@
 {% endblock %}
 {% block content %}
 
+{#- Eén verborgen bestandsveld; de knop (bovenaan, of in de lege kaart) opent
+    het, en kiezen verstuurt meteen. Daarna gaat het net als bij een scan
+    van de iPhone: in de inbox, en de bon wordt gelezen. -#}
+<form method="post" enctype="multipart/form-data" action="{{ url_for('scans_uploaden') }}" hidden>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="file" name="bestand" id="scan-uploaden" multiple data-verstuurt="1"
+         accept="application/pdf,.pdf,image/jpeg,image/png,.heic,.heif"
+         aria-label="Bestand uploaden">
+</form>
+
 <div class="page-head">
   <h1>Nieuwe scans</h1>
+  {% if scans %}
+  <div class="acties">
+    <button type="button" class="btn btn-outline" data-kiest="scan-uploaden">Uploaden</button>
+  </div>
+  {% endif %}
 </div>
 
 {% if not scans %}
 <section class="card">
-  <p class="hint">Nog geen nieuwe scans. De stappen voor de opdracht op je iPhone
-    staan bij Instellingen, onder iPhone-scans.</p>
-  <p style="margin:12px 0 0"><a class="btn btn-outline" href="{{ url_for('instellingen') }}#iphone-scans">Naar de uitleg</a></p>
+  <p class="hint">Ingescande bonnen belanden hier en worden automatisch uitgelezen.</p>
+  <p style="margin:12px 0 0"><button type="button" class="btn btn-outline" data-kiest="scan-uploaden">Uploaden</button></p>
 </section>
 {% else %}
 <div class="scan-lijst">
