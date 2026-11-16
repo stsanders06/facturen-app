@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.8.3
+
+**Een factuur van een webshop wordt nu ook gelezen.** De lezer kende alleen
+kassabonnen. Op een factuur met een tabel (omschrijving, artikelcode, aantal,
+btw, stukprijs, korting, subtotaal) haalt hij nu elke regel eruit, met de maat
+of uitvoering eronder achter de omschrijving. Regels van € 0,00, zoals
+verzending, laat hij weg. Ook nieuw: bedragen boven de duizend euro
+('1.119,95' werd 119,95), 'Totaal incl. BTW' als totaal, een datum die over
+twee regels staat, de verkoper als naam met 'bv.' erachter, en
+bankoverschrijving of iDEAL als betaalwijze.
+
 ## 2.8.2
 
 **Personeelskorting als eigen veld bij Scan als bon.** Vindt de lezer

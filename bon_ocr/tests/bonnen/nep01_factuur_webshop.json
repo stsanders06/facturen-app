@@ -1,0 +1,20 @@
+{
+ "winkel": "Houthandel Voorbeeld bv.",
+ "datum": "2026-11-03",
+ "regels": [
+  {"omschrijving": "Douglas opgeklampte deur dubbel XL onbehandeld | Beslagset opgeklampte deur | Dubbel | XL | Zwart", "aantal": 1, "stukprijs": 194.95, "regelbedrag": 194.95},
+  {"omschrijving": "Douglas opgeklampte deur dubbel XL onbehandeld | Opgeklampte deur | Dubbel | XL", "aantal": 1, "stukprijs": 1119.95, "regelbedrag": 1119.95},
+  {"omschrijving": "Douglas Balk 150x150mm Geschaafd | Douglas 14.3x14.3x300cm", "aantal": 6, "stukprijs": 56.85, "regelbedrag": 341.1},
+  {"omschrijving": "Douglas Dakbeschot 18x195mm Geschaafd | Douglas 1.8x19.5x300cm", "aantal": 63, "stukprijs": 14.95, "regelbedrag": 941.85},
+  {"omschrijving": "Daktrim Aluminium 45mm x 45 mm x 2500mm | Daktrim zwart | 250cm", "aantal": 8, "stukprijs": 19.35, "regelbedrag": 154.8},
+  {"omschrijving": "EPDM Pakket | EPDM Dakbedekking 750cm Breed | EPDM op Maat | EPDM Pakket | 750x500cm", "aantal": 1, "stukprijs": 787.15, "regelbedrag": 787.15},
+  {"omschrijving": "Anti Worteldoek | Breedte 210cm | Prijs per m1", "aantal": 20, "stukprijs": 1.8, "regelbedrag": 36.0},
+  {"omschrijving": "HK lazuur Douglas | HK lazuur 2.5 liter | Douglas", "aantal": 2, "stukprijs": 54.15, "regelbedrag": 108.3}
+ ],
+ "korting": null,
+ "btw": [{"tarief": 21, "bedrag": 639.39}],
+ "btw_totaal": 639.39,
+ "totaal": 3684.1,
+ "betaalwijze": "bank",
+ "soort": "nagemaakte factuur van een webshop, in de opmaak van een echte (PDF met tekstlaag); alle namen, adressen en nummers verzonnen"
+}

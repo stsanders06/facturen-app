@@ -500,3 +500,26 @@ def test_een_andere_procentkorting_is_geen_personeelskorting():
                    "Maestro   11,25\n")
     assert uit["korting"] == -1.25
     assert uit["personeelskorting"] is None
+
+
+def test_een_bedrag_boven_duizend_houdt_zijn_duizendtal():
+    """'€1.119,95' werd 119,95: de punt tussen de duizendtallen viel weg."""
+    from bon_parser import _bedragen
+    assert _bedragen("deur 1x 21 €1.119,95 €0,00 €1.119,95") == [1119.95, 0.0, 1119.95]
+    assert _bedragen("Totaal incl. BTW €12.305,42") == [12305.42]
+    # Een gewone bon blijft hetzelfde, ook met een punt als komma.
+    assert _bedragen("Plint 5.29 10,56") == [5.29, 10.56]
+
+
+def test_een_factuurregel_met_korting_rekent_de_korting_mee():
+    uit = lees_bon("Houthandel Voorbeeld bv.\n"
+                   "Datum 03-11-2026\n"
+                   "Beschrijving        Artikelcode  Aantal BTW Item prijs Korting Subtotaal\n"
+                   "Lazuur Douglas      40158050     2x  21  €57,00 €5,70 €108,30\n"
+                   "Lazuur 2.5 liter\n"
+                   "Verzending          1x  21  €0,00 €0,00 €0,00\n"
+                   "Totaal incl. BTW    €108,30\n")
+    assert uit["regels"] == [{"omschrijving": "Lazuur Douglas | Lazuur 2.5 liter",
+                              "aantal": 2, "stukprijs": 54.15, "regelbedrag": 108.3}]
+    assert uit["totaal"] == 108.3
+    assert uit["controles"]["regels_som_klopt"]

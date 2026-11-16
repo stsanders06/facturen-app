@@ -1,0 +1,48 @@
+Factuur INV100001
+Ordernummer ORD200002
+J. Voorbeeld                                                                               www.houthandel-voorbeeld.nl
+Proefstraat 12                                                                             info@houthandel-voorbeeld.nl
+1234 AB Proefdorp                                                                                    Tel 012-3456789
+Nederland
+Houthandel Voorbeeld bv.
+Zaagweg 4
+klant@voorbeeld.nl
+9999 ZZ Houtdorp
+Tel +31 600000000
+Nederland
+Factuurnummer          Ordernummer         Klantnummer                                     Datum
+INV100001              ORD200002           123456789                                       Dinsdag 03 November
+2026
+Beschrijving                                                  Artikelcode          Aantal BTW Item prijs Korting Subtotaal
+Douglas opgeklampte deur dubbel XL onbehandeld                ART.1001                1x    21   €194,95 €0,00    €194,95
+Beslagset opgeklampte deur | Dubbel | XL | Zwart
+Douglas opgeklampte deur dubbel XL onbehandeld                ART.1002                1x    21 €1.119,95 €0,00 €1.119,95
+Opgeklampte deur | Dubbel | XL
+Douglas Balk 150x150mm Geschaafd                              DOU1431433000           6x    21   €56,85 €0,00     €341,10
+Douglas 14.3x14.3x300cm
+Douglas Dakbeschot 18x195mm Geschaafd                         P006861                63x    21    €14,95 €0,00    €941,85
+Douglas 1.8x19.5x300cm
+Beschrijving                                                       Artikelcode            Aantal BTW Item prijs Korting Subtotaal
+Daktrim Aluminium 45mm x 45 mm x 2500mm                            DAK45452500ZW             8x    21    €19,35 €0,00    €154,80
+Daktrim zwart | 250cm
+EPDM Pakket | EPDM Dakbedekking 750cm Breed | EPDM op Maat DAK75005000EPDM             1x   21 €787,15 €0,00      €787,15
+EPDM Pakket | 750x500cm
+Anti Worteldoek                                                    WORTELDOEK210            20x    21     €1,80 €0,00    €36,00
+Breedte 210cm | Prijs per m1
+HK lazuur Douglas                                                  40158050                  2x    21    €57,00 €5,70    €108,30
+HK lazuur 2.5 liter | Douglas
+EPDM Pakket | EPDM Dakbedekking 750cm Breed | EPDM op Maat DAKUITLOOPONDER             1x   21    €0,00 €0,00       €0,00
+ONDERUITLOOP BEHORENDE BIJ PAKKET
+Verzending & Afhandeling                                                                      1x   21    €0,00 €0,00       €0,00
+Levering op aanvraag
+Betaalkosten                                                                                  1x    0    €0,00 €0,00       €0,00
+iDEAL
+Totaal excl. BTW              €3.044,71
+BTW 21%               €639,39
+Totaal incl. BTW                 €3.684,10
+Bedrijfsgegevens                             Bankgegevens                             Verzendadres
+KvK-nummer 12345678                          Rekeninghouder Houthandel                J. Voorbeeld
+Btw-nummer NL000000000B01                    Rekeningnummer NL00 BANK                 Proefstraat 12
+0123.45.678                                                                           1234 AB Proefdorp
+IBAN NL00 BANK 0123.45.678              Betaalmethode
+BIC BANKNL2U                            Bankoverschrijving

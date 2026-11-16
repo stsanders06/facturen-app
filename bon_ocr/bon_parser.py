@@ -29,7 +29,9 @@ BEKENDE_WINKELS = [
 
 # Een bedrag heeft altijd twee cijfers achter de komma. De blik vooruit houdt
 # '12,345' buiten de deur: dat is geen bedrag maar een artikelnummer met komma.
-BEDRAG = r"-?\d{1,5}[,.]\d{2}(?!\d)"
+# Een factuur zet een punt tussen de duizendtallen ('1.119,95'); zonder het
+# eerste deel werd dat 119,95 en klopte niets meer op die factuur.
+BEDRAG = r"(?:-?\d{1,3}(?:\.\d{3})+,\d{2}|-?\d{1,5}[,.]\d{2})(?!\d)"
 
 # Een bedrag dat los staat, niet tegen letters of cijfers aan. Zo blijft een
 # maat in een omschrijving ('Laminaat eiken 2,13m2') buiten beschouwing.
@@ -52,6 +54,7 @@ BETAALWIJZEN = [
     ("maestro", "pin"), ("v ?pay", "pin"), ("pin", "pin"), ("bankpas", "pin"),
     ("mastercard", "creditcard"), ("visa", "creditcard"),
     ("creditcard", "creditcard"), ("amex", "creditcard"),
+    ("bankoverschrijving", "bank"), ("overboeking", "bank"), ("ideal", "ideal"),
 ]
 
 
@@ -89,9 +92,16 @@ def _lijkt_op(woord, regel):
                for i in range(max(1, len(laag) - n + 1)))
 
 
+def _getal(bedrag):
+    """'1.119,95' en '7,95' en '7.95' als getal."""
+    if "," in bedrag:
+        bedrag = bedrag.replace(".", "").replace(",", ".")
+    return float(bedrag)
+
+
 def _bedragen(regel):
     """Alle bedragen op een regel, als getal."""
-    return [float(b.replace(",", ".")) for b in re.findall(BEDRAG, regel)]
+    return [_getal(b) for b in re.findall(BEDRAG, regel)]
 
 
 def _ongeveer_in(naam, regel):
@@ -140,6 +150,11 @@ def _winkel(regels):
                 beste = (score, winkel)
     if beste[0] >= 0.8:
         return beste[1], True
+    # Een factuur noemt de verkoper met zijn rechtsvorm ('Houthandel ... bv.').
+    # Bovenaan staat daar vaak eerst 'Factuur 12345' en het adres van de klant.
+    for regel in regels[:15]:
+        if re.search(r"\s(b\.?v|v\.?o\.?f)\.?$", regel.strip().lower()):
+            return _schone_naam(regel), False
     # Onbekende winkel: de eerste regel die een naam kan zijn. Een adresregel
     # is dat niet, en op een bon staat het adres pal onder de naam: '2345 CD
     # Proefdorp' begint met cijfers, 'Testweg 3' eindigt op een huisnummer.
@@ -171,8 +186,13 @@ def _datum(regels):
     Dat laatste is een gok en wordt als onzeker gemeld.
     """
     met_kop, gewoon, geldigheid = None, None, None
-    for regel in regels:
+    for i, regel in enumerate(regels):
         gevonden = _datum_op_regel(regel)
+        # Een factuur in kolommen breekt 'Woensdag 04 November' en '2026' over
+        # twee regels.
+        if (gevonden is None and i + 1 < len(regels)
+                and re.match(r"20\d\d\b", regels[i + 1])):
+            gevonden = _datum_op_regel(regel + " " + regels[i + 1][:4])
         if gevonden is None:
             continue
         if GELDIGHEID.search(regel):
@@ -239,7 +259,8 @@ def _totaal(regels):
         if not re.search(r"(?<!sub)(totaal|te betalen|total\b|bruto-?omzet|tot\.?\s?omzet)",
                          laag):
             continue
-        if "btw" in laag or "subtotaal" in laag or "voordeel" in laag:
+        # 'Totaal incl. BTW' is het totaal van een factuur; 'excl.' niet.
+        if ("btw" in laag and "incl" not in laag) or "subtotaal" in laag or "voordeel" in laag:
             continue
         gevonden = _bedragen(regel) or (_bedragen(regels[i + 1])
                                         if i + 1 < len(regels) else [])
@@ -309,6 +330,9 @@ def _btw(regels, index_totaal):
         else:
             bedrag = achter[-1]
         gevonden.setdefault(tarief, bedrag)
+    if not gevonden and index_totaal:
+        # Een factuur zet 'BTW 21%' bóven 'Totaal incl. BTW'.
+        return _btw(regels, None)
     if gevonden:
         return gevonden
     # Action zet 'TOT.OMZET  TOT.BTW' als kop met de bedragen eronder.
@@ -337,6 +361,12 @@ def _bonregels(regels, start, eind):
     # rekencontrole zou dit ook toeslaan op een regel met twee losse bedragen.
     KOLOMMEN = re.compile(r"^(.*?)\s+(\d{1,3})\s+(" + BEDRAG + r")\s+("
                           + BEDRAG + r")\s*[A-Z0-9]?$")
+    # Een factuur van een webshop: omschrijving, artikelcode, '6x', btw-tarief,
+    # stukprijs, korting en subtotaal. Eronder staan regels met de maat of de
+    # uitvoering. De eerste daarvan komt achter de omschrijving: drie keer
+    # 'Vuren Regel 44x95mm' zegt pas iets met '4.4x9.5x420cm' erbij.
+    FACTUURREGEL = re.compile(r"^(.*?)\s+(\d{1,4})\s?x\s+(\d{1,2})\s+(" + BEDRAG + r")\s+("
+                              + BEDRAG + r")\s+(" + BEDRAG + r")$", re.I)
     # Regels die nooit een artikel zijn: kopjes, nummers en adresgegevens.
     OVERSLAAN = re.compile(
         r"(tel\b|kvk|btw|datum|bonnr|kassa|omschrijving|bedrag\b|aantal art|filiaal"
@@ -344,6 +374,8 @@ def _bonregels(regels, start, eind):
 
     gevonden = []
     korting = None
+    tabel = False
+    uitvoering_open = False
     hangende_tekst = None
     hangend_aantal = None
     for regel in regels[start:eind]:
@@ -354,6 +386,29 @@ def _bonregels(regels, start, eind):
         if not regel:
             continue
         laag = regel.lower()
+        m = FACTUURREGEL.match(regel)
+        if m and re.search(r"[A-Za-z]{3}", m.group(1)):
+            aantal = int(m.group(2))
+            stukprijs, regelkorting, bedrag = (_getal(m.group(k)) for k in (4, 5, 6))
+            if abs(aantal * stukprijs - abs(regelkorting) - bedrag) < 0.011:
+                tabel = True
+                # Verzendkosten en een gratis onderdeel van een pakket staan er
+                # met 0,00 bij; als materiaal zeggen ze niets.
+                if bedrag:
+                    tekst = re.split(r"\s{2,}", m.group(1).strip())[0]
+                    # Een artikelcode met maar één spatie ervoor: hoofdletters en
+                    # cijfers, geen kleine letters.
+                    tekst = re.sub(r"\s+(?:(?=\S*\d)[A-Z0-9./-]{5,}|[A-Z]{12,})$", "", tekst)
+                    gevonden.append({"omschrijving": tekst, "aantal": aantal,
+                                     "stukprijs": round(bedrag / aantal, 2),
+                                     "regelbedrag": bedrag})
+                uitvoering_open = bool(bedrag)
+                continue
+        if tabel:
+            if uitvoering_open and not OVERSLAAN.search(regel):
+                gevonden[-1]["omschrijving"] += " | " + regel
+            uitvoering_open = False
+            continue
         if AL_VERREKEND.search(laag):
             continue
         if "korting" in laag:
@@ -384,11 +439,11 @@ def _bonregels(regels, start, eind):
         m = AANTAL.match(regel)
         if m:
             aantal = int(m.group(1))
-            stukprijs = float(m.group(2).replace(",", "."))
+            stukprijs = _getal(m.group(2))
             if m.group(3):
                 gevonden.append({"omschrijving": hangende_tekst or "", "aantal": aantal,
                                  "stukprijs": stukprijs,
-                                 "regelbedrag": float(m.group(3).replace(",", "."))})
+                                 "regelbedrag": _getal(m.group(3))})
                 hangende_tekst = None
             elif (gevonden and gevonden[-1]["aantal"] == 1
                   and not gevonden[-1].get("_aantal_gezet")
@@ -405,7 +460,7 @@ def _bonregels(regels, start, eind):
 
         m = STUK.match(regel)
         if m:
-            stukprijs, bedrag = (float(g.replace(",", ".")) for g in m.groups())
+            stukprijs, bedrag = (_getal(g) for g in m.groups())
             tekst = hangende_tekst or ""
             aantal = 1
             voorop = re.match(r"^(\d{1,3})\s+(.*)", tekst)
@@ -427,8 +482,8 @@ def _bonregels(regels, start, eind):
         m = KOLOMMEN.match(regel)
         if m and re.search(r"[A-Za-z]{3}", m.group(1)):
             aantal = int(m.group(2))
-            stukprijs = float(m.group(3).replace(",", "."))
-            bedrag = float(m.group(4).replace(",", "."))
+            stukprijs = _getal(m.group(3))
+            bedrag = _getal(m.group(4))
             if abs(aantal * stukprijs - bedrag) < 0.011:
                 gevonden.append({"omschrijving": m.group(1).strip(), "aantal": aantal,
                                  "stukprijs": stukprijs, "regelbedrag": bedrag})
@@ -554,7 +609,8 @@ def _lees_op_volgorde(ruwe_regels):
     # De artikelen staan boven het totaal, en boven een subtotaal als dat er is.
     eind = index_totaal if index_totaal is not None else len(regels)
     for i, regel in enumerate(regels[:eind]):
-        if _lijkt_op("subtotaal", regel):
+        # Een factuur heeft 'Subtotaal' als kolomkop boven de artikelen.
+        if _lijkt_op("subtotaal", regel) and not re.search(r"beschrijving|omschrijving|aantal", regel.lower()):
             eind = i
             break
 
@@ -585,7 +641,7 @@ def _lees_op_volgorde(ruwe_regels):
     # De artikelen beginnen onder de kopregel, als die er is.
     start = 0
     for i, regel in enumerate(regels[:eind]):
-        if re.search(r"omschrijving|^artikelen|leverdatum", regel.lower()):
+        if re.search(r"omschrijving|^beschrijving|^artikelen|leverdatum", regel.lower()):
             start = i + 1
             break
     uit["regels"], korting = _bonregels(regels, start, eind)
