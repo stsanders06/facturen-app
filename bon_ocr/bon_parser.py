@@ -399,9 +399,11 @@ def _bonregels(regels, start, eind):
                     # Een artikelcode met maar één spatie ervoor: hoofdletters en
                     # cijfers, geen kleine letters.
                     tekst = re.sub(r"\s+(?:(?=\S*\d)[A-Z0-9./-]{5,}|[A-Z]{12,})$", "", tekst)
+                    # _nagerekend: de uitvoering eronder mag een getal als
+                    # '(1.50)' bevatten zonder dat de regel verdacht is.
                     gevonden.append({"omschrijving": tekst, "aantal": aantal,
                                      "stukprijs": round(bedrag / aantal, 2),
-                                     "regelbedrag": bedrag})
+                                     "regelbedrag": bedrag, "_nagerekend": 1})
                 uitvoering_open = bool(bedrag)
                 continue
         if tabel:
@@ -560,7 +562,8 @@ def _onzeker(uit, winkel_bekend, betaalwijze_geraden, datum_zeker=True):
         velden.append("betaalwijze")
     if not uit["regels"] or uit["controles"].get("regels_som_klopt") is False:
         velden.append("regels")
-    elif any(re.search(LOS_BEDRAG, r["omschrijving"]) for r in uit["regels"]):
+    elif any(re.search(LOS_BEDRAG, r["omschrijving"]) and not r.get("_nagerekend")
+             for r in uit["regels"]):
         # Staat er nog een los bedrag in een omschrijving, dan is die regel niet
         # goed uit elkaar gehaald. Dat gebeurt bij opmaak die we niet kennen,
         # en de som kan dan toch kloppen, dus de rekencontrole ziet het niet.
@@ -671,6 +674,8 @@ def _lees_op_volgorde(ruwe_regels):
         uit["controles"]["regels_som_klopt"] = abs(som - uit["totaal"]) <= 0.02
 
     uit["onzeker"] = _onzeker(uit, winkel_bekend, geraden, datum_zeker)
+    for regel in uit["regels"]:
+        regel.pop("_nagerekend", None)
     return uit
 
 
