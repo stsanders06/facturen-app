@@ -363,10 +363,23 @@ def _bonregels(regels, start, eind):
         # Karwei rekent met nettoprijzen en zet de uiteindelijke prijs van het
         # vorige artikel op een eigen regel eronder.
         if re.match(r"netto\s?pri", laag):
+            # 'Bedrag korting' tussen een aanbieding en de nettoprijs zit al in
+            # die nettoprijs. Bleef hij staan, dan trok de controle hem nog een
+            # keer af en miste de echte korting ná het subtotaal (echt04).
+            korting = None
             bedragen = _bedragen(regel)
             if bedragen and gevonden:
-                gevonden[-1]["regelbedrag"] = bedragen[-1]
-                gevonden[-1]["stukprijs"] = round(bedragen[-1] / gevonden[-1]["aantal"], 2)
+                artikel = gevonden[-1]
+                bedrag = bedragen[-1]
+                # Stukprijs en bedrag spreken elkaar tegen: één is verkeerd
+                # gelezen ('5.29 10,56' bij twee stuks). Bevestigt de prijsregel
+                # erboven de stukprijs, dan wint die (echt04).
+                if (len(bedragen) >= 2
+                        and abs(artikel["aantal"] * bedragen[0] - bedrag) > 0.011
+                        and abs(artikel["aantal"] * bedragen[0] - artikel["regelbedrag"]) < 0.011):
+                    bedrag = round(artikel["aantal"] * bedragen[0], 2)
+                artikel["regelbedrag"] = bedrag
+                artikel["stukprijs"] = round(bedrag / artikel["aantal"], 2)
             continue
         m = AANTAL.match(regel)
         if m:

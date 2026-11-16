@@ -1,0 +1,15 @@
+{
+ "winkel": "Karwei",
+ "datum": "2026-11-14",
+ "regels": [
+  {"omschrijving": "HOUTDRAADBOUT M8X70MM GALV 5ST", "aantal": 2, "stukprijs": 5.29, "regelbedrag": 10.58},
+  {"omschrijving": "WT GLANS WIT 25X50CM 1,63M2", "aantal": 1, "stukprijs": 5.0, "regelbedrag": 5.0},
+  {"omschrijving": "WT GLANS WIT 25X50CM 1,63M2", "aantal": 1, "stukprijs": 5.0, "regelbedrag": 5.0}
+ ],
+ "korting": -3.09,
+ "btw": [{"tarief": 21.0, "bedrag": 3.04}],
+ "btw_totaal": 3.04,
+ "totaal": 17.49,
+ "betaalwijze": "pin",
+ "soort": "echte bon, geanonimiseerd"
+}

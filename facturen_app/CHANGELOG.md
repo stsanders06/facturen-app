@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.8.1
+
+**De bonnenlezer leest Karwei-aanbiedingen beter.**
+
+- Een bon met een aanbieding en daarna "Bedrag korting" telde die korting
+  dubbel. Daardoor kwam de controle niet uit en zag je de personeelskorting
+  niet. Die korting zit al in de nettoprijs; nu ziet de lezer dat.
+- Leest de OCR op de nettoprijsregel een cijfer verkeerd ("10,56" in plaats
+  van "10,58" bij twee keer 5,29), dan wint nu de prijs die de regel erboven
+  bevestigt.
+
 ## 2.8.0
 
 **Elke nacht een back-up**, en een tweede kopie op je Mac.

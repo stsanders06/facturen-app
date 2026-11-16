@@ -1,0 +1,57 @@
+KAR
+WEI
+Testweg 3
+1234 PZ
++31 00 0000000
+Leveringsbon 26111400000000000000
+J. Jansen   KLANT   1000000
+Voorbeeldstraat 1
+1234AB Proefdorp
+BTW-nunner
+Klantenkaart: 1234XXXXXXX00
+PRIJS   BEDRAG BTW
+2 HOUTDRAADBOUT   M8X70MN GALU 5ST
+5,29   10,58   1
+Nettopriis   5.29   10,56
+1 UT GLANS VIT   25X50CH 1,63M2
+37,36   37,36   1
+Aanbieding t/n 31-12-2026   -18.68   -18,68
+Bedrag korting   -13,68   -13,68
+Nettopriis   5,00   5,00
+1 UT GLANS WIT   25X50CH 1,63M2
+37,36   37,36   1
+Aanbieding t/n 31-12-2026   -18,68   -18,68
+Bedrag korting   -13,68   -13,68
+Nettoprijs   5.00   5,00
+Subtotaal:   20,58
+15,00% Korting personeel   -3,09
+4 Totaal   17,49
+Maestro   17,49
+POI:   10000000
+KLANTTICKET
+Terninal:   000000
+Merchant:   100000
+Periode:   0000
+Transactie:   1000000
+PAR:   10000AAAAAA0AA00A0AAA000A0A0
+Haestro (A0000000000000)
+MAESTRO
+Kaart:   XXXX XXXX ×XXX X×X0 000
+Keartserienunner:   0
+BETALING
+Datun: 14/11/2026 12:28
+Autorisatiecode: A00000
+Ref.: 26111400000000000000.0000
+Totaal:   17.49 EUR
+Contactless
+Leesnethode:   Chip
+DANK U - TOT ZIENS
+Terug   0,00
+Totaal prijsvoordeel   67,81
+BTU 21,00 8 over   14,45 =   3,04
+TOT.OMZET   TOT.BTU
+17,49   3,04
+Ticket 0000   dd. 14-11-2026 12:29:04   00000000
+Kassa 10 / 000000
+Bedankt en graag tot ziens!
+000000000000000000000000
