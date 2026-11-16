@@ -457,3 +457,31 @@ def test_een_lege_bon_levert_lege_velden_en_geen_fout():
     uit = lees_bon("")
     assert uit["winkel"] is None and uit["totaal"] is None and uit["regels"] == []
     assert "totaal" in uit["onzeker"]
+
+
+def test_korting_op_een_aanbieding_telt_niet_nog_een_keer():
+    """echt04: twee tegels met elk een aanbieding én 'Bedrag korting' erachter.
+    Die korting zit al in de nettoprijs; de echte korting is die van het
+    personeel, ná het subtotaal. En de OCR las '10,58' als '10,56' op de
+    nettoprijsregel, terwijl de stukprijs 5,29 wel goed stond."""
+    uit, _ = _lees("echt04_karwei_twee_aanbiedingen")
+    assert uit["korting"] == -3.09
+    # Het percentage, zodat de app de korting in elke prijs kan verwerken.
+    assert uit["korting_procent"] == 15.0
+    assert uit["regels"][0]["stukprijs"] == 5.29
+    assert uit["regels"][0]["regelbedrag"] == 10.58
+    assert uit["controles"]["regels_som_klopt"]
+    assert uit["onzeker"] == []
+
+
+def test_een_vaste_korting_heeft_geen_percentage():
+    uit = lees_bon("Karwei\n"
+                   "02-10-2026\n"
+                   "Plint wit\n"
+                   "12,50   12,50\n"
+                   "Subtotaal   12,50\n"
+                   "Personeelskorting   1,25\n"
+                   "TOTAAL   11,25\n"
+                   "Maestro   11,25\n")
+    assert uit["korting"] == -1.25
+    assert uit["korting_procent"] is None

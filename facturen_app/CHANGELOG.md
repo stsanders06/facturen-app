@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.8.1
+
+**Personeelskorting zit in de prijs van elk product.** Staat er een korting
+als percentage op de bon, zoals 15% personeelskorting, dan vult Scan als bon
+elk materiaal in met die korting eraf. De materialen tellen samen op tot wat
+je betaald hebt, dus ook het bedrag bij de klus klopt meteen. Een cent
+verschil door het afronden komt op het duurste product van één stuk.
+
+**De bonnenlezer leest Karwei-aanbiedingen beter.**
+
+- Een bon met een aanbieding en daarna "Bedrag korting" telde die korting
+  dubbel. Daardoor kwam de controle niet uit en zag je de personeelskorting
+  niet. Die korting zit al in de nettoprijs; nu ziet de lezer dat.
+- Leest de OCR op de nettoprijsregel een cijfer verkeerd ("10,56" in plaats
+  van "10,58" bij twee keer 5,29), dan wint nu de prijs die de regel erboven
+  bevestigt.
+
 ## 2.8.0
 
 **Elke nacht een back-up**, en een tweede kopie op je Mac.

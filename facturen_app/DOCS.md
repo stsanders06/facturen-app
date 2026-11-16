@@ -290,6 +290,12 @@ PDF, JPG, PNG en HEIC mogen, per bestand hooguit 25 MB, samen iets minder dan 10
 en hooguit 20 bestanden per keer. De aanvraag eromheen telt mee, dus houd een
 beetje ruimte over.
 
+Kies je **Scan als bon**, dan staan de materialen al ingevuld. Staat er een korting
+als percentage op de bon, zoals 15% personeelskorting, dan zit die al in de prijs van
+elk product. Samen zijn de materialen dan precies wat je betaald hebt; een cent
+verschil door het afronden komt op het duurste product van één stuk. Een vaste korting
+zonder percentage zet je zelf als materiaal met een min-prijs.
+
 ## De klantpagina
 
 Klik op een klant en je ziet alles van die klant bij elkaar: hoeveel er in totaal is

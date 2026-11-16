@@ -363,10 +363,23 @@ def _bonregels(regels, start, eind):
         # Karwei rekent met nettoprijzen en zet de uiteindelijke prijs van het
         # vorige artikel op een eigen regel eronder.
         if re.match(r"netto\s?pri", laag):
+            # 'Bedrag korting' tussen een aanbieding en de nettoprijs zit al in
+            # die nettoprijs. Bleef hij staan, dan trok de controle hem nog een
+            # keer af en miste de echte korting ná het subtotaal (echt04).
+            korting = None
             bedragen = _bedragen(regel)
             if bedragen and gevonden:
-                gevonden[-1]["regelbedrag"] = bedragen[-1]
-                gevonden[-1]["stukprijs"] = round(bedragen[-1] / gevonden[-1]["aantal"], 2)
+                artikel = gevonden[-1]
+                bedrag = bedragen[-1]
+                # Stukprijs en bedrag spreken elkaar tegen: één is verkeerd
+                # gelezen ('5.29 10,56' bij twee stuks). Bevestigt de prijsregel
+                # erboven de stukprijs, dan wint die (echt04).
+                if (len(bedragen) >= 2
+                        and abs(artikel["aantal"] * bedragen[0] - bedrag) > 0.011
+                        and abs(artikel["aantal"] * bedragen[0] - artikel["regelbedrag"]) < 0.011):
+                    bedrag = round(artikel["aantal"] * bedragen[0], 2)
+                artikel["regelbedrag"] = bedrag
+                artikel["stukprijs"] = round(bedrag / artikel["aantal"], 2)
             continue
         m = AANTAL.match(regel)
         if m:
@@ -528,6 +541,7 @@ def _lees_op_volgorde(ruwe_regels):
     """De velden uit de regels, in de volgorde waarin ze worden aangeleverd."""
     regels = [_normaliseer(r) for r in ruwe_regels if r.strip()]
     uit = {"winkel": None, "datum": None, "regels": [], "korting": None,
+           "korting_procent": None,
            "btw": [], "btw_totaal": None, "totaal": None, "betaalwijze": None,
            "controles": {}, "onzeker": []}
 
@@ -582,6 +596,16 @@ def _lees_op_volgorde(ruwe_regels):
         for regel in regels[eind:(index_totaal if index_totaal is not None else len(regels))]:
             if (any(w in regel.lower() for w in AFTREKPOSTEN)) and _bedragen(regel):
                 uit["korting"] = -abs(_bedragen(regel)[-1])
+
+    # Een korting als percentage ('15,00% Korting personeel') geldt voor elk
+    # artikel; de app verwerkt hem dan in de prijzen in plaats van als losse
+    # minregel. Alleen de regel waarvan het bedrag de gevonden korting is.
+    if uit["korting"] is not None:
+        for regel in regels:
+            procent = re.search(r"(\d{1,2}(?:[,.]\d{1,2})?)\s*%\s*korting", regel, re.I)
+            if procent and _bedragen(regel) and abs(_bedragen(regel)[-1]) == abs(uit["korting"]):
+                uit["korting_procent"] = float(procent.group(1).replace(",", "."))
+                break
 
     # Controle: de artikelen plus de korting horen het totaal te zijn.
     if uit["regels"] and uit["totaal"]:
