@@ -523,3 +523,18 @@ def test_een_factuurregel_met_korting_rekent_de_korting_mee():
                               "aantal": 2, "stukprijs": 54.15, "regelbedrag": 108.3}]
     assert uit["totaal"] == 108.3
     assert uit["controles"]["regels_som_klopt"]
+
+
+def test_een_getal_in_de_uitvoering_maakt_een_factuurregel_niet_onzeker():
+    """'Balkdrager lange lip | 71.00x196 Zn (1.50)': de 1.50 is een dikte, en
+    door de losse-bedragcontrole werden alle regels oranje."""
+    uit = lees_bon("Houthandel Voorbeeld bv.\n"
+                   "Datum 03-11-2026\n"
+                   "Beschrijving        Artikelcode  Aantal BTW Item prijs Korting Subtotaal\n"
+                   "Balkdrager lange lip  FG0126001    11x  21  €5,40 €0,00 €59,40\n"
+                   "Balkdrager lange lip | 71.00x196 Zn (1.50)\n"
+                   "Totaal incl. BTW    €59,40\n"
+                   "Betaalmethode Bankoverschrijving\n")
+    assert "(1.50)" in uit["regels"][0]["omschrijving"]
+    assert "_nagerekend" not in uit["regels"][0]
+    assert "regels" not in uit["onzeker"]

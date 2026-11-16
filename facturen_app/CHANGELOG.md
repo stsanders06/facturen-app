@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.8.4
+
+**Een factuur kleurt niet meer helemaal oranje.** Stond er in de uitvoering
+onder een factuurregel een getal als '(1.50)', dan zag de lezer dat als een
+los bedrag en markeerde hij alle regels om na te kijken. Bij een factuurregel
+is aantal maal prijs al nagerekend, dus die controle slaat hij daar over.
+
 ## 2.8.3
 
 **Een factuur van een webshop wordt nu ook gelezen.** De lezer kende alleen
