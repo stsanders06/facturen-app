@@ -174,3 +174,23 @@ def test_een_losse_tekstknop_staat_onder_de_tekst_erboven(client, post, db, meet
     bewerken = _meet(klus, breedte,
                      f"() => ({_INSPRONG})('.dag-samenvatting .invoerrij-acties > .btn-text:first-child')")
     assert bewerken and all(x == 0 for x in bewerken), bewerken
+
+
+def test_materialen_van_een_bon_staan_los_van_elkaar(client, db, meet):
+    """Bij het bewerken van een bon liepen de materialen op een telefoon in
+    elkaar over: 'Prijs' van de een stond 6px boven 'Materiaal' van de ander."""
+    from test_bon_materialen import _bon_met_materialen
+    _meet, _ = meet
+    client.post("/klussen/nieuw", data={"csrf_token": "test-token", "naam": "Gevel",
+                                        "uurtarief": "45"})
+    klus_id = db.execute("SELECT id FROM klussen").fetchone()[0]
+    inkoop_id = _bon_met_materialen(client, db, klus_id)
+    html = client.get(f"/klus/{klus_id}").data.decode()
+    tussen = _meet(html, 390, f"""() => {{
+      document.getElementById('inkoop-{inkoop_id}-form').hidden = false;
+      const [a, b] = document.querySelectorAll('#inkoop-{inkoop_id}-form .materiaal-rij');
+      return {{rand: getComputedStyle(b).borderTopWidth,
+               ruimte: b.getBoundingClientRect().top - a.getBoundingClientRect().bottom}};
+    }}""")
+    assert tussen["rand"] == "1px"
+    assert tussen["ruimte"] >= 12, tussen

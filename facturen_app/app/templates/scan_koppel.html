@@ -36,15 +36,9 @@
   /* De btw heeft geen eigen veld; klopt die niet, dan kleurt de leesregel. */
   .gelezen-regel.nakijken { color: var(--nakijk); }
   /* De velden van de bon horen bij elkaar: geen streep ertussen. Tussen de
-     materialen juist wel, want dat zijn losse regels die uit elkaar moeten
-     vallen. _layout.html doet het standaard precies andersom. */
+     materialen wel; die streep staat in _layout.html. */
   .card > .fields > .field { border-top: 0; padding-top: 0; }
   .card > .fields { gap: 14px; }
-  .materiaal-rijen > .materiaal-rij + .materiaal-rij {
-    border-top: 1px solid var(--divider);
-    padding-top: 12px;
-    margin-top: 12px;
-  }
   .gelezen-regel {
     margin: 12px 0 0;
     font-size: 12.5px;

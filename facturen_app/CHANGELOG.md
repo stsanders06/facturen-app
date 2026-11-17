@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.8.5
+
+**Materialen staan los van elkaar.** Bij het bewerken van een bon liepen de
+materialen op een telefoon in elkaar over. Nu staat er tussen elk materiaal
+een streep en wat ruimte, zoals al bij Scan als bon.
+
 ## 2.8.4
 
 **Een factuur kleurt niet meer helemaal oranje.** Stond er in de uitvoering
