@@ -253,6 +253,14 @@
   /* Zonder rand is het kruisje een los teken dat naast de velden zweeft.
      Zelfde rand, hoek, hoogte en witte vulling als aantal en prijs. De
      formulierachtergrond is al grijs; een grijs vak zou daarin wegvallen. */
+  /* Een streep tussen de materialen. Op een telefoon staat elk materiaal op
+     twee regels, en zonder streep liep 'Prijs' van het ene materiaal over in
+     'Materiaal' van het volgende: een lange bon werd één blok velden. */
+  .materiaal-rijen > .materiaal-rij + .materiaal-rij {
+    border-top: 1px solid var(--divider);
+    padding-top: 14px;
+    margin-top: 14px;
+  }
   .materiaal-rij .mat-weg {
     align-self: end;
     justify-self: end;
