@@ -260,6 +260,12 @@
   /* Een streep tussen de materialen. Op een telefoon staat elk materiaal op
      twee regels, en zonder streep liep 'Prijs' van het ene materiaal over in
      'Materiaal' van het volgende: een lange bon werd één blok velden. */
+  /* De bijnaam op een eigen regel onder de naam, over de hele breedte. Een
+     vaste rij 2: dan vullen aantal, prijs en het kruisje gewoon rij 1 naast
+     de naam, en schuiven ze op een telefoon naar rij 3. */
+  .materiaal-rij .mat-bijnaam { grid-row: 2; grid-column: 1 / -1; }
+  .label-extra { font-weight: 400; color: var(--text-secondary); }
+  .bijnamen-vast { display: flex; flex-direction: column; gap: 12px; margin-top: 8px; }
   .materiaal-rijen > .materiaal-rij + .materiaal-rij {
     border-top: 1px solid var(--divider);
     padding-top: 14px;

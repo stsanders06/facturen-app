@@ -51,7 +51,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "2.10.0"
+VERSIE = os.environ.get("ADDON_VERSION") or "2.11.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -2231,6 +2231,13 @@ def init_db():
         conn.execute("ALTER TABLE regels ADD COLUMN bundel TEXT DEFAULT 'auto'")
     if "materiaal_id" not in regelkolommen:
         conn.execute("ALTER TABLE regels ADD COLUMN materiaal_id INTEGER")
+    # Een bijnaam voor een materiaal met een onduidelijke naam van de bon. Een
+    # eigen kolom: de echte naam blijft zoals de bon hem noemt, en het
+    # correctielog voor de bonnenlezer ziet een bijnaam niet aan voor een leesfout.
+    materiaalkolommen = {rij["name"] for rij in conn.execute(
+        "PRAGMA table_info(inkoop_materialen)")}
+    if "bijnaam" not in materiaalkolommen:
+        conn.execute("ALTER TABLE inkoop_materialen ADD COLUMN bijnaam TEXT DEFAULT ''")
     # Hoe een betaling binnenkwam. Leeg bij betalingen van vóór deze kolom:
     # dat weten we niet, en gokken zet iets op de PDF wat niet klopt.
     betaalkolommen = {rij["name"] for rij in conn.execute("PRAGMA table_info(betalingen)")}
@@ -5144,6 +5151,23 @@ def _bon_vast(conn, rij):
     return True
 
 
+def naam_op_rekening(omschrijving, bijnaam):
+    """Hoe een materiaal op de rekening heet: "(bijnaam) echte naam".
+
+    De echte naam blijft erbij: daarmee vind je het terug op de bon. Typ je
+    zelf haakjes om de bijnaam, dan komen er geen tweede omheen."""
+    omschrijving = (omschrijving or "").strip()
+    bijnaam = (bijnaam or "").strip()
+    if bijnaam.startswith("(") and bijnaam.endswith(")"):
+        bijnaam = bijnaam[1:-1].strip()
+    if not bijnaam:
+        return omschrijving
+    return f"({bijnaam}) {omschrijving}"
+
+
+app.jinja_env.globals["naam_op_rekening"] = naam_op_rekening
+
+
 def _bewaar_materialen(conn, inkoop_id, personeelskorting=None):
     """De materiaalregels van het formulier bij de bon zetten.
 
@@ -5153,20 +5177,21 @@ def _bewaar_materialen(conn, inkoop_id, personeelskorting=None):
     """
     materialen = [
         {"omschrijving": oms.strip(), "aantal": _lees_bedrag(aantal) or 1.0,
-         "stukprijs": _lees_bedrag(prijs)}
-        for oms, aantal, prijs in zip_longest(
+         "stukprijs": _lees_bedrag(prijs), "bijnaam": (bijnaam or "").strip()}
+        for oms, aantal, prijs, bijnaam in zip_longest(
             request.form.getlist("materiaal_omschrijving"),
             request.form.getlist("materiaal_aantal"),
             request.form.getlist("materiaal_prijs"),
+            request.form.getlist("materiaal_bijnaam"),
             fillvalue="",
         )
         if (oms or "").strip()
     ]
     for m in met_personeelskorting(materialen, personeelskorting):
         conn.execute(
-            """INSERT INTO inkoop_materialen (inkoop_id, omschrijving, aantal, prijs)
-               VALUES (?, ?, ?, ?)""",
-            (inkoop_id, m["omschrijving"], m["aantal"], m["stukprijs"]),
+            """INSERT INTO inkoop_materialen (inkoop_id, omschrijving, aantal, prijs, bijnaam)
+               VALUES (?, ?, ?, ?, ?)""",
+            (inkoop_id, m["omschrijving"], m["aantal"], m["stukprijs"], m["bijnaam"]),
         )
     return len(materialen)
 
@@ -5212,6 +5237,36 @@ def inkoop_erbij(klus_id):
     return redirect(url_for("klus", klus_id=klus_id))
 
 
+def _zet_bijnaam(conn, inkoop_id, materiaal_id, bijnaam):
+    """Zet de bijnaam van één materiaal, en neemt hem mee naar conceptrekeningen.
+
+    Alleen een concept (nog zonder nummer): een rekening met een nummer heeft
+    de klant zo gekregen. En alleen als de regel nog de oude naam draagt; heb
+    je hem op de rekening zelf aangepast, dan blijft jouw tekst staan.
+    Geeft de ids van de bijgewerkte rekeningen terug."""
+    oud = conn.execute(
+        "SELECT * FROM inkoop_materialen WHERE id=? AND inkoop_id=?",
+        (materiaal_id, inkoop_id),
+    ).fetchone()
+    if oud is None:
+        return set()
+    bijnaam = (bijnaam or "").strip()
+    if bijnaam == (oud["bijnaam"] or "").strip():
+        return set()
+    conn.execute("UPDATE inkoop_materialen SET bijnaam=? WHERE id=?", (bijnaam, oud["id"]))
+    oude_naam = naam_op_rekening(oud["omschrijving"], oud["bijnaam"])
+    nieuwe_naam = naam_op_rekening(oud["omschrijving"], bijnaam)
+    regels = conn.execute(
+        """SELECT r.id, r.factuur_id FROM regels r JOIN facturen f ON f.id = r.factuur_id
+           WHERE r.materiaal_id=? AND r.omschrijving=?
+             AND (f.nummer IS NULL OR f.nummer='')""",
+        (oud["id"], oude_naam),
+    ).fetchall()
+    for regel in regels:
+        conn.execute("UPDATE regels SET omschrijving=? WHERE id=?", (nieuwe_naam, regel["id"]))
+    return {regel["factuur_id"] for regel in regels}
+
+
 @app.route("/inkoop/<int:inkoop_id>", methods=["POST"])
 def inkoop_bewerk(inkoop_id):
     """Omschrijving of bedrag van een bestaande bon aanpassen; eventueel bestanden
@@ -5239,13 +5294,25 @@ def inkoop_bewerk(inkoop_id):
     # Materialen wijzigen gaat mee met Opslaan. Alleen die van deze bon: een
     # id uit een ander formulier mag hier niets aanraken.
     materiaal_ids = request.form.getlist("materiaal_id")
-    if materiaal_ids and not _bon_vast(conn, rij):
-        for mat_id, oms, aantal, prijs in zip_longest(
+    bijgewerkte_concepten = set()
+    if materiaal_ids and rij["factuur_id"]:
+        # Een bon op een rekening ligt vast: geen naam, aantal of prijs, want de
+        # rekening is ermee gemaakt. Een bijnaam mag wel; die verandert niets
+        # aan het bedrag.
+        for mat_id, bijnaam in zip_longest(
+            materiaal_ids, request.form.getlist("materiaal_bijnaam"), fillvalue=None,
+        ):
+            if bijnaam is None:
+                continue
+            bijgewerkte_concepten |= _zet_bijnaam(conn, inkoop_id, mat_id, bijnaam)
+    elif materiaal_ids:
+        for mat_id, oms, aantal, prijs, bijnaam in zip_longest(
             materiaal_ids,
             request.form.getlist("materiaal_omschrijving"),
             request.form.getlist("materiaal_aantal"),
             request.form.getlist("materiaal_prijs"),
-            fillvalue="",
+            request.form.getlist("materiaal_bijnaam"),
+            fillvalue=None,
         ):
             oms = (oms or "").strip()
             # Een leeg gemaakte omschrijving is geen verwijderen: daar is het
@@ -5258,6 +5325,12 @@ def inkoop_bewerk(inkoop_id):
                 (oms, _lees_bedrag(aantal) or 1.0, _lees_bedrag(prijs),
                  mat_id, inkoop_id),
             )
+            # Een formulier zonder bijnaamveld (een oud tabblad) laat hem staan.
+            if bijnaam is not None:
+                conn.execute(
+                    "UPDATE inkoop_materialen SET bijnaam=? WHERE id=? AND inkoop_id=?",
+                    (bijnaam.strip(), mat_id, inkoop_id),
+                )
     # Een bon op een rekening houdt zijn bedrag: dat is wat er gefactureerd is.
     if not rij["factuur_id"]:
         herreken_bon(conn, inkoop_id)
@@ -5267,6 +5340,10 @@ def inkoop_bewerk(inkoop_id):
     conn.close()
 
     melding("Bon bijgewerkt.")
+    if bijgewerkte_concepten:
+        aantal = len(bijgewerkte_concepten)
+        melding(f"De bijnaam staat ook op {aantal} "
+                f"{'conceptrekening' if aantal == 1 else 'conceptrekeningen'}.")
     if geweigerd:
         melding(f"Niet toegevoegd: {', '.join(geweigerd)}. Kies een foto (JPG, PNG, HEIC) "
                 "of een PDF.", "fout")
@@ -5330,11 +5407,12 @@ def inkoop_materiaal_erbij(inkoop_id):
         melding("Geef het materiaal een omschrijving.", "fout")
         return redirect(url_for("klus", klus_id=rij["klus_id"]))
     conn.execute(
-        """INSERT INTO inkoop_materialen (inkoop_id, omschrijving, aantal, prijs)
-           VALUES (?, ?, ?, ?)""",
+        """INSERT INTO inkoop_materialen (inkoop_id, omschrijving, aantal, prijs, bijnaam)
+           VALUES (?, ?, ?, ?, ?)""",
         (inkoop_id, omschrijving,
          _lees_bedrag(request.form.get("aantal")) or 1.0,
-         _lees_bedrag(request.form.get("prijs"))),
+         _lees_bedrag(request.form.get("prijs")),
+         (request.form.get("bijnaam") or "").strip()),
     )
     herreken_bon(conn, inkoop_id)
     conn.commit()
@@ -8278,8 +8356,11 @@ def geboekte_inkopen(factuur_id=None, klant_id=None):
         bon = dict(rij)
         bon["past"] = inkoop_past_bij_klant(bon["klant_id"], klant_id)
         bon["materialen"] = [
-            {"id": m["id"], "omschrijving": m["omschrijving"], "aantal": m["aantal"] or 1,
-             "prijs": m["prijs"] or 0}
+            # De naam zoals hij op de rekening hoort, met de bijnaam ervoor.
+            # Het bonnenmenu neemt hem zo over.
+            {"id": m["id"],
+             "omschrijving": naam_op_rekening(m["omschrijving"], m["bijnaam"]),
+             "aantal": m["aantal"] or 1, "prijs": m["prijs"] or 0}
             for m in conn.execute(
                 "SELECT * FROM inkoop_materialen WHERE inkoop_id=? ORDER BY id",
                 (rij["id"],))

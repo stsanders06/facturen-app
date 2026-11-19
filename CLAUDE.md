@@ -82,7 +82,7 @@ Assistant: daar hoort alleen het standaardnetwerk te gelden.
   commentaar houden.
 - **Meldingen aan de gebruiker zijn gewone taal.** "De mailserver weigert je
   gebruikersnaam of wachtwoord", niet "SMTP authentication failed".
-- **Elke wijziging krijgt tests.** Er staan er nu 1611.
+- **Elke wijziging krijgt tests.** Er staan er nu 1634.
 
 ### Taken horen bij de klus
 
@@ -142,6 +142,16 @@ Die twee velden lopen als staart achter het regel-id mee in de regeltupel
 `bewaar_regels` moet die staart laten staan**: pak uit met `regel[:8]` en geef
 `tuple(regel[8:])` door, anders staat elke regel na opslaan weer op automatisch.
 Een nieuwe kolom in `regels` moet ook in `_REGELS_NIEUW` en `_herbouw_regels`.
+
+### Bijnaam van een materiaal
+
+Sinds 2.11.0 heeft `inkoop_materialen` een kolom `bijnaam`. Op de rekening wordt
+dat `naam_op_rekening(omschrijving, bijnaam)`: "(bijnaam) echte naam". De echte
+naam blijft ongewijzigd in `omschrijving`, zodat het correctielog van de
+bonnenlezer een bijnaam niet als leesfout ziet. Het bonnenmenu krijgt de
+samengestelde naam al uit `geboekte_inkopen`. Een bon op een rekening ligt vast,
+maar een bijnaam mag nog: `_zet_bijnaam` werkt dan alleen conceptrekeningen bij
+(via `regels.materiaal_id`), en alleen als de regel nog de oude tekst heeft.
 
 ### Valkuil bij de tests
 

@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.11.0
+
+**Een bijnaam voor materialen.** Staat er op een gescande bon een naam waar
+niemand iets van snapt, dan geef je dat materiaal bij de bon een bijnaam. Op
+de rekening staat het dan als "(bijnaam) echte naam", bijvoorbeeld "(witte kit
+badkamer) KIT MS POLY WT 290ML". Dat kan bij Scan als bon, bij een bon bij een
+klus en bij het bewerken van een bon. Staat de bon al op een rekening, dan kun
+je de bijnaam nog steeds geven of wijzigen: een conceptrekening gaat mee, een
+rekening met een nummer blijft zoals de klant hem kreeg. Heb je de tekst op de
+rekening zelf aangepast, dan blijft jouw tekst staan.
+
+Let op: een materiaal van minder dan € 20 gaat op de rekening in de post klein
+materiaal, en dan zie je de bijnaam niet. Kies bij die regel "Altijd een eigen
+regel" als hij wel los moet.
+
 ## 2.10.0
 
 **Klein materiaal als één post.** Regels van een bon die minder dan € 20 kosten,

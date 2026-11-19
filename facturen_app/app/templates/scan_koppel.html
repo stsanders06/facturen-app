@@ -212,6 +212,11 @@
           <input type="text" id="regel-oms-{{ loop.index }}" name="materiaal_omschrijving"
                  value="{{ r.omschrijving }}" placeholder="Bijv. tegellijm">
         </div>
+        {#- Voor een naam van de bon waar niemand iets van snapt. De echte naam
+            blijft staan; dit komt ervoor, tussen haakjes, op de rekening. -#}
+        <div class="field mat-bijnaam"><label for="regel-bijnaam-{{ loop.index }}">Bijnaam <span class="label-extra">niet verplicht</span></label>
+                <input type="text" id="regel-bijnaam-{{ loop.index }}" name="materiaal_bijnaam" value=""
+                       placeholder="Bijv. witte kit badkamer"></div>
         <div class="field">
           <label for="regel-aantal-{{ loop.index }}">Aantal</label>
           {#- Een heel aantal zonder ',0': '2' leest als twee stuks, '2.0' niet. -#}
@@ -286,6 +291,10 @@
       rij.innerHTML =
         '<div class="field mat-oms"><label>Materiaal</label>'
         + '<input type="text" name="materiaal_omschrijving" placeholder="Bijv. tegellijm"></div>'
+        + '<div class="field mat-bijnaam"><label>Bijnaam '
+        + '<span class="label-extra">niet verplicht</span></label>'
+        + '<input type="text" name="materiaal_bijnaam" '
+        + 'placeholder="Bijv. witte kit badkamer"></div>'
         + '<div class="field"><label>Aantal</label>'
         + '<input type="number" step="any" name="materiaal_aantal" value="1"></div>'
         + '<div class="field"><label>Prijs</label>'
