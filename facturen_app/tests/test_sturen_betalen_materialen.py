@@ -251,6 +251,10 @@ def test_materialen_van_een_bon_komen_elk_op_een_eigen_regel(db, post):
 
 def test_materialen_van_een_bon_staan_niet_als_bontitel_op_de_pdf(db, post):
     zet_bedrijf(db)
+    # Beide regels kosten minder dan € 20 en zouden samen klein materiaal
+    # worden. Hier gaat het om de losse namen, dus samenvoegen uit.
+    db.execute("UPDATE settings SET bundel_grens_centen=0 WHERE id=1")
+    db.commit()
     inkoop_id = _bon_met_materialen(db)
     _rekening_met_materialen(post, inkoop_id)
     factuur_id = db.execute("SELECT id FROM facturen").fetchone()[0]

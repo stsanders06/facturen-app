@@ -61,6 +61,9 @@
        JavaScript meet de echte hoogte; dit is de waarde tot die meting er is.
        De inkeping zit erbij omdat de tabbalk diezelfde marge bovenop krijgt. */
     --balkhoogte: calc(56px + env(safe-area-inset-top, 0px));
+    /* Het pijltje van een keuzelijst. Een eigen pijl, omdat de lijst zelf
+       zonder het pijltje van de browser getekend wordt (zie select hieronder). */
+    --keuzepijl: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%233c3c43' stroke-opacity='.6' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   }
 
   @media (prefers-color-scheme: dark) {
@@ -77,6 +80,7 @@
       --divider: rgba(255, 255, 255, .12);
       --border: rgba(255, 255, 255, .16);
       --input-bg: #2c2c2e;
+      --keuzepijl: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23ebebf5' stroke-opacity='.6' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 
       --ok: #6cc48a;
       --ok-soft: #16281c;
@@ -314,6 +318,21 @@
     color: var(--text);
   }
   textarea { resize: vertical; }
+  /* Safari op de Mac tekent een keuzelijst zelf: de padding telt niet mee,
+     dus de lijst stond lager dan het veld ernaast (Betaalmethode naast
+     Datum, Soort naast Omschrijving). Zonder het eigen uiterlijk van de
+     browser telt de padding wel en zijn ze even hoog. Het pijltje komt dan
+     uit --keuzepijl. Kleur via background-color in andere regels, niet via
+     background: die korte vorm zou het pijltje weer wissen. */
+  select {
+    -webkit-appearance: none;
+    appearance: none;
+    padding-right: 36px;
+    background-image: var(--keuzepijl);
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 12px 8px;
+  }
   input:focus, select:focus, textarea:focus {
     outline: none;
     border-color: var(--primary);
@@ -1278,7 +1297,7 @@
   .card .field input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=hidden]),
   .card .field select,
   .card .field textarea {
-    background: rgba(120, 120, 128, .08);
+    background-color: rgba(120, 120, 128, .08);
     border-color: transparent;
   }
   @media (pointer: coarse), (max-width: 620px) {

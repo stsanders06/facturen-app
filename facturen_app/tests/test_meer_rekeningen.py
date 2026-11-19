@@ -178,7 +178,8 @@ def test_tekst_in_plaats_van_een_bedrag_wordt_geweigerd(db):
     zet_rekeningen(db)
     _verdeling, fout = facturen.lees_verdeling(
         {"betaalmethode": "bank", "bedrag_iban_3": "veel"}, 650.0, facturen.get_settings())
-    assert "rekening 3" in fout
+    # De naam van rekening 3, zoals die op het formulier boven het veld staat.
+    assert "Stone Sanders" in fout
 
 
 def test_contant_negeert_de_bedragen(db):
@@ -265,6 +266,22 @@ def test_met_twee_rekeningen_alleen_een_veld_voor_rekening_2(client, db):
     assert 'name="bedrag_iban_2"' in inhoud
     assert 'name="bedrag_iban_3"' not in inhoud
     assert IBAN_1 in inhoud and IBAN_2 in inhoud
+
+
+def test_de_naam_is_de_titel_en_de_iban_staat_eronder(client, db):
+    zet_rekeningen(db, derde=False)
+    inhoud = client.get("/nieuw").data.decode()
+    assert f"<b>S. Sanders</b><span class=\"verdeel-nummer\">{IBAN_1}</span>" in inhoud
+    assert "<b>Klusbedrijf De Maas</b></label>" in inhoud
+    assert "Vul in wat er naar" in inhoud and "De rest gaat vanzelf naar S. Sanders." in inhoud
+    assert "<b>Rekening 2</b>" not in inhoud
+
+
+def test_een_melding_noemt_een_rekening_bij_naam(db):
+    zet_rekeningen(db, derde=False)
+    _verdeling, fout = facturen.lees_verdeling(
+        {"betaalmethode": "bank", "bedrag_iban_2": "700"}, 650.0, facturen.get_settings())
+    assert fout.startswith("Klusbedrijf De Maas krijgt € 700,00")
 
 
 def test_met_drie_rekeningen_twee_velden(client, db):

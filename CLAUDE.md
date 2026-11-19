@@ -82,7 +82,7 @@ Assistant: daar hoort alleen het standaardnetwerk te gelden.
   commentaar houden.
 - **Meldingen aan de gebruiker zijn gewone taal.** "De mailserver weigert je
   gebruikersnaam of wachtwoord", niet "SMTP authentication failed".
-- **Elke wijziging krijgt tests.** Er staan er nu 1570.
+- **Elke wijziging krijgt tests.** Er staan er nu 1611.
 
 ### Taken horen bij de klus
 
@@ -126,6 +126,22 @@ is altijd de rest, zodat het na een gewijzigde regel niet kan gaan schelen.
 `verdeling_op_strook` beslist wat er op de strook komt en valt terug op alleen
 rekening 1 als het niet meer optelt of als er al een deel betaald is (de app
 weet niet op welk nummer dat binnenkwam). Met één element is het de oude strook.
+
+### Klein materiaal op de rekening
+
+Sinds 2.10.0 gaan regels van een bon onder `settings.bundel_grens_centen`
+(standaard 2000) op de PDF samen in één post. Alleen op papier:
+`bundel_kleinmateriaal` draait in `_teken_document`, en in de database en de
+app blijven de regels los. De bronnen van de post zijn de regels zelf, met
+`regels.materiaal_id` (de bonregel in `inkoop_materialen`) en `regels.bundel`
+(`auto`, `los` of `mee`). Het regelbedrag telt en niet de stukprijs, alles in
+hele centen via `naar_centen`. Pas vanaf twee regels.
+
+Die twee velden lopen als staart achter het regel-id mee in de regeltupel
+(`REGEL_BUNDEL`, `REGEL_MATERIAAL`). **Elke stap tussen `lees_regels` en
+`bewaar_regels` moet die staart laten staan**: pak uit met `regel[:8]` en geef
+`tuple(regel[8:])` door, anders staat elke regel na opslaan weer op automatisch.
+Een nieuwe kolom in `regels` moet ook in `_REGELS_NIEUW` en `_herbouw_regels`.
 
 ### Valkuil bij de tests
 

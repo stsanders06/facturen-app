@@ -154,3 +154,35 @@ def test_migratie_vult_bestaande_rekeningen_bij(db):
     facturen.init_db()
     rij = db.execute("SELECT vervalt_op FROM facturen WHERE nummer='2026-001'").fetchone()
     assert rij["vervalt_op"] == "2026-08-28"
+
+
+# ---------- Standaard uit (2.10.0) ----------
+
+def test_het_vinkje_staat_standaard_uit(client):
+    """De meeste klussen worden betaald zonder dat er een datum op hoeft."""
+    inhoud = client.get("/nieuw").data.decode()
+    vinkje = inhoud.split('id="betaaltermijn"')[1].split(">")[0]
+    assert "checked" not in vinkje
+    # Het datumveld staat uit, maar houdt de standaardtermijn klaar.
+    veld = inhoud.split('id="vervalt_op"')[1].split(">")[0]
+    assert "disabled" in veld
+    assert facturen.standaard_vervalt(date.today().isoformat()) in veld
+
+
+def test_een_bewaarde_vervaldatum_houdt_het_vinkje_aan(post, db, client, maak_factuur):
+    factuur_id = maak_factuur()
+    inhoud = client.get(f"/factuur/{factuur_id}/bewerk").data.decode()
+    vinkje = inhoud.split('id="betaaltermijn"')[1].split(">")[0]
+    assert "checked" in vinkje
+
+
+def test_offerte_naar_rekening_zonder_vervaldatum(post, db, maak_offerte):
+    offerte_id = maak_offerte(status="geaccepteerd")
+    post(f"/offerte/{offerte_id}/naar-rekening")
+    assert db.execute("SELECT vervalt_op FROM facturen").fetchone()[0] == ""
+
+
+def test_aanbetaling_zonder_vervaldatum(post, db, maak_offerte):
+    offerte_id = maak_offerte(totaal=1000.0, status="geaccepteerd")
+    post(f"/offerte/{offerte_id}/aanbetaling", {"percentage": "30"})
+    assert db.execute("SELECT vervalt_op FROM facturen").fetchone()[0] == ""
