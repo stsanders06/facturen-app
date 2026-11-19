@@ -340,3 +340,112 @@ def test_kaarten_op_sturen_en_betalingen_staan_niet_tegen_elkaar(client, maak_fa
     for url in (f"/factuur/{factuur_id}/sturen", f"/factuur/{factuur_id}/betalingen"):
         pagina = client.get(url).data.decode()
         assert pagina.index('<div class="cards">') < pagina.index('<div class="card">')
+
+
+# --- Een fotobon als A4-pagina (2.11.1) --------------------------------------
+# Pillow maakte van een foto een pagina van één punt per pixel. Een telefoonfoto
+# werd een pagina van ruim een meter, en de iPhone zette de rekening ervoor op
+# postzegelformaat; het leek alsof beide pagina's op één vel stonden.
+
+import subprocess  # noqa: E402
+
+import pytest  # noqa: E402
+
+from reportlab.lib.pagesizes import A4  # noqa: E402
+
+
+def _paginamaten(data, tmp_path):
+    """De maat van elke pagina in punten, zoals pdfinfo hem meet."""
+    pad = tmp_path / "uit.pdf"
+    pad.write_bytes(data)
+    uit = subprocess.run(["pdfinfo", "-f", "1", "-l", "99", str(pad)],
+                         capture_output=True, text=True, check=True).stdout
+    return [tuple(round(float(x)) for x in regel.split(":")[1].split("pts")[0].split(" x "))
+            for regel in uit.splitlines() if re.match(r"Page\s+\d+ size", regel)]
+
+
+def _foto_als_bon(db, factuur_id, naam, maat, **opties):
+    _bon_op_rekening(db, factuur_id, naam, maak_bestand=False)
+    plaatje = Image.new("RGB", maat, "white")
+    plaatje.save(os.path.join(facturen.BIJLAGE_DIR, naam), **opties)
+
+
+A4_PUNTEN = (round(A4[0]), round(A4[1]))
+
+
+def test_een_grote_fotobon_wordt_een_a4_pagina(db, post, maak_factuur, tmp_path):
+    factuur_id = maak_factuur()
+    _foto_als_bon(db, factuur_id, "groot.jpg", (3000, 4000))
+    data = post(f"/factuur/{factuur_id}/sturen", {"bonnen": "ja"}).data
+    assert _paginamaten(data, tmp_path) == [A4_PUNTEN, A4_PUNTEN]
+
+
+def test_alle_paginas_zijn_even_groot_ook_bij_twee_bonnen(db, post, maak_factuur, tmp_path):
+    """Een rekening die over twee pagina's loopt, met een staande en een liggende foto."""
+    factuur_id = maak_factuur()
+    for i in range(25):
+        db.execute("""INSERT INTO regels (factuur_id, omschrijving, type, aantal, prijs, subtotaal)
+                      VALUES (?, ?, 'materiaal', 1, 30, 30)""", (factuur_id, f"Plaat {i}"))
+    db.commit()
+    _foto_als_bon(db, factuur_id, "staand.jpg", (3000, 4000))
+    _foto_als_bon(db, factuur_id, "liggend.png", (4000, 1500))
+    maten = _paginamaten(post(f"/factuur/{factuur_id}/sturen", {"bonnen": "ja"}).data, tmp_path)
+    # De rekening zelf beslaat meer dan één pagina, daarna één pagina per bon.
+    assert len(maten) - 2 >= 2
+    assert set(maten) == {A4_PUNTEN}
+
+
+@pytest.mark.parametrize("maat", [(400, 3000), (4000, 1500), (3000, 4000), (40, 60)])
+def test_de_foto_past_binnen_de_marges_en_houdt_zijn_verhouding(tmp_path, monkeypatch, maat):
+    """Een lange kassabon, een liggende foto, een gewone foto en een piepklein plaatje."""
+    bron = tmp_path / "bon.png"
+    Image.new("RGB", maat, "white").save(bron)
+    getekend = {}
+    echte = facturen.canvas.Canvas.drawImage
+
+    def onthoud(vel, beeld, x, y, width=None, height=None, **rest):
+        getekend.update(x=x, y=y, b=width, h=height)
+        return echte(vel, beeld, x, y, width=width, height=height, **rest)
+
+    monkeypatch.setattr(facturen.canvas.Canvas, "drawImage", onthoud)
+    facturen.bon_als_a4(str(bron), str(tmp_path / "bon.pdf"))
+    marge = facturen.BON_MARGE
+    assert getekend["x"] >= marge - 0.01 and getekend["y"] >= marge - 0.01
+    assert getekend["x"] + getekend["b"] <= A4[0] - marge + 0.01
+    assert getekend["y"] + getekend["h"] <= A4[1] - marge + 0.01
+    assert getekend["b"] / getekend["h"] == pytest.approx(maat[0] / maat[1], rel=0.01)
+    # Hij vult de ruimte in de breedte of in de hoogte.
+    assert (getekend["b"] == pytest.approx(A4[0] - 2 * marge)
+            or getekend["h"] == pytest.approx(A4[1] - 2 * marge))
+
+
+def test_een_gedraaide_telefoonfoto_staat_rechtop(tmp_path, monkeypatch):
+    """Een foto die liggend is opgeslagen met EXIF 'draai 90 graden' is staand."""
+    bron = tmp_path / "bon.jpg"
+    exif = Image.Exif()
+    exif[0x0112] = 6  # Orientation: 90 graden met de klok mee draaien
+    Image.new("RGB", (400, 300), "white").save(bron, exif=exif)
+    getekend = {}
+    echte = facturen.canvas.Canvas.drawImage
+
+    def onthoud(vel, beeld, x, y, width=None, height=None, **rest):
+        getekend.update(b=width, h=height)
+        return echte(vel, beeld, x, y, width=width, height=height, **rest)
+
+    monkeypatch.setattr(facturen.canvas.Canvas, "drawImage", onthoud)
+    facturen.bon_als_a4(str(bron), str(tmp_path / "bon.pdf"))
+    assert getekend["h"] > getekend["b"]
+
+
+def test_een_grote_foto_maakt_de_pdf_niet_zwaar(db, post, maak_factuur):
+    """Voor WhatsApp: een bon van een telefoon hoort geen vele MB's te kosten."""
+    import random
+    factuur_id = maak_factuur()
+    _bon_op_rekening(db, factuur_id, "ruis.jpg", maak_bestand=False)
+    # Ruis comprimeert slecht, net als een echte foto.
+    rnd = random.Random(1)
+    plaatje = Image.frombytes("RGB", (3000, 4000), rnd.randbytes(3000 * 4000 * 3))
+    plaatje.save(os.path.join(facturen.BIJLAGE_DIR, "ruis.jpg"), quality=95)
+    data = post(f"/factuur/{factuur_id}/sturen", {"bonnen": "ja"}).data
+    assert os.path.getsize(os.path.join(facturen.BIJLAGE_DIR, "ruis.jpg")) > 3_000_000
+    assert len(data) < 3_000_000
