@@ -82,7 +82,7 @@ Assistant: daar hoort alleen het standaardnetwerk te gelden.
   commentaar houden.
 - **Meldingen aan de gebruiker zijn gewone taal.** "De mailserver weigert je
   gebruikersnaam of wachtwoord", niet "SMTP authentication failed".
-- **Elke wijziging krijgt tests.** Er staan er nu 1455.
+- **Elke wijziging krijgt tests.** Er staan er nu 1570.
 
 ### Taken horen bij de klus
 
@@ -115,6 +115,17 @@ Sinds 2.7.0 zijn de materialen ook de prijs van de bon: `herreken_bon` zet
 elke wijziging aan `inkoop_materialen`. Een bon met `factuur_id` ligt vast
 (`_bon_vast`): geen materialen erbij, eraf of anders, en geen herrekening,
 want de rekening is met het oude bedrag gemaakt.
+
+### Meer rekeningnummers op de strook
+
+Sinds 2.9.0 kunnen er tot drie rekeningnummers op de betaalstrook. Rekening 1
+is nog steeds `settings.iban` en `tenaamstelling`; 2 en 3 zijn `iban_2`,
+`tenaamstelling_2`, `iban_3` en `tenaamstelling_3`. Een rekening bewaart alleen
+`bedrag_iban_2` en `bedrag_iban_3`. Het deel van rekening 1 staat nergens: dat
+is altijd de rest, zodat het na een gewijzigde regel niet kan gaan schelen.
+`verdeling_op_strook` beslist wat er op de strook komt en valt terug op alleen
+rekening 1 als het niet meer optelt of als er al een deel betaald is (de app
+weet niet op welk nummer dat binnenkwam). Met één element is het de oude strook.
 
 ### Valkuil bij de tests
 

@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.9.0
+
+**Tot drie rekeningnummers op de betaalstrook.** In Instellingen kun je naast
+je eigen rekening nog twee rekeningnummers invullen, elk met een eigen naam.
+Op een rekening vul je dan in hoeveel er naar rekening 2 en 3 moet; de rest
+gaat vanzelf naar rekening 1, zodat het altijd optelt tot het totaal. Op de
+strook staat per rekeningnummer het bedrag, met het totaal in het oranje vak
+en het rekeningnummer erbij om te vermelden.
+
+Heb je maar één rekeningnummer, of verdeel je niets, dan blijft alles zoals
+het was. Is er al een deel betaald, dan staat op de strook alleen nog wat er
+openstaat, op rekening 1: de app weet niet op welk nummer het geld binnenkwam.
+
 ## 2.8.5
 
 **Materialen staan los van elkaar.** Bij het bewerken van een bon liepen de
