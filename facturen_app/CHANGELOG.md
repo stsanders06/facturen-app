@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.11.1
+
+**De PDF met bonnen is weer goed te lezen op een telefoon.** Een foto van een
+bon werd een reusachtige pagina, waardoor je telefoon de rekening ervoor
+piepklein liet zien; het leek alsof de hele rekening op één pagina stond. Nu
+staat elke bon op een eigen A4, net zo groot als de rekening. De PDF is ook
+veel kleiner geworden, wat handig is voor WhatsApp.
+
 ## 2.11.0
 
 **Een bijnaam voor materialen.** Staat er op een gescande bon een naam waar

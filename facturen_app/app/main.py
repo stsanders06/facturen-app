@@ -51,7 +51,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "2.11.0"
+VERSIE = os.environ.get("ADDON_VERSION") or "2.11.1"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -11312,6 +11312,42 @@ def past_in_een_pdf(bon):
     return ext == ".pdf" or ext in BIJLAGE_PLAATJES
 
 
+# Een bon als pagina achter de rekening: zo groot dat hij op een telefoon nog
+# te lezen is, en niet groter. Een foto van 4000 px maakte de PDF vele MB's
+# groot voor WhatsApp, zonder dat je er op een scherm iets meer van ziet.
+BON_MAX_PIXELS = 2000
+BON_MARGE = 12 * mm
+
+
+def bon_als_a4(plaatje_pad, doel_pad):
+    """Zet een foto van een bon op een staande A4, binnen de marges, gecentreerd.
+
+    Pillow maakt van een plaatje een pagina van één punt per pixel: een
+    telefoonfoto werd zo een pagina van ruim een meter breed. Een PDF-lezer
+    zet alle pagina's op de breedte van de grootste, en dan werd de rekening
+    ervoor een postzegel; op de iPhone leek het alsof beide pagina's op één
+    vel stonden. Op A4 is elke pagina even groot. De verhouding blijft: een
+    lange smalle bon wordt een smalle strook over de hele hoogte."""
+    jpeg = os.path.splitext(doel_pad)[0] + ".jpg"
+    with Image.open(plaatje_pad) as plaatje:
+        # Een telefoonfoto staat vaak alleen via EXIF rechtop.
+        beeld = ImageOps.exif_transpose(plaatje).convert("RGB")
+    beeld.thumbnail((BON_MAX_PIXELS, BON_MAX_PIXELS), Image.LANCZOS)
+    beeld.save(jpeg, "JPEG", quality=85)
+    breedte, hoogte = beeld.size
+
+    pagina_b, pagina_h = A4
+    ruimte_b = pagina_b - 2 * BON_MARGE
+    ruimte_h = pagina_h - 2 * BON_MARGE
+    schaal = min(ruimte_b / breedte, ruimte_h / hoogte)
+    b, h = breedte * schaal, hoogte * schaal
+    vel = canvas.Canvas(doel_pad, pagesize=A4)
+    vel.drawImage(jpeg, (pagina_b - b) / 2, (pagina_h - h) / 2, width=b, height=h)
+    vel.showPage()
+    vel.save()
+    return doel_pad
+
+
 def rekening_met_bonnen(rekening_pad, bonnen, map_):
     """Eén PDF: de rekening, daarna elke bon als eigen pagina('s).
 
@@ -11325,10 +11361,7 @@ def rekening_met_bonnen(rekening_pad, bonnen, map_):
             delen.append(bon["pad"])
             continue
         pagina = os.path.join(map_, f"bon-{nummer}.pdf")
-        with Image.open(bon["pad"]) as plaatje:
-            # Een telefoonfoto staat vaak alleen via EXIF rechtop.
-            ImageOps.exif_transpose(plaatje).convert("RGB").save(pagina, "PDF")
-        delen.append(pagina)
+        delen.append(bon_als_a4(bon["pad"], pagina))
     if len(delen) == 1:
         return rekening_pad
     uit = os.path.join(map_, "samen.pdf")

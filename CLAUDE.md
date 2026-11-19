@@ -82,7 +82,7 @@ Assistant: daar hoort alleen het standaardnetwerk te gelden.
   commentaar houden.
 - **Meldingen aan de gebruiker zijn gewone taal.** "De mailserver weigert je
   gebruikersnaam of wachtwoord", niet "SMTP authentication failed".
-- **Elke wijziging krijgt tests.** Er staan er nu 1634.
+- **Elke wijziging krijgt tests.** Er staan er nu 1642.
 
 ### Taken horen bij de klus
 
