@@ -13,6 +13,18 @@
     padding: 8px 12px;
   }
   .opslaan { display: flex; justify-content: flex-end; }
+  /* Elke rekening een eigen blokje, zodat je ziet welke naam bij welk nummer hoort. */
+  .rekening-blok {
+    border: 1px solid var(--divider);
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .rekening-kop { display: flex; justify-content: space-between; align-items: baseline;
+                  font-weight: 600; font-size: 14px; }
+  .rekening-kop small { font-weight: 400; font-size: 12px; color: var(--text-secondary); }
   /* Drie wachtwoordvelden naast elkaar op een breed scherm, onder elkaar op een telefoon. */
   .velden { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
   .velden label { display: block; }
@@ -94,18 +106,30 @@
   <section class="card">
     <div class="card-head">
       <h2>Betalen</h2>
+      <p>Tot drie rekeningen. Bij een rekening vul je in wat er naar 2 en 3 gaat;
+        de rest gaat vanzelf naar rekening 1.</p>
     </div>
     <div class="fields">
-      <div class="field">
-        <label for="iban">IBAN</label>
-        <input type="text" id="iban" name="iban" value="{{ s.iban }}">
+      {#- Rekening 1 houdt de oude veldnamen `iban` en `tenaamstelling`: zo
+          blijft een bestaande instelling gewoon staan. -#}
+      {% for nr in (1, 2, 3) %}
+      {% set achter = '' if nr == 1 else '_' ~ nr %}
+      <div class="rekening-blok">
+        <div class="rekening-kop">Rekening {{ nr }}{% if nr > 1 %} <small>niet verplicht</small>{% endif %}</div>
+        <div class="field">
+          <label for="iban{{ achter }}">IBAN</label>
+          <input type="text" id="iban{{ achter }}" name="iban{{ achter }}"
+                 value="{{ s['iban' ~ achter] or '' }}"
+                 {% if nr > 1 %}placeholder="Leeg laten als je die niet hebt"{% endif %}>
+        </div>
+        <div class="field">
+          <label for="tenaamstelling{{ achter }}">Ten name van</label>
+          <input type="text" id="tenaamstelling{{ achter }}" name="tenaamstelling{{ achter }}"
+                 value="{{ s['tenaamstelling' ~ achter] or '' }}" placeholder="{{ s.naam }}">
+          {% if nr == 1 %}<p class="hint">Leeg laten als dat je eigen naam is.</p>{% endif %}
+        </div>
       </div>
-      <div class="field">
-        <label for="tenaamstelling">Ten name van</label>
-        <input type="text" id="tenaamstelling" name="tenaamstelling"
-               value="{{ s.tenaamstelling or '' }}" placeholder="{{ s.naam }}">
-        <p class="hint">Leeg laten als dat je eigen naam is.</p>
-      </div>
+      {% endfor %}
     </div>
   </section>
 

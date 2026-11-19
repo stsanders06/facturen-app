@@ -51,7 +51,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "2.8.5"
+VERSIE = os.environ.get("ADDON_VERSION") or "2.9.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -2010,6 +2010,13 @@ def init_db():
         # Nieuwe scans automatisch laten lezen. Standaard aan: zonder lezer in
         # de buurt gebeurt er toch niets, en met lezer is dit wat je wil.
         ("bon_herkenning", "INTEGER DEFAULT 1"),
+        # Een tweede en derde rekeningnummer voor op de strook. Rekening 1 is
+        # de oude kolom `iban`, zodat een bestaande database niets hoeft te
+        # verhuizen en wie er één heeft niets merkt.
+        ("iban_2", "TEXT DEFAULT ''"),
+        ("tenaamstelling_2", "TEXT DEFAULT ''"),
+        ("iban_3", "TEXT DEFAULT ''"),
+        ("tenaamstelling_3", "TEXT DEFAULT ''"),
     ]:
         if kolom not in bestaand:
             conn.execute(f"ALTER TABLE settings ADD COLUMN {kolom} {definitie}")
@@ -2118,6 +2125,12 @@ def init_db():
     # bij een rekening die te laat is, maar niet opnieuw vlak na de vorige.
     if "herinnerd_op" not in {rij["name"] for rij in conn.execute("PRAGMA table_info(facturen)")}:
         conn.execute("ALTER TABLE facturen ADD COLUMN herinnerd_op TEXT DEFAULT ''")
+    # Wat er naar rekening 2 en 3 moet. Rekening 1 krijgt de rest; dat bedrag
+    # staat nergens, zodat het na een gewijzigde regel niet kan gaan schelen.
+    factuurkolommen = {rij["name"] for rij in conn.execute("PRAGMA table_info(facturen)")}
+    for kolom in ("bedrag_iban_2", "bedrag_iban_3"):
+        if kolom not in factuurkolommen:
+            conn.execute(f"ALTER TABLE facturen ADD COLUMN {kolom} REAL DEFAULT 0")
     offertekolommen = {rij["name"] for rij in conn.execute("PRAGMA table_info(offertes)")}
     if "kenmerk" not in offertekolommen:
         conn.execute("ALTER TABLE offertes ADD COLUMN kenmerk TEXT DEFAULT ''")
@@ -2748,6 +2761,98 @@ def tenaamstelling(s):
     """Naam van de rekeninghouder voor op de factuur. Vaak dezelfde als je eigen
     naam, maar bij een en/of-rekening of een rekening op naam van je partner niet."""
     return (s.get("tenaamstelling") or "").strip() or s.get("naam", "")
+
+
+# De rekeningen naast de eerste. Drie is genoeg voor de strook: met meer past
+# hij niet meer boven de btw-regel onderaan het vel.
+EXTRA_REKENINGEN = (2, 3)
+
+
+def extra_rekeningen(s=None):
+    """De ingevulde rekeningen 2 en 3, als (nummer, iban, ten name van).
+
+    Een lege tenaamstelling is je eigen naam, net als bij rekening 1."""
+    if s is None:
+        s = get_settings()
+    uit = []
+    for nr in EXTRA_REKENINGEN:
+        iban = (s.get(f"iban_{nr}") or "").strip()
+        if iban:
+            tnv = (s.get(f"tenaamstelling_{nr}") or "").strip() or s.get("naam", "")
+            uit.append((nr, iban, tnv))
+    return uit
+
+
+def rekeningen_voor_formulier():
+    """Alle rekeningen als (nummer, iban, ten name van), of niets als er maar
+    één is. Met één rekening valt er niets te verdelen en blijft het
+    formulier zoals het was."""
+    s = get_settings()
+    extra = extra_rekeningen(s)
+    if not extra:
+        return []
+    return [(1, s.get("iban", ""), tenaamstelling(s))] + extra
+
+
+# Alleen het rekeningformulier vraagt hierom; als globale functie gaat er niet
+# bij elke pagina een extra vraag naar de database.
+app.jinja_env.globals["rekeningen_voor_formulier"] = rekeningen_voor_formulier
+
+
+def lees_verdeling(form, totaal, s):
+    """Wat er naar rekening 2 en 3 gaat, of een fout.
+
+    Alleen bij overmaken: contant of Tikkie heeft geen rekeningnummers op de
+    strook, en een vergeten bedrag daar mag het opslaan niet tegenhouden. Een
+    rekening die niet meer in Instellingen staat krijgt niets; anders blijft er
+    een bedrag hangen dat je nergens meer ziet."""
+    verdeling = {f"bedrag_iban_{nr}": 0.0 for nr in EXTRA_REKENINGEN}
+    if _betaalmethode(form.get("betaalmethode")) != "bank":
+        return verdeling, None
+    for nr, _iban, _tnv in extra_rekeningen(s):
+        tekst = form.get(f"bedrag_iban_{nr}", "")
+        try:
+            bedrag = rond_centen(_getal(tekst))
+        except (TypeError, ValueError, ArithmeticError):
+            return verdeling, f"Het bedrag voor rekening {nr} is geen bedrag. Vul bijvoorbeeld 125,50 in."
+        if bedrag < 0:
+            return verdeling, f"Het bedrag voor rekening {nr} kan niet negatief zijn."
+        verdeling[f"bedrag_iban_{nr}"] = bedrag
+    samen = round(sum(verdeling.values()), 2)
+    if samen > round(totaal, 2) + 0.005:
+        return verdeling, (
+            f"Rekening 2 en 3 krijgen samen € {nl_bedrag(samen)}, maar de rekening is "
+            f"€ {nl_bedrag(totaal)}. Maak die bedragen lager."
+        )
+    return verdeling, None
+
+
+def verdeling_op_strook(doc, s):
+    """Naar welke rekeningnummers er wordt overgemaakt, als (iban, ten name van,
+    bedrag). Eén element betekent de gewone strook zonder verdeling.
+
+    Rekening 1 krijgt wat er overblijft. Valt de verdeling niet meer te
+    volgen, dan komt alles op rekening 1: een strook die niet optelt is erger
+    dan een strook zonder verdeling. Dat gebeurt als er al een deel binnen is
+    (de app weet niet op welk nummer, dus ook niet wat er per nummer nog moet)
+    of als de bedragen samen meer zijn dan het totaal."""
+    totaal = round(doc.get("totaal") or 0, 2)
+    eerste = (s.get("iban", ""), tenaamstelling(s), totaal)
+    delen = []
+    for nr, iban, tnv in extra_rekeningen(s):
+        bedrag = round(doc.get(f"bedrag_iban_{nr}") or 0, 2)
+        if bedrag > 0:
+            delen.append((iban, tnv, bedrag))
+    rest = round(totaal - sum(d[2] for d in delen), 2)
+    if not delen or rest < 0:
+        return [eerste]
+    if rest > 0:
+        delen.insert(0, (eerste[0], eerste[1], rest))
+    # Gaat alles naar één nummer, dan blijft dat nummer ook na een deel-
+    # betaling het goede. Pas bij twee of meer weet je niet meer wat waar moet.
+    if len(delen) > 1 and round(doc.get("betaald") or 0, 2) > 0:
+        return [eerste]
+    return delen
 
 
 def bruikbaar_logo(pad):
@@ -3545,7 +3650,8 @@ def instellingen():
                 bcc_fout = False
         conn.execute(
             """UPDATE settings SET naam=?, adres=?, telefoon=?, email=?, iban=?,
-               tenaamstelling=?, logo_bestand=?, smtp_host=?,
+               tenaamstelling=?, iban_2=?, tenaamstelling_2=?, iban_3=?,
+               tenaamstelling_3=?, logo_bestand=?, smtp_host=?,
                smtp_port=?, smtp_user=?, smtp_pass=?, smtp_van=?,
                bcc_aan=?, bcc_adres=?, bon_herkenning=? WHERE id=1""",
             (
@@ -3555,6 +3661,10 @@ def instellingen():
                 request.form.get("email", ""),
                 request.form.get("iban", ""),
                 request.form.get("tenaamstelling", ""),
+                request.form.get("iban_2", "").strip(),
+                request.form.get("tenaamstelling_2", "").strip(),
+                request.form.get("iban_3", "").strip(),
+                request.form.get("tenaamstelling_3", "").strip(),
                 logo_bestand,
                 request.form.get("smtp_host", ""),
                 int(request.form.get("smtp_port") or 587),
@@ -8772,6 +8882,9 @@ def formulier_van_post(conn, form, eigen_factuur_id=None):
         "termijn_aan": form.get("betaaltermijn") == "ja",
         "kenmerk": form.get("kenmerk", ""),
         "betaalmethode": _betaalmethode(form.get("betaalmethode")),
+        # Zoals getypt, ook als het geen bedrag is: dan zie je wat er fout ging.
+        "verdeling": {f"bedrag_iban_{nr}": form.get(f"bedrag_iban_{nr}", "")
+                      for nr in EXTRA_REKENINGEN},
         "regels": regels,
     }
 
@@ -8797,6 +8910,7 @@ def _render_nieuw_ingevuld(ingevuld):
         kenmerk=ingevuld["kenmerk"],
         betaalmethode=ingevuld["betaalmethode"],
         termijn_aan=ingevuld["termijn_aan"],
+        verdeling=ingevuld["verdeling"],
     )
 
 
@@ -8837,6 +8951,7 @@ def _render_bewerk_ingevuld(factuur, ingevuld):
         kenmerk=ingevuld["kenmerk"],
         betaalmethode=ingevuld["betaalmethode"],
         termijn_aan=ingevuld["termijn_aan"],
+        verdeling=ingevuld["verdeling"],
         formulier_open=True,
     )
 
@@ -8850,6 +8965,8 @@ def nieuw():
             klant_id = bepaal_klant(conn, request.form)
             regels, totaal, meldingen, fout = regels_voor_opslaan(
                 conn, request.form, klant_id)
+            if not fout:
+                verdeling, fout = lees_verdeling(request.form, totaal, get_settings())
             if fout:
                 ingevuld = formulier_van_post(conn, request.form)
                 conn.rollback()
@@ -8862,8 +8979,9 @@ def nieuw():
             # concept dat je weggooit geen gat achter in de reeks.
             cur = conn.execute(
                 """INSERT INTO facturen (nummer, datum, vervalt_op, klant_id, klant_naam,
-                   klant_adres, klant_email, betaalmethode, status, totaal, kenmerk)
-                   VALUES ('', ?, ?, ?, ?, ?, ?, ?, 'concept', ?, ?)""",
+                   klant_adres, klant_email, betaalmethode, status, totaal, kenmerk,
+                   bedrag_iban_2, bedrag_iban_3)
+                   VALUES ('', ?, ?, ?, ?, ?, ?, ?, 'concept', ?, ?, ?, ?)""",
                 (
                     datum,
                     lees_vervaldatum(request.form, datum),
@@ -8874,6 +8992,8 @@ def nieuw():
                     _betaalmethode(request.form.get("betaalmethode")),
                     totaal,
                     request.form.get("kenmerk", "").strip(),
+                    verdeling["bedrag_iban_2"],
+                    verdeling["bedrag_iban_3"],
                 ),
             )
             factuur_id = cur.lastrowid
@@ -8959,6 +9079,8 @@ def bewerk(factuur_id):
             klant_id = bepaal_klant(conn, request.form)
             regels, totaal, meldingen, fout = regels_voor_opslaan(
                 conn, request.form, klant_id, factuur_id)
+            if not fout:
+                verdeling, fout = lees_verdeling(request.form, totaal, get_settings())
             if fout:
                 ingevuld = formulier_van_post(conn, request.form, factuur_id)
                 conn.rollback()
@@ -8968,7 +9090,8 @@ def bewerk(factuur_id):
             datum = geldige_datum(request.form.get("datum"), factuur["datum"])
             conn.execute(
                 """UPDATE facturen SET datum=?, vervalt_op=?, klant_id=?, klant_naam=?,
-                   klant_adres=?, klant_email=?, betaalmethode=?, totaal=?, kenmerk=?
+                   klant_adres=?, klant_email=?, betaalmethode=?, totaal=?, kenmerk=?,
+                   bedrag_iban_2=?, bedrag_iban_3=?
                    WHERE id=?""",
                 (
                     datum,
@@ -8980,6 +9103,8 @@ def bewerk(factuur_id):
                     _betaalmethode(request.form.get("betaalmethode")),
                     totaal,
                     request.form.get("kenmerk", "").strip(),
+                    verdeling["bedrag_iban_2"],
+                    verdeling["bedrag_iban_3"],
                     factuur_id,
                 ),
             )
@@ -10042,16 +10167,22 @@ def _teken_betaalstrook(vel, doc, s, vervalt):
         # verzoek te tikken, en dan komt het geld er twee keer of verkeerd.
         vel.label("Betalen via Tikkie", vel.links, strook_y - 8 * mm)
         regels = [("", "U ontvangt een Tikkie-betaalverzoek.")]
+        verdeeld = False
     else:
         vel.label("Overmaken naar", vel.links, strook_y - 8 * mm)
-        regels = [
-            ("IBAN", s.get("iban", "")),
-            ("T.n.v.", tenaamstelling(s)),
-        ]
+        delen = verdeling_op_strook(doc, s)
+        verdeeld = len(delen) > 1
+        regels = [] if verdeeld else [("IBAN", delen[0][0]), ("T.n.v.", delen[0][1])]
     regel_y = strook_y - 14 * mm
+    if verdeeld:
+        regel_y = _teken_verdeling(vel, delen, regel_y)
     # Geen termijn op de rekening: dan ook geen "Vóór" op de strook.
     if vervalt:
         regels.append(("Vóór", filter_datum_nl(vervalt)))
+    # Bij drie overboekingen zie je op het afschrift anders niet waar een
+    # losse € 112,50 van "Jansen" bij hoort. Een concept heeft nog geen nummer.
+    if verdeeld and doc.get("nummer"):
+        regels.append(("O.v.v.", doc["nummer"]))
     if betaald > 0:
         regels.append(("Al betaald", al_betaald))
     for naam, waarde in regels:
@@ -10067,12 +10198,40 @@ def _teken_betaalstrook(vel, doc, s, vervalt):
     c.setStrokeColor(ORANJE)
     c.setLineWidth(1.4)
     c.roundRect(vak_x, vak_y, vak_b, vak_h, 2 * mm, stroke=1, fill=0)
-    vel.label("Nog te betalen" if betaald > 0 else "Te betalen",
+    # Het grote bedrag is bij een verdeling de som. "Totaal" erbij, anders
+    # maakt een klant dat hele bedrag naar het eerste nummer over.
+    if verdeeld:
+        vak_kop = "Te betalen, totaal"
+    else:
+        vak_kop = "Nog te betalen" if betaald > 0 else "Te betalen"
+    vel.label(vak_kop,
               vak_x + vak_b - 5 * mm, vak_y + vak_h - 6 * mm, rechts_uit=True)
     c.setFillColor(ORANJE)
     c.setFont("Helvetica-Bold", 16)
     c.drawRightString(vak_x + vak_b - 5 * mm, vak_y + 5 * mm,
                       f"€ {nl_bedrag(max(openstaand, 0))}")
+
+
+def _teken_verdeling(vel, delen, y):
+    """Eén regel per rekeningnummer: nummer, naam en bedrag naast elkaar.
+
+    Op één regel en niet het nummer met de naam eronder: met drie nummers,
+    de datum en het kenmerk liep de strook anders over de btw-regel. De
+    kolommen blijven links van het oranje vak; een lange naam wordt afgekapt."""
+    c = vel.c
+    x_naam = vel.links + 42 * mm
+    x_bedrag = vel.links + 102 * mm
+    for iban, tnv, bedrag in delen:
+        c.setFont("Helvetica", 9)
+        c.setFillColor(INKT)
+        c.drawString(vel.links, y, iban)
+        c.setFillColor(GRIJS_DONKER)
+        c.drawString(x_naam, y, vel.kort(tnv, "Helvetica", 9, 40 * mm))
+        c.setFillColor(INKT)
+        c.setFont("Helvetica-Bold", 9)
+        c.drawRightString(x_bedrag, y, f"€ {nl_bedrag(bedrag)}")
+        y -= 5.2 * mm
+    return y - 2 * mm
 
 
 def _teken_voetregel(vel, offerte):
@@ -11221,8 +11380,9 @@ def kopieer(factuur_id):
     vervalt = standaard_vervalt(nieuwe_datum) if origineel["vervalt_op"] else ""
     cur = conn.execute(
         """INSERT INTO facturen (nummer, datum, vervalt_op, klant_id, klant_naam,
-           klant_adres, klant_email, betaalmethode, status, totaal, kenmerk)
-           VALUES ('', ?, ?, ?, ?, ?, ?, ?, 'concept', ?, ?)""",
+           klant_adres, klant_email, betaalmethode, status, totaal, kenmerk,
+           bedrag_iban_2, bedrag_iban_3)
+           VALUES ('', ?, ?, ?, ?, ?, ?, ?, 'concept', ?, ?, ?, ?)""",
         (
             nieuwe_datum,
             vervalt,
@@ -11233,6 +11393,10 @@ def kopieer(factuur_id):
             origineel["betaalmethode"],
             origineel["totaal"],
             origineel["kenmerk"],
+            # Werk dat elke maand terugkomt wordt meestal ook elke maand zo
+            # verdeeld. Klopt het niet, dan pas je het aan bij het nalopen.
+            origineel["bedrag_iban_2"] or 0,
+            origineel["bedrag_iban_3"] or 0,
         ),
     )
     nieuw_id = cur.lastrowid

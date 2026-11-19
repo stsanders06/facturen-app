@@ -386,6 +386,24 @@
     color: var(--text-secondary);
   }
   .klant-samenvatting .tekst { min-width: 0; flex: 1 1 12rem; }
+  /* Verdeling over de rekeningnummers. Het deel van rekening 1 is geen veld:
+     dat is de rest, en een vak dat je niet kunt typen ziet er anders uit. */
+  .verdeel-rij { display: flex; justify-content: space-between; align-items: center;
+                 gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--divider); }
+  .verdeel-rij > div:first-child { min-width: 0; }
+  .verdeel-rij b { font-weight: 600; }
+  /* Rekening 2 en 3 zijn een label (voor het veld), rekening 1 niet. Zonder
+     dit staan ze grijs en klein naast een zwarte rekening 1. */
+  .verdeel-rij label { color: var(--text); font-size: inherit; }
+  .verdeel-nummer { display: block; font-size: 12px; color: var(--text-secondary);
+                    overflow-wrap: anywhere; }
+  .verdeel-rest { background: var(--neutral-soft); border-radius: 10px; padding: 10px 12px;
+                  white-space: nowrap; }
+  .verdeel-rest.te-veel { background: var(--danger-soft); color: var(--danger); }
+  .verdeel-bedrag { display: flex; align-items: center; gap: 8px; flex: 0 0 132px; }
+  .verdeel-bedrag span { color: var(--text-secondary); }
+  #verdeling[hidden] { display: none; }
+  .verdeel-som { display: flex; justify-content: space-between; padding-top: 10px; font-size: 14px; }
 </style>
 {% endblock %}
 {% block content %}
@@ -727,6 +745,46 @@
     </div>
   </section>
 
+  {% if not is_offerte %}
+  {% set rekeningen = rekeningen_voor_formulier() %}
+  {% if rekeningen %}
+  {#- Alleen bij overmaken: contant en Tikkie hebben geen nummers op de strook.
+      Het script verbergt de kaart dan; de server negeert de bedragen ook. -#}
+  <section class="card" id="verdeling">
+    <div class="card-head">
+      <h2>Overmaken naar</h2>
+      <p>Vul in wat er naar
+        {% for nr, iban, tnv in rekeningen[1:] %}{{ ' en ' if not loop.first }}rekening {{ nr }}{% endfor %}
+        gaat. De rest gaat vanzelf naar rekening 1.</p>
+    </div>
+    {% for nr, iban, tnv in rekeningen %}
+    <div class="verdeel-rij">
+      {% if nr == 1 %}
+      <div><b>Rekening 1</b><span class="verdeel-nummer">{{ iban }} · {{ tnv }}</span></div>
+      <div class="verdeel-rest" id="verdeel-rest">€ 0,00</div>
+      {% else %}
+      {% set veld = 'bedrag_iban_' ~ nr %}
+      {% if verdeling is defined and verdeling %}
+        {% set waarde = verdeling[veld] %}
+      {% elif factuur and factuur[veld] %}
+        {% set waarde = factuur[veld]|bedrag %}
+      {% else %}
+        {% set waarde = '' %}
+      {% endif %}
+      <div><label for="{{ veld }}"><b>Rekening {{ nr }}</b></label>
+        <span class="verdeel-nummer">{{ iban }} · {{ tnv }}</span></div>
+      <div class="verdeel-bedrag"><span>€</span>
+        <input type="text" inputmode="decimal" id="{{ veld }}" name="{{ veld }}"
+               value="{{ waarde }}" placeholder="0,00" data-verdeel></div>
+      {% endif %}
+    </div>
+    {% endfor %}
+    <div class="verdeel-som"><span>Totaal van de rekening</span><span id="verdeel-totaal"></span></div>
+    <p class="hint" id="verdeel-fout" hidden style="color:var(--danger);margin-top:6px"></p>
+  </section>
+  {% endif %}
+  {% endif %}
+
   {# Niet in een eigen kaart: de balk heeft op een telefoon al een eigen rand,
      en in een kaart gaf dat een rand in een rand. #}
   <div class="indienen">
@@ -760,6 +818,58 @@
 {% endif %}
 
 <script>
+  // Het deel van rekening 1 is de rest. Rekent mee met het totaal en met wat
+  // je bij 2 en 3 typt, zodat je vóór het opslaan ziet of het klopt.
+  (function () {
+    var kaart = document.getElementById('verdeling');
+    if (!kaart) return;
+    var totaalveld = document.getElementById('totaal');
+    var restveld = document.getElementById('verdeel-rest');
+    var totaaltekst = document.getElementById('verdeel-totaal');
+    var fout = document.getElementById('verdeel-fout');
+    var methode = document.getElementById('betaalmethode');
+
+    function centenVan(tekst) {
+      tekst = String(tekst || '').replace(/[€\s\u00a0]/g, '');
+      if (!tekst) return 0;
+      if (tekst.indexOf(',') !== -1) tekst = tekst.replace(/\./g, '').replace(',', '.');
+      var getal = Number(tekst);
+      return isFinite(getal) ? Math.round(getal * 100) : NaN;
+    }
+    function euro(centen) {
+      return '€\u00a0' + (centen / 100).toLocaleString('nl-NL', {
+        minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    function totaalCenten() {
+      if (totaalveld.dataset.centen !== undefined) return Number(totaalveld.dataset.centen);
+      return centenVan(totaalveld.textContent);
+    }
+    function herreken() {
+      var totaal = totaalCenten();
+      var samen = 0, kapot = false;
+      kaart.querySelectorAll('[data-verdeel]').forEach(function (veld) {
+        var c = centenVan(veld.value);
+        if (isNaN(c) || c < 0) kapot = true; else samen += c;
+      });
+      var rest = totaal - samen;
+      restveld.textContent = euro(Math.max(rest, 0));
+      totaaltekst.textContent = euro(totaal);
+      var teVeel = !kapot && rest < 0;
+      restveld.classList.toggle('te-veel', teVeel);
+      fout.hidden = !(kapot || teVeel);
+      fout.textContent = kapot ? 'Vul een bedrag in, bijvoorbeeld 125,50.'
+        : 'Samen ' + euro(samen) + ', dat is meer dan het totaal van de rekening.';
+    }
+    function toon() {
+      kaart.hidden = !!methode && methode.value !== 'bank';
+    }
+    kaart.addEventListener('input', herreken);
+    totaalveld.addEventListener('totaal', herreken);
+    if (methode) methode.addEventListener('change', toon);
+    herreken();
+    toon();
+  })();
+
   document.querySelectorAll('[data-open-wijzig]').forEach(function (rij) {
     rij.addEventListener('click', function () {
       var details = document.querySelector('details.wijzig');
@@ -1046,6 +1156,10 @@
         else micro += uit.centen * 10000;
       });
       totaalveld.textContent = euro(halfUpDelen(micro, 10000) / 100);
+      // De verdeling over de rekeningnummers rekent hiermee het deel van
+      // rekening 1 uit. In centen, zodat er geen cent tussen valt.
+      totaalveld.dataset.centen = halfUpDelen(micro, 10000);
+      totaalveld.dispatchEvent(new Event('totaal'));
     }
 
     function volgendRegelnummer() {
