@@ -81,3 +81,24 @@ def test_onleesbare_datum_valt_terug_op_vandaag():
     assert facturen.geldige_datum("gisteren") == date.today().isoformat()
     assert facturen.geldige_datum("gisteren", "2026-01-01") == "2026-01-01"
     assert facturen.geldige_datum("2026-08-14") == "2026-08-14"
+
+
+def test_keuzelijsten_tekenen_zichzelf_niet(client):
+    """Safari op de Mac tekent een keuzelijst zelf en negeert de padding;
+    dan staat Betaalmethode lager dan Datum ernaast. Zonder het uiterlijk van
+    de browser telt de padding wel. Het pijltje komt uit --keuzepijl."""
+    inhoud = client.get("/nieuw").data.decode()
+    regel = inhoud.split("  select {", 1)[1].split("}", 1)[0]
+    assert "appearance: none" in regel
+    assert "-webkit-appearance: none" in regel
+    assert "background-image: var(--keuzepijl)" in regel
+    # Beide kleurstanden hebben een eigen pijl.
+    assert inhoud.count("--keuzepijl: url(") == 2
+
+
+def test_de_kaartkleur_wist_het_pijltje_niet(client):
+    """`background:` is een korte vorm en zet ook de afbeelding terug."""
+    inhoud = client.get("/nieuw").data.decode()
+    kaart = inhoud.split(".card .field select,", 1)[1].split("}", 1)[0]
+    assert "background-color:" in kaart
+    assert "background:" not in kaart

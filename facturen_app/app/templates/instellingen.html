@@ -135,6 +135,25 @@
 
   <section class="card">
     <div class="card-head">
+      <h2>Klein materiaal</h2>
+      <p>Regels van een bon die minder kosten dan dit bedrag, komen op de rekening
+        samen als één post "Klein-, bevestigings- en montagemateriaal". Het gaat om het
+        bedrag van de hele regel, dus veertig balken van € 5 blijven een eigen regel.</p>
+    </div>
+    <div class="fields">
+      <div class="field">
+        <label for="bundel_grens">Samenvoegen onder</label>
+        {%- set grens = s.bundel_grens_centen if s.bundel_grens_centen is not none else 2000 %}
+        <input type="text" inputmode="decimal" id="bundel_grens" name="bundel_grens"
+               value="{{ (grens / 100)|bedrag }}">
+        <p class="hint">In euro. 0 zet het uit. Per regel kun je op de rekening ook kiezen
+          voor altijd los of altijd samen.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
       <h2>Mailen</h2>
       <p>Gmail: smtp.gmail.com, poort 587, met een app-wachtwoord.</p>
     </div>

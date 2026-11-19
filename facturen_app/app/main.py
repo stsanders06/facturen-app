@@ -51,7 +51,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "2.9.0"
+VERSIE = os.environ.get("ADDON_VERSION") or "2.10.0"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -1321,6 +1321,14 @@ SOORTEN = {
         "aantal_label": "Aantal",
         "prijs_label": "Bedrag",
     },
+    # Alleen op de PDF: de samengevoegde post klein materiaal. Staat niet in
+    # de keuzelijst van het formulier; die heeft zijn eigen opties.
+    "kleinmateriaal": {
+        "naam": "Klein materiaal",
+        "eenheid": "post",
+        "aantal_label": "Aantal",
+        "prijs_label": "Bedrag",
+    },
 }
 
 
@@ -2017,6 +2025,10 @@ def init_db():
         ("tenaamstelling_2", "TEXT DEFAULT ''"),
         ("iban_3", "TEXT DEFAULT ''"),
         ("tenaamstelling_3", "TEXT DEFAULT ''"),
+        # Een regel van een bon die minder kost dan dit, gaat op de PDF in één
+        # post klein materiaal. In centen, zodat 19,99 tegen 20,00 geen
+        # afrondingskwestie wordt. 0 zet het automatisch samenvoegen uit.
+        ("bundel_grens_centen", "INTEGER DEFAULT 2000"),
     ]:
         if kolom not in bestaand:
             conn.execute(f"ALTER TABLE settings ADD COLUMN {kolom} {definitie}")
@@ -2211,6 +2223,14 @@ def init_db():
             "ALTER TABLE regels ADD COLUMN bon_id INTEGER "
             "REFERENCES inkopen (id) ON DELETE SET NULL"
         )
+    # Klein materiaal: per regel de keuze (auto, los of mee) en de bonregel
+    # waar hij vandaan komt. De samengevoegde post bestaat alleen op de PDF;
+    # zijn bronnen zijn de regels zelf, met hun materiaal_id. Geen foreign key:
+    # een bonregel kan weg terwijl de rekening blijft, en dan blijft het getal.
+    if "bundel" not in regelkolommen:
+        conn.execute("ALTER TABLE regels ADD COLUMN bundel TEXT DEFAULT 'auto'")
+    if "materiaal_id" not in regelkolommen:
+        conn.execute("ALTER TABLE regels ADD COLUMN materiaal_id INTEGER")
     # Hoe een betaling binnenkwam. Leeg bij betalingen van vóór deze kolom:
     # dat weten we niet, en gokken zet iets op de PDF wat niet klopt.
     betaalkolommen = {rij["name"] for rij in conn.execute("PRAGMA table_info(betalingen)")}
@@ -2424,6 +2444,8 @@ _REGELS_NIEUW = """
         inkoop_id INTEGER UNIQUE,
         uur_id INTEGER UNIQUE,
         bon_id INTEGER REFERENCES inkopen (id) ON DELETE SET NULL,
+        bundel TEXT DEFAULT 'auto',
+        materiaal_id INTEGER,
         FOREIGN KEY (factuur_id) REFERENCES facturen (id),
         FOREIGN KEY (inkoop_id) REFERENCES inkopen (id) ON DELETE SET NULL,
         FOREIGN KEY (uur_id) REFERENCES uren (id) ON DELETE SET NULL
@@ -2729,6 +2751,10 @@ def _herbouw_regels(conn):
     # van een bon hun koppeling, en kan die bon nog eens op een rekening.
     kolommen = {rij["name"] for rij in conn.execute("PRAGMA table_info(regels)")}
     bon_id = "bon_id" if "bon_id" in kolommen else "NULL"
+    # Net zo de keuze voor klein materiaal en de bonregel: anders staat elke
+    # regel na het nabouwen weer op automatisch en weet hij zijn bonregel niet.
+    bundel = "bundel" if "bundel" in kolommen else "'auto'"
+    materiaal_id = "materiaal_id" if "materiaal_id" in kolommen else "NULL"
     _zonder_transactie(conn, "PRAGMA foreign_keys=OFF")
     try:
         conn.execute("BEGIN")
@@ -2738,9 +2764,10 @@ def _herbouw_regels(conn):
             f"""
             INSERT INTO regels_nieuw
                 (id, factuur_id, omschrijving, type, aantal, prijs, subtotaal,
-                 klus_id, inkoop_id, uur_id, bon_id)
+                 klus_id, inkoop_id, uur_id, bon_id, bundel, materiaal_id)
             SELECT id, factuur_id, omschrijving, type, aantal, prijs, subtotaal,
-                   klus_id, inkoop_id, uur_id, {bon_id} FROM regels
+                   klus_id, inkoop_id, uur_id, {bon_id}, {bundel}, {materiaal_id}
+            FROM regels
             """
         )
         _crash_op("drop")
@@ -2809,19 +2836,24 @@ def lees_verdeling(form, totaal, s):
     verdeling = {f"bedrag_iban_{nr}": 0.0 for nr in EXTRA_REKENINGEN}
     if _betaalmethode(form.get("betaalmethode")) != "bank":
         return verdeling, None
-    for nr, _iban, _tnv in extra_rekeningen(s):
+    # De naam, zoals op het formulier. "Rekening 2" zegt niets meer nu daar
+    # de naam boven staat.
+    namen = []
+    for nr, _iban, tnv in extra_rekeningen(s):
+        namen.append(tnv)
         tekst = form.get(f"bedrag_iban_{nr}", "")
         try:
             bedrag = rond_centen(_getal(tekst))
         except (TypeError, ValueError, ArithmeticError):
-            return verdeling, f"Het bedrag voor rekening {nr} is geen bedrag. Vul bijvoorbeeld 125,50 in."
+            return verdeling, f"Het bedrag voor {tnv} is geen bedrag. Vul bijvoorbeeld 125,50 in."
         if bedrag < 0:
-            return verdeling, f"Het bedrag voor rekening {nr} kan niet negatief zijn."
+            return verdeling, f"Het bedrag voor {tnv} kan niet negatief zijn."
         verdeling[f"bedrag_iban_{nr}"] = bedrag
     samen = round(sum(verdeling.values()), 2)
     if samen > round(totaal, 2) + 0.005:
         return verdeling, (
-            f"Rekening 2 en 3 krijgen samen € {nl_bedrag(samen)}, maar de rekening is "
+            f"{' en '.join(namen)} {'krijgen samen' if len(namen) > 1 else 'krijgt'} "
+            f"€ {nl_bedrag(samen)}, maar de rekening is "
             f"€ {nl_bedrag(totaal)}. Maak die bedragen lager."
         )
     return verdeling, None
@@ -3683,6 +3715,12 @@ def instellingen():
                 else int(bool(huidig.get("bon_herkenning", 1))),
             ),
         )
+        # Alleen als het veld in het formulier stond. Een ander formulier dat
+        # hierheen post, zou de grens anders stil op 0 zetten en het samen-
+        # voegen uitschakelen.
+        if "bundel_grens" in request.form:
+            grens = max(naar_centen(_lees_bedrag(request.form.get("bundel_grens"))), 0)
+            conn.execute("UPDATE settings SET bundel_grens_centen=? WHERE id=1", (grens,))
         conn.commit()
         conn.close()
         if bcc_fout:
@@ -7518,6 +7556,137 @@ def _getal(waarde):
     return float(tekst)
 
 
+# Waar in een regeltupel uit het formulier de keuze voor klein materiaal en
+# de bonregel staan. Vóór index 8 (het regel-id) staat wat elke regel heeft;
+# deze twee komen alleen van het formulier en lopen als staart mee tot
+# bewaar_regels. Een tupel uit een offerte of kopie is korter.
+REGEL_BUNDEL = 9
+REGEL_MATERIAAL = 10
+
+# Per regel: automatisch (de grens beslist), altijd los, of altijd bij het
+# klein materiaal.
+BUNDELKEUZES = ("auto", "los", "mee")
+
+
+def bundelkeuze(waarde):
+    """Een geldige keuze; iets anders, of niets, is automatisch."""
+    return waarde if waarde in BUNDELKEUZES else "auto"
+
+
+def naar_centen(bedrag):
+    """Een bedrag in hele centen, halve cent omhoog.
+
+    De grens en de som van het klein materiaal rekenen in centen. Met
+    floats wordt 3 × 0,10 anders 0,30000000000000004, en dan valt een regel
+    van precies € 20,00 zomaar aan de verkeerde kant van de grens."""
+    try:
+        waarde = als_decimal(bedrag if bedrag not in (None, "") else 0)
+    except ValueError:
+        return 0
+    return int((waarde * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
+def _veld(regel, sleutel):
+    """Een veld van een regel uit de database of een dict; None als hij er niet
+    is. Een oude database of een regel uit een test heeft niet elk veld."""
+    try:
+        return regel[sleutel]
+    except (KeyError, IndexError):
+        return None
+
+
+def omschrijving_kleinmateriaal(grens_centen):
+    """De naam van de samengevoegde post. Het bedrag volgt de grens uit
+    Instellingen: bij een andere grens klopt "onder 20 euro" niet meer."""
+    if grens_centen % 100:
+        grens = nl_bedrag(grens_centen / 100)
+    else:
+        grens = str(grens_centen // 100)
+    return f"Klein-, bevestigings- en montagemateriaal (posten onder {grens} euro)"
+
+
+def hoort_bij_kleinmateriaal(regel, grens_centen):
+    """Of deze regel in de post klein materiaal mag.
+
+    Alleen materiaal van een bon: een regel die je zelf typt heeft een reden
+    om er los op te staan. Het regelbedrag telt en niet de stukprijs, zodat
+    veertig balken van € 5 een eigen regel houden. 'los' en 'mee' winnen van
+    de grens; met grens 0 gaat alleen 'mee' erin."""
+    if (_veld(regel, "type") or "") != "materiaal":
+        return False
+    if not (_veld(regel, "inkoop_id") or _veld(regel, "bon_id")):
+        return False
+    keuze = bundelkeuze(_veld(regel, "bundel"))
+    if keuze == "los":
+        return False
+    if keuze == "mee":
+        return True
+    return grens_centen > 0 and naar_centen(_veld(regel, "subtotaal")) < grens_centen
+
+
+def _bundelgrens(s):
+    """De grens uit Instellingen in centen. Een database van vóór deze
+    instelling heeft hem niet; dan de standaard van € 20."""
+    waarde = s.get("bundel_grens_centen")
+    return 2000 if waarde is None else max(int(waarde), 0)
+
+
+def kleinmateriaal_ids(regels, grens_centen):
+    """De plekken (index) van de regels die samen de post vormen, of niets.
+
+    Pas vanaf twee: één los ding onder een verzamelnaam verbergt alleen wat
+    het is."""
+    plekken = [i for i, r in enumerate(regels) if hoort_bij_kleinmateriaal(r, grens_centen)]
+    return plekken if len(plekken) >= 2 else []
+
+
+def kleinmateriaal_op_rekening(regels):
+    """De ids van de regels die op de PDF in de post klein materiaal gaan.
+
+    Voor het overzicht in de app: daar blijven ze los staan, met een label,
+    zodat je ziet wat de klant als één post krijgt."""
+    regels = list(regels or [])
+    plekken = kleinmateriaal_ids(regels, _bundelgrens(get_settings()))
+    return {_veld(regels[i], "id") for i in plekken}
+
+
+app.jinja_env.globals["kleinmateriaal_op_rekening"] = kleinmateriaal_op_rekening
+
+
+def bundel_kleinmateriaal(regels, grens_centen):
+    """De regels zoals ze op de PDF komen: het klein materiaal als één post.
+
+    De post staat op de plek van de eerste regel die erin gaat; de andere
+    regels houden hun volgorde. Het bedrag is de som in hele centen. Elke
+    materiaalregel staat al in centen, dus de regels op papier tellen exact
+    op tot het totaal van de rekening. In de database verandert niets: de
+    bronnen van de post zijn de regels zelf, met hun materiaal_id."""
+    plekken = kleinmateriaal_ids(regels, grens_centen)
+    if not plekken:
+        return list(regels)
+    centen = sum(naar_centen(_veld(regels[i], "subtotaal")) for i in plekken)
+    bedrag = centen / 100
+    post = {
+        "id": None,
+        "omschrijving": omschrijving_kleinmateriaal(grens_centen),
+        "type": "kleinmateriaal",
+        "aantal": 1,
+        "prijs": bedrag,
+        "subtotaal": bedrag,
+        "centen": centen,
+        "bronnen": [_veld(regels[i], "id") for i in plekken],
+        "materiaal_ids": [_veld(regels[i], "materiaal_id") for i in plekken],
+    }
+    erin = set(plekken)
+    uit = []
+    for i, regel in enumerate(regels):
+        if i == plekken[0]:
+            uit.append(post)
+        elif i not in erin:
+            uit.append(regel)
+    return uit
+
+
 def lees_regels(form):
     """Haalt de ingevulde regels uit het formulier en telt het totaal op.
     Regels zonder omschrijving worden overgeslagen.
@@ -7528,7 +7697,8 @@ def lees_regels(form):
     regel krijgt zijn bewaarde bedrag later terug, uit de database en niet
     uit dit formulier. Een dagregel wordt daarna nog langs de minuten gelegd."""
     regels = []
-    for o, t, a_ruw, p_ruw, klus, inkoop, uur, _sub_ruw, regel_id in zip_longest(
+    for (o, t, a_ruw, p_ruw, klus, inkoop, uur, _sub_ruw, regel_id,
+         bundel, materiaal) in zip_longest(
         form.getlist("omschrijving"),
         form.getlist("type"),
         form.getlist("aantal"),
@@ -7538,6 +7708,8 @@ def lees_regels(form):
         form.getlist("regel_uur"),
         form.getlist("regel_subtotaal"),
         form.getlist("regel_id"),
+        form.getlist("regel_bundel"),
+        form.getlist("regel_materiaal"),
         fillvalue="",
     ):
         if not str(o or "").strip():
@@ -7556,6 +7728,10 @@ def lees_regels(form):
             int(inkoop) if str(inkoop).isdigit() else None,
             int(uur) if str(uur).isdigit() else None,
             int(regel_id) if str(regel_id).isdigit() else None,
+            # Na het regel-id: keuze voor klein materiaal en de bonregel. Zie
+            # REGEL_BUNDEL; elke stap hierna laat deze staart staan.
+            bundelkeuze(bundel),
+            int(materiaal) if str(materiaal).isdigit() else None,
         ))
     return regels, som_van(regels)
 
@@ -8102,7 +8278,7 @@ def geboekte_inkopen(factuur_id=None, klant_id=None):
         bon = dict(rij)
         bon["past"] = inkoop_past_bij_klant(bon["klant_id"], klant_id)
         bon["materialen"] = [
-            {"omschrijving": m["omschrijving"], "aantal": m["aantal"] or 1,
+            {"id": m["id"], "omschrijving": m["omschrijving"], "aantal": m["aantal"] or 1,
              "prijs": m["prijs"] or 0}
             for m in conn.execute(
                 "SELECT * FROM inkoop_materialen WHERE inkoop_id=? ORDER BY id",
@@ -8250,7 +8426,7 @@ def herstel_ongewijzigde_bedragen(conn, regels, tabel, parent_id):
     en dan het getal uit de database, niet de afgeronde tekst uit het formulier.
     Een ander aantal, een andere prijs of een andere soort rekent opnieuw."""
     if not parent_id or tabel not in ("regels", "offerte_regels"):
-        return [regel[:8] for regel in regels]
+        return [tuple(regel) for regel in regels]
     kolom = "factuur_id" if tabel == "regels" else "offerte_id"
     bestaand = conn.execute(
         f"SELECT * FROM {tabel} WHERE {kolom}=? ORDER BY id", (parent_id,)
@@ -8275,7 +8451,8 @@ def herstel_ongewijzigde_bedragen(conn, regels, tabel, parent_id):
                 and zelfde_getal(oud["prijs"], prijs)):
             subtotaal = oud["subtotaal"]
             gebruikt.add(oud["id"])
-        uit.append((o, t, aantal, prijs, subtotaal, klus_id, inkoop_id, uur_id))
+        uit.append((o, t, aantal, prijs, subtotaal, klus_id, inkoop_id, uur_id)
+                   + tuple(regel[8:]))
     return uit
 
 
@@ -8368,9 +8545,11 @@ def bedragen_uit_de_dag(conn, regels, eigen_factuur_id):
     iets anders zodra je hem opslaat."""
     uit = []
     waarschuwing = False
-    for o, t, aantal, prijs, subtotaal, klus_id, inkoop_id, uur_id in regels:
+    for regel in regels:
+        o, t, aantal, prijs, subtotaal, klus_id, inkoop_id, uur_id = regel[:8]
+        staart = tuple(regel[8:])
         if not uur_id:
-            uit.append((o, t, aantal, prijs, subtotaal, klus_id, inkoop_id, uur_id))
+            uit.append(tuple(regel))
             continue
         dag = conn.execute(
             """SELECT u.van, u.tot, u.pauze_minuten, u.factuur_id, u.datum,
@@ -8380,7 +8559,7 @@ def bedragen_uit_de_dag(conn, regels, eigen_factuur_id):
             (uur_id,),
         ).fetchone()
         if dag is None or not eindtijd_ingevuld(dag["tot"]):
-            uit.append((o, t, aantal, prijs, subtotaal, klus_id, inkoop_id, uur_id))
+            uit.append(tuple(regel))
             continue
         vers = omschrijving_van_dag(
             dag["datum"], dag["van"], dag["tot"], _pauze(dag),
@@ -8411,7 +8590,7 @@ def bedragen_uit_de_dag(conn, regels, eigen_factuur_id):
         uit.append((
             o, t, aantal_dag, float(prijs), subtotaal_af,
             klus_id, inkoop_id, uur_id,
-        ))
+        ) + staart)
     return uit, waarschuwing
 
 
@@ -8559,7 +8738,12 @@ def kenmerk_van_de_klussen(conn, factuur_id):
 def bewaar_regels(conn, factuur_id, regels):
     conn.execute("DELETE FROM regels WHERE factuur_id=?", (factuur_id,))
     al_gekoppeld = set()
-    for o, t, a, p, subtotaal, klus_id, inkoop_id, uur_id in regels:
+    for regel in regels:
+        o, t, a, p, subtotaal, klus_id, inkoop_id, uur_id = regel[:8]
+        # Een regel uit het formulier heeft de keuze en de bonregel achteraan;
+        # een regel uit een offerte of kopie niet, en krijgt dan de standaard.
+        bundel = regel[REGEL_BUNDEL] if len(regel) > REGEL_BUNDEL else "auto"
+        materiaal_id = regel[REGEL_MATERIAAL] if len(regel) > REGEL_MATERIAAL else None
         # Tot hier draagt elke regel zijn bon in dezelfde plek, zodat de
         # controles op klant en 'staat al elders' voor allemaal gelden. De
         # eerste regel van een bon krijgt de unieke koppeling, zoals altijd;
@@ -8571,8 +8755,10 @@ def bewaar_regels(conn, factuur_id, regels):
             al_gekoppeld.add(inkoop_id)
         conn.execute(
             """INSERT INTO regels (factuur_id, omschrijving, type, aantal, prijs, subtotaal,
-               klus_id, inkoop_id, uur_id, bon_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (factuur_id, o, t, a, p, subtotaal, klus_id, inkoop_id, uur_id, bon_id),
+               klus_id, inkoop_id, uur_id, bon_id, bundel, materiaal_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (factuur_id, o, t, a, p, subtotaal, klus_id, inkoop_id, uur_id, bon_id,
+             bundel, materiaal_id),
         )
     meldingen = boek_uren(conn, factuur_id, regels)
     boek_inkopen(conn, factuur_id, [r[6] for r in regels if r[6]])
@@ -8669,7 +8855,8 @@ def boek_uren(conn, factuur_id, regels):
     gezien = set()
     meldingen = []
     dubbel_gezegd = False
-    for _o, _t, aantal, _p, subtotaal, klus_id, _inkoop, uur_id in regels:
+    for regel in regels:
+        _o, _t, aantal, _p, subtotaal, klus_id, _inkoop, uur_id = regel[:8]
         if klus_id and klus_id not in klus_ids:
             klus_ids.append(klus_id)
         if uur_id:
@@ -8792,7 +8979,7 @@ def _regels_zoals_ingevuld(form):
     ingevuld. Het subtotaal uit het formulier telt bij een geslaagde opslag
     niet mee; hier bewaren we alleen wat de gebruiker zag."""
     uit = []
-    for o, t, a, p, klus, inkoop, uur, sub, minuten in zip_longest(
+    for o, t, a, p, klus, inkoop, uur, sub, minuten, bundel, materiaal in zip_longest(
         form.getlist("omschrijving"),
         form.getlist("type"),
         form.getlist("aantal"),
@@ -8802,6 +8989,8 @@ def _regels_zoals_ingevuld(form):
         form.getlist("regel_uur"),
         form.getlist("regel_subtotaal"),
         form.getlist("regel_minuten"),
+        form.getlist("regel_bundel"),
+        form.getlist("regel_materiaal"),
         fillvalue="",
     ):
         if not str(o or "").strip():
@@ -8816,6 +9005,8 @@ def _regels_zoals_ingevuld(form):
             "inkoop_id": int(inkoop) if str(inkoop).isdigit() else None,
             "uur_id": int(uur) if str(uur).isdigit() else None,
             "minuten": int(minuten) if str(minuten).isdigit() else None,
+            "bundel": bundelkeuze(bundel),
+            "materiaal_id": int(materiaal) if str(materiaal).isdigit() else None,
             # Open, zodat de velden ook zonder script te zien zijn. Met script
             # klappen ze weer in en blijft de samenvatting staan.
             "open": True,
@@ -9060,7 +9251,8 @@ def nieuw():
         open_dagen=geboekte_dagen(klant_id=gekozen["id"] if gekozen else None),
         open_inkopen=geboekte_inkopen(klant_id=gekozen["id"] if gekozen else None),
         vooraf_klus=vooraf_klus,
-        vervalt=standaard_vervalt(vandaag),
+        # Geen vervaldatum tenzij je hem aanzet; zie het vinkje in nieuw.html.
+        vervalt="",
         standaard_vervalt=standaard_vervalt(vandaag),
     )
 
@@ -9514,7 +9706,8 @@ def offerte_naar_rekening(offerte_id):
            VALUES ('', ?, ?, ?, ?, ?, ?, 'bank', 'concept', ?, ?, ?)""",
         (
             nieuwe_datum,
-            standaard_vervalt(nieuwe_datum),
+            # Net als een nieuwe rekening: geen vervaldatum tenzij je hem aanzet.
+            "",
             offerte["klant_id"],
             offerte["klant_naam"],
             offerte["klant_adres"],
@@ -9598,7 +9791,8 @@ def offerte_aanbetaling(offerte_id):
            VALUES ('', ?, ?, ?, ?, ?, ?, 'bank', 'concept', ?, ?, ?)""",
         (
             nieuwe_datum,
-            standaard_vervalt(nieuwe_datum),
+            # Net als een nieuwe rekening: geen vervaldatum tenzij je hem aanzet.
+            "",
             offerte["klant_id"],
             offerte["klant_naam"],
             offerte["klant_adres"],
@@ -10261,6 +10455,10 @@ def _teken_document(pad, doc, regels, s):
     # De rekeningbodem is de strook. Een offerte mag de regels lager zetten;
     # dezelfde 72 mm liet de negende regel naar de volgende pagina schuiven
     # terwijl er op pagina 1 nog een leeg vlak overbleef.
+    # Op een rekening gaan de kleine bonregels samen in één post. Alleen hier,
+    # op papier: in de app blijven ze los, zodat je ze kunt nakijken.
+    if not offerte:
+        regels = bundel_kleinmateriaal(regels, _bundelgrens(s))
     _teken_regels(vel, regels, OFFERTE_REGEL_BODEM if offerte else REGEL_BODEM)
 
     toelichting = (doc.get("toelichting") or "").strip()

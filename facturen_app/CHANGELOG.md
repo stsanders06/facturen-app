@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.10.0
+
+**Klein materiaal als één post.** Regels van een bon die minder dan € 20 kosten,
+komen op de rekening samen als "Klein-, bevestigings- en montagemateriaal
+(posten onder 20 euro)". Het gaat om het bedrag van de hele regel: veertig
+balken van € 5 blijven gewoon een eigen regel. Pas vanaf twee regels wordt het
+een post; één los ding houdt zijn eigen naam. In de app zie je de regels nog
+los, met erbij welke samengaan, en per regel kun je kiezen voor altijd een
+eigen regel of altijd bij het klein materiaal. De grens stel je in bij
+Instellingen; 0 zet het uit. Zelf getypte materiaalregels blijven altijd los.
+
+**Geen vervaldatum meer tenzij je hem aanzet.** Een nieuwe rekening, ook een
+uit een offerte of een aanbetaling, heeft het vinkje voor de vervaldatum
+standaard uit.
+
+**Bij "Overmaken naar" staat de naam van de rekening bovenaan,** met het
+rekeningnummer eronder.
+
+**Keuzelijsten zijn even hoog als de velden ernaast.** In Safari stonden
+Betaalmethode, Bestaande klant en Soort lager dan de rest.
+
 ## 2.9.0
 
 **Tot drie rekeningnummers op de betaalstrook.** In Instellingen kun je naast

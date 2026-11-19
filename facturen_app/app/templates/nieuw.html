@@ -432,12 +432,14 @@
     {% endif %}
   </div>
   {% if factuur.klant_adres %}<p class="hint">{{ factuur.klant_adres|replace('\n', ', ') }}</p>{% endif %}
+  {% set klein = kleinmateriaal_op_rekening(regels) if not is_offerte else [] %}
   {% for r in regels or [] %}
   {% if r and r.omschrijving %}
   <button type="button" class="rij" data-open-wijzig>
     <span class="rij-tekst">
       <b>{{ r.omschrijving }}</b>
-      <small>{{ r.aantal }} × € {{ r.prijs|bedrag }}</small>
+      <small>{{ r.aantal }} × € {{ r.prijs|bedrag }}
+        {%- if r.id in klein %} · op de rekening bij klein materiaal{% endif %}</small>
     </span>
     <span class="rij-bedrag">€ {{ r.subtotaal|bedrag }}</span>
   </button>
@@ -546,7 +548,7 @@
       <div class="field">
         <label for="vervalt_op">Vervaldatum</label>
         <input type="date" id="vervalt_op" name="vervalt_op" value="{{ vervalt or standaard_vervalt }}"
-               {% if termijn_aan is defined and not termijn_aan %}disabled{% elif factuur and not vervalt %}disabled{% endif %}>
+               {% if termijn_aan is defined %}{% if not termijn_aan %}disabled{% endif %}{% elif not vervalt %}disabled{% endif %}>
       </div>
       {% endif %}
     </div>
@@ -564,7 +566,10 @@
     {% else %}
     <div class="checkregel" style="margin-top:14px">
       <input type="checkbox" id="betaaltermijn" name="betaaltermijn" value="ja"
-             {% if termijn_aan is defined %}{% if termijn_aan %}checked{% endif %}{% elif vervalt or not factuur %}checked{% endif %}>
+             {#- Standaard uit: de meeste klussen worden gewoon betaald zonder dat er
+                 een datum op hoeft. Het datumveld houdt de standaardtermijn klaar
+                 voor als je het vinkje aanzet. -#}
+             {% if termijn_aan is defined %}{% if termijn_aan %}checked{% endif %}{% elif vervalt %}checked{% endif %}>
       <label for="betaaltermijn">Op de rekening zetten tot wanneer hij betaald moet zijn</label>
     </div>
     {% endif %}
@@ -636,6 +641,21 @@
                    id="prijs-{{ loop.index }}" placeholder="0,00"
                    value="{{ tekst_van_getal(r.prijs) if r else '' }}">
           </div>
+          {#- Alleen bij materiaal van een bon: dat kan op de PDF samengaan in de post
+              klein materiaal. Het veld staat er altijd, ook verborgen, zodat de lijsten
+              in het formulier even lang blijven en elke keuze bij zijn eigen regel hoort. -#}
+          {% set van_bon = r and r.type == 'materiaal' and (r.inkoop_id or r.bon_id) %}
+          {% set keuze = (r.bundel if r and r.bundel in ('los', 'mee') else 'auto') %}
+          <div class="field bundel-veld" {% if not van_bon %}hidden{% endif %}>
+            <label for="bundel-{{ loop.index }}">Op de rekening</label>
+            <select id="bundel-{{ loop.index }}" name="regel_bundel" class="bundel">
+              <option value="auto" {% if keuze == 'auto' %}selected{% endif %}>Automatisch</option>
+              <option value="los" {% if keuze == 'los' %}selected{% endif %}>Altijd een eigen regel</option>
+              <option value="mee" {% if keuze == 'mee' %}selected{% endif %}>Altijd bij klein materiaal</option>
+            </select>
+          </div>
+          {#- De bonregel waar dit materiaal vandaan komt. -#}
+          <input type="hidden" name="regel_materiaal" value="{{ r.materiaal_id if r and r.materiaal_id else '' }}">
           <input type="hidden" name="regel_klus" value="{{ r.klus_id if r and r.klus_id else '' }}">
           {#- Een materiaalregel van een bon draagt die bon hier ook, zodat de bon
               niet opnieuw in het menu verschijnt; bon_id is waar hij bewaard staat. -#}
@@ -754,13 +774,15 @@
     <div class="card-head">
       <h2>Overmaken naar</h2>
       <p>Vul in wat er naar
-        {% for nr, iban, tnv in rekeningen[1:] %}{{ ' en ' if not loop.first }}rekening {{ nr }}{% endfor %}
-        gaat. De rest gaat vanzelf naar rekening 1.</p>
+        {% for nr, iban, tnv in rekeningen[1:] %}{{ ' en ' if not loop.first }}{{ tnv }}{% endfor %}
+        gaat. De rest gaat vanzelf naar {{ rekeningen[0][2] }}.</p>
     </div>
+    {#- De naam als titel: daar herken je de rekening aan. Hebben twee
+        rekeningen dezelfde naam, dan maakt de IBAN eronder het verschil. -#}
     {% for nr, iban, tnv in rekeningen %}
     <div class="verdeel-rij">
       {% if nr == 1 %}
-      <div><b>Rekening 1</b><span class="verdeel-nummer">{{ iban }} · {{ tnv }}</span></div>
+      <div><b>{{ tnv }}</b><span class="verdeel-nummer">{{ iban }}</span></div>
       <div class="verdeel-rest" id="verdeel-rest">€ 0,00</div>
       {% else %}
       {% set veld = 'bedrag_iban_' ~ nr %}
@@ -771,8 +793,8 @@
       {% else %}
         {% set waarde = '' %}
       {% endif %}
-      <div><label for="{{ veld }}"><b>Rekening {{ nr }}</b></label>
-        <span class="verdeel-nummer">{{ iban }} · {{ tnv }}</span></div>
+      <div><label for="{{ veld }}"><b>{{ tnv }}</b></label>
+        <span class="verdeel-nummer">{{ iban }}</span></div>
       <div class="verdeel-bedrag"><span>€</span>
         <input type="text" inputmode="decimal" id="{{ veld }}" name="{{ veld }}"
                value="{{ waarde }}" placeholder="0,00" data-verdeel></div>
@@ -1064,7 +1086,18 @@
         regel.querySelector('[name="aantal"]').value = '1';
       }
       pasDagAantal(regel);
+      pasBundelAan(regel);
       pasSamenvattingAan(regel);
+    }
+
+    // De keuze voor klein materiaal hoort alleen bij materiaal van een bon.
+    // Verborgen gaat hij toch mee, zodat elke regel er een heeft.
+    function pasBundelAan(regel) {
+      var veld = regel.querySelector('.bundel-veld');
+      if (!veld) return;
+      var inkoop = regel.querySelector('[name="regel_inkoop"]');
+      veld.hidden = !(regel.querySelector('.soort').value === 'materiaal'
+                      && inkoop && inkoop.value);
     }
 
     // Het aantal van een dagregel komt van de dag. Anders zet iemand 1 uur
@@ -1202,6 +1235,8 @@
       }
       var soort = nieuw.querySelector('.soort');
       if (soort) soort.value = 'materiaal';
+      var bundel = nieuw.querySelector('.bundel');
+      if (bundel) bundel.value = 'auto';
       // De kloon erft het pdf-bedrag van de eerste kaart. Zonder dit blijft
       // een nieuwe regel dat bedrag tonen zodra hij als bewaard geldt.
       var totaal = nieuw.querySelector('.regel-totaal');
@@ -1526,6 +1561,9 @@
         regel.querySelector('[name="aantal"]').value = String(m.aantal || 1);
         regel.querySelector('[name="prijs"]').value = Number(m.prijs || 0).toFixed(2);
         regel.querySelector('[name="regel_inkoop"]').value = optie.dataset.inkoop;
+        // De bonregel zelf, zodat de rekening weet waar dit materiaal vandaan komt.
+        regel.querySelector('[name="regel_materiaal"]').value = m.id || '';
+        pasBundelAan(regel);
         zetOpen(regel, false);
         pasSamenvattingAan(regel);
       });
