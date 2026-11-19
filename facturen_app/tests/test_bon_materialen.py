@@ -150,11 +150,14 @@ def test_op_een_rekening_liggen_de_materialen_vast(post, client, db, klus_id):
     assert _materialen(db, inkoop_id)[0]["omschrijving"] == "Tegellijm"
     assert _bedrag(db, inkoop_id) == 33.0
 
-    # Op de pagina geen prullenbakjes, geen + Materiaal en geen invulvelden.
+    # Op de pagina geen prullenbakjes, geen + Materiaal en geen velden voor
+    # naam, aantal of prijs. Alleen de bijnaam kan nog (sinds 2.11.0).
     pagina = client.get(f"/klus/{klus_id}").data.decode()
     assert "Materiaalregel Tegellijm verwijderen" not in pagina
     assert f"mat-erbij-{inkoop_id}" not in pagina
-    assert "De materialen liggen vast" in pagina
+    assert "Naam, aantal en prijs liggen vast" in pagina
+    assert f'id="mat-oms-{lijm}"' not in pagina
+    assert f'id="mat-bijnaam-{lijm}"' in pagina
 
 
 def test_bij_het_starten_wordt_een_oude_bon_herrekend(db, klus_id):

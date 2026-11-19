@@ -446,6 +446,7 @@
   .invoerrij .tekst-form:not([hidden]) ~ .mat-toevoegen { display: none; }
   html:not(.js) [data-mat-open] { display: none; }
   .invoerrij .mat-toevoegen input[name="omschrijving"] { width: 9rem; flex: 1 1 9rem; }
+  .invoerrij .mat-toevoegen input[name="bijnaam"] { width: 8rem; flex: 1 1 8rem; }
   .invoerrij .mat-toevoegen input[name="aantal"] { width: 4rem; }
   .invoerrij .mat-toevoegen input[name="prijs"] { width: 5rem; }
   /* Op 390 px paste de omschrijving nog naast het aantal, en zakte alleen
@@ -457,6 +458,7 @@
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     }
     .invoerrij .mat-toevoegen input[name="omschrijving"],
+    .invoerrij .mat-toevoegen input[name="bijnaam"],
     .invoerrij .mat-toevoegen .btn { grid-column: 1 / -1; width: auto; }
     .invoerrij .mat-toevoegen input[name="aantal"],
     .invoerrij .mat-toevoegen input[name="prijs"] { width: auto; min-width: 0; }
@@ -1197,6 +1199,9 @@
               <div class="field mat-oms"><label for="mat-oms-{{ m.id }}">Materiaal</label>
                 <input type="text" id="mat-oms-{{ m.id }}" name="materiaal_omschrijving"
                        value="{{ m.omschrijving }}"></div>
+              <div class="field mat-bijnaam"><label for="mat-bijnaam-{{ m.id }}">Bijnaam <span class="label-extra">niet verplicht</span></label>
+                <input type="text" id="mat-bijnaam-{{ m.id }}" name="materiaal_bijnaam" value="{{ m.bijnaam or '' }}"
+                       placeholder="Bijv. witte kit badkamer"></div>
               <div class="field"><label for="mat-aantal-{{ m.id }}">Aantal</label>
                 <input type="number" step="any" id="mat-aantal-{{ m.id }}" name="materiaal_aantal"
                        value="{{ '%g'|format(m.aantal or 1) }}"></div>
@@ -1207,7 +1212,22 @@
             {% endfor %}
           </div>
           {% elif i.materialen %}
-          <p class="hint">Deze bon staat op een rekening. De materialen liggen vast.</p>
+          {#- Op een rekening liggen naam, aantal en prijs vast: de rekening is ermee
+              gemaakt. Een bijnaam verandert niets aan het bedrag, dus die kan nog. Op
+              een conceptrekening gaat hij mee. -#}
+          <p class="hint">Deze bon staat op een rekening. Naam, aantal en prijs liggen vast;
+            een bijnaam kan nog. Op een conceptrekening gaat die mee.</p>
+          <div class="bijnamen-vast">
+            {% for m in i.materialen %}
+            <input type="hidden" name="materiaal_id" value="{{ m.id }}">
+            <div class="field">
+              <label for="mat-bijnaam-{{ m.id }}">Bijnaam voor {{ m.omschrijving }}</label>
+              <input type="text" id="mat-bijnaam-{{ m.id }}" name="materiaal_bijnaam"
+                     value="{{ m.bijnaam or '' }}"
+                     placeholder="Bijv. witte kit badkamer">
+            </div>
+            {% endfor %}
+          </div>
           {% endif %}
           <div class="tekst-form-knoppen">
             <button type="button" class="btn btn-text" data-stopt="inkoop-{{ i.id }}">Annuleren</button>
@@ -1256,7 +1276,7 @@
         <ul class="materialen">
           {% for m in i.materialen %}
           <li>
-            <span>{{ m.omschrijving }}{% if m.aantal and m.aantal != 1 %} × {{ '%g'|format(m.aantal) }}{% endif %}{% if m.prijs %} · €&nbsp;{{ m.prijs|bedrag }}{% endif %}</span>
+            <span>{{ naam_op_rekening(m.omschrijving, m.bijnaam) }}{% if m.aantal and m.aantal != 1 %} × {{ '%g'|format(m.aantal) }}{% endif %}{% if m.prijs %} · €&nbsp;{{ m.prijs|bedrag }}{% endif %}</span>
             {#- Een lange naam in het label maakt de knop onbruikbaar voor
                 een schermlezer. De vraag bij het verwijderen houdt de hele naam. -#}
             {% set oms = (m.omschrijving[:59] ~ '…') if m.omschrijving|length > 60 else m.omschrijving %}
@@ -1283,6 +1303,8 @@
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="text" name="omschrijving" placeholder="Materiaal"
                  aria-label="Materiaal bij deze bon">
+          <input type="text" name="bijnaam" placeholder="Bijnaam"
+                 aria-label="Bijnaam, komt tussen haakjes voor de naam op de rekening">
           <input type="number" step="any" name="aantal" placeholder="1" aria-label="Aantal">
           <input type="number" step="any" name="prijs" placeholder="€" aria-label="Prijs">
           <button type="submit" class="btn btn-outline">Bewaren</button>
@@ -1610,12 +1632,18 @@
     var lijst = document.getElementById('inkoop-materialen');
     var knop = document.getElementById('materiaal-erbij');
     if (!lijst || !knop) return;
+    // Zelfde veld als bij een bestaand materiaal; zie de rij hierboven.
+    var BIJNAAM_VELD = '<div class="field mat-bijnaam"><label>Bijnaam '
+      + '<span class="label-extra">niet verplicht</span></label>'
+      + '<input type="text" name="materiaal_bijnaam" '
+      + 'placeholder="Bijv. witte kit badkamer"></div>';
     knop.addEventListener('click', function () {
       var rij = document.createElement('div');
       rij.className = 'materiaal-rij';
       rij.innerHTML =
         '<div class="field mat-oms"><label>Materiaal</label>'
         + '<input type="text" name="materiaal_omschrijving" placeholder="Bijv. tegellijm"></div>'
+        + BIJNAAM_VELD
         + '<div class="field"><label>Aantal</label>'
         + '<input type="number" step="any" name="materiaal_aantal" value="1"></div>'
         + '<div class="field"><label>Prijs</label>'
