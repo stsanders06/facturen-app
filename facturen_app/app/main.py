@@ -51,7 +51,7 @@ from werkzeug.utils import secure_filename
 # Versie van de app; staat onderaan elke pagina zodat je kunt zien wat er draait.
 # Hoort gelijk te lopen met de version in config.yaml. Draait de app in Home
 # Assistant, dan wint wat de Supervisor zegt dat hij heeft geïnstalleerd.
-VERSIE = os.environ.get("ADDON_VERSION") or "2.11.1"
+VERSIE = os.environ.get("ADDON_VERSION") or "2.11.2"
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "facturen.db")
@@ -10382,7 +10382,8 @@ def _teken_toelichting(vel, toelichting, zelf_breken=True):
 
 def _teken_betaalstrook(vel, doc, s, vervalt):
     """De afscheurbare strook onderaan een rekening, met alles wat de klant nodig
-    heeft om te betalen. Bij contant afrekenen staat er 'Voldaan' en geen IBAN.
+    heeft om te betalen. Bij contant of Tikkie geen IBAN; 'Voldaan' pas als de
+    betaling geboekt is.
 
     De strook gaat niet zelf naar een nieuwe pagina. Het totaal hoort erboven
     op hetzelfde vel; de aanroeper schuift ze samen op als ze niet meer passen."""
@@ -10402,7 +10403,11 @@ def _teken_betaalstrook(vel, doc, s, vervalt):
     al_betaald = zin_al_betaald(doc.get("betaald_per_wijze") or [])
     if betaald > 0 and not al_betaald:
         al_betaald = f"€ {nl_bedrag(betaald)}"
-    voldaan = contant or (tikkie and openstaand <= 0)
+    # Contant en Tikkie werken hetzelfde: zolang er iets openstaat zegt de
+    # strook hoe er betaald wordt en hoeveel; pas als de betaling geboekt is
+    # (ook "Betaald" zetten boekt er een) staat er voldaan. Contant gaf eerst
+    # altijd "voldaan", ook op een rekening die je vóór de betaling stuurt.
+    voldaan = (contant or tikkie) and openstaand <= 0
     gespreid = " ".join("VOLDAAN" if voldaan else "BETAALSTROOK")
     tekstbreedte = c.stringWidth(gespreid, "Helvetica-Bold", 6.5)
     midden = vel.links + (vel.rechts - vel.links) / 2
@@ -10414,34 +10419,35 @@ def _teken_betaalstrook(vel, doc, s, vervalt):
     c.setFont("Helvetica-Bold", 6.5)
     c.drawCentredString(midden, strook_y - 1 * mm, gespreid)
 
-    if contant:
+    if voldaan:
         c.setFillColor(INKT)
         c.setFont("Helvetica-Bold", 11)
-        c.drawString(vel.links, strook_y - 16 * mm, "Contant afgehandeld.")
-        c.setFont("Helvetica", 9)
-        c.setFillColor(GRIJS_DONKER)
-        c.drawString(vel.links, strook_y - 22 * mm, "Deze rekening is ter plekke voldaan.")
-        return
-
-    if tikkie and openstaand <= 0:
-        c.setFillColor(INKT)
-        c.setFont("Helvetica-Bold", 11)
-        c.drawString(vel.links, strook_y - 16 * mm, "Voldaan via Tikkie.")
+        c.drawString(vel.links, strook_y - 16 * mm,
+                     "Contant voldaan." if contant else "Voldaan via Tikkie.")
         c.setFont("Helvetica", 9)
         c.setFillColor(GRIJS_DONKER)
         # Deels contant en deels Tikkie: dan staat erbij hoe het verdeeld is,
-        # anders lijkt het alsof alles per Tikkie kwam.
+        # anders lijkt het alsof alles op één manier kwam.
         meer_wijzen = len(doc.get("betaald_per_wijze") or []) > 1
-        c.drawString(vel.links, strook_y - 22 * mm,
-                     f"Ontvangen: {al_betaald}." if meer_wijzen
-                     else "Deze rekening is betaald met een Tikkie-betaalverzoek.")
+        if meer_wijzen:
+            zin = f"Ontvangen: {al_betaald}."
+        elif contant:
+            zin = "Deze rekening is contant betaald."
+        else:
+            zin = "Deze rekening is betaald met een Tikkie-betaalverzoek."
+        c.drawString(vel.links, strook_y - 22 * mm, zin)
         return
 
-    if tikkie:
-        # Geen IBAN: wie hem ziet, maakt anders over in plaats van op het
-        # verzoek te tikken, en dan komt het geld er twee keer of verkeerd.
-        vel.label("Betalen via Tikkie", vel.links, strook_y - 8 * mm)
-        regels = [("", "U ontvangt een Tikkie-betaalverzoek.")]
+    if contant or tikkie:
+        # Geen IBAN: wie hem ziet, maakt anders over in plaats van contant te
+        # betalen of op het verzoek te tikken, en dan komt het geld er twee
+        # keer of verkeerd.
+        if contant:
+            vel.label("Contant afrekenen", vel.links, strook_y - 8 * mm)
+            regels = [("", "Deze rekening wordt contant afgerekend.")]
+        else:
+            vel.label("Betalen via Tikkie", vel.links, strook_y - 8 * mm)
+            regels = [("", "U ontvangt een Tikkie-betaalverzoek.")]
         verdeeld = False
     else:
         vel.label("Overmaken naar", vel.links, strook_y - 8 * mm)

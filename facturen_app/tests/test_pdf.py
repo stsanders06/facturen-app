@@ -88,15 +88,77 @@ def test_op_de_rekening_staan_de_klant_het_bedrag_en_de_iban(db, maak_factuur):
     assert "Rekening" in tekst
 
 
-def test_contante_rekening_toont_voldaan_en_geen_bankgegevens(db, maak_factuur):
-    zet_bedrijf(db)
-    factuur_id = maak_factuur()
+def _contant(db, factuur_id):
     db.execute("UPDATE facturen SET betaalmethode='cash' WHERE id=?", (factuur_id,))
     db.commit()
+
+
+def _zonder_spaties(tekst):
+    """De kopjes op de strook staan uitgespatieerd ("V O L D A A N")."""
+    return tekst.replace(" ", "")
+
+
+def test_contant_zonder_betaling_wordt_contant_afgerekend(db, maak_factuur):
+    """Een rekening die je stuurt vóór de klant betaalt, is nog niet voldaan.
+    Tot 2.11.2 stond er altijd 'ter plekke voldaan'."""
+    zet_bedrijf(db)
+    factuur_id = maak_factuur(vervalt_op="")
+    _contant(db, factuur_id)
     tekst = tekst_uit_pdf(facturen.maak_pdf(factuur_id))
-    assert "Contant afgehandeld." in tekst
+    assert "Deze rekening wordt contant afgerekend." in tekst
+    assert "TEBETALEN" in _zonder_spaties(tekst)
+    assert "121,00" in tekst
+    assert "VOLDAAN" not in _zonder_spaties(tekst)
+    assert "voldaan" not in tekst
+    # Geen IBAN: wie hem ziet, maakt anders over.
     assert "NL91ABNA0417164300" not in tekst
 
+
+def test_contant_met_vervaldatum_zegt_voor_wanneer(db, maak_factuur):
+    zet_bedrijf(db)
+    factuur_id = maak_factuur(vervalt_op="2026-12-10")
+    _contant(db, factuur_id)
+    tekst = tekst_uit_pdf(facturen.maak_pdf(factuur_id))
+    assert "Vóór" in tekst and "10 dec 2026" in tekst
+
+
+def test_contant_op_betaald_gezet_is_voldaan(db, maak_factuur, post):
+    zet_bedrijf(db)
+    factuur_id = maak_factuur(status="verzonden")
+    _contant(db, factuur_id)
+    post(f"/factuur/{factuur_id}/betaald")
+    tekst = tekst_uit_pdf(facturen.maak_pdf(factuur_id))
+    assert "Contant voldaan." in tekst
+    assert "Deze rekening is contant betaald." in tekst
+    assert "VOLDAAN" in _zonder_spaties(tekst)
+    assert "TEBETALEN" not in _zonder_spaties(tekst)
+    assert "NL91ABNA0417164300" not in tekst
+
+
+def test_contant_met_een_deelbetaling_noemt_de_rest(db, maak_factuur, post):
+    zet_bedrijf(db)
+    factuur_id = maak_factuur(status="verzonden")
+    _contant(db, factuur_id)
+    post(f"/factuur/{factuur_id}/betalingen",
+         {"datum": "2026-08-20", "bedrag": "21", "wijze": "contant"})
+    tekst = tekst_uit_pdf(facturen.maak_pdf(factuur_id))
+    assert "Deze rekening wordt contant afgerekend." in tekst
+    assert "NOGTEBETALEN" in _zonder_spaties(tekst)
+    assert "100,00" in tekst
+    assert "Al betaald" in tekst
+
+
+def test_contant_deels_tikkie_betaald_noemt_beide(db, maak_factuur, post):
+    zet_bedrijf(db)
+    factuur_id = maak_factuur(status="verzonden")
+    _contant(db, factuur_id)
+    post(f"/factuur/{factuur_id}/betalingen",
+         {"datum": "2026-08-20", "bedrag": "100", "wijze": "contant"})
+    post(f"/factuur/{factuur_id}/betalingen",
+         {"datum": "2026-08-21", "bedrag": "21", "wijze": "tikkie"})
+    tekst = tekst_uit_pdf(facturen.maak_pdf(factuur_id))
+    assert "Contant voldaan." in tekst
+    assert "Ontvangen:" in tekst and "100,00" in tekst and "21,00" in tekst
 
 def test_offerte_heeft_geen_betaalstrook_maar_wel_de_toelichting(db, maak_offerte):
     zet_bedrijf(db)
