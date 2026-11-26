@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.11.2
+
+**Contant betekent niet meer automatisch "voldaan".** Kies je bij een rekening
+Contant, dan staat er op de betaalstrook nu "Deze rekening wordt contant
+afgerekend", met het bedrag dat nog betaald moet worden en de datum als je die
+erbij hebt gezet. Pas als je de betaling boekt of de rekening op Betaald zet,
+staat er "Contant voldaan". Een oude contante rekening waar nooit een betaling
+bij geboekt is, laat bij opnieuw tekenen dus het bedrag zien; zet hem op Betaald
+als het geld binnen is.
+
 ## 2.11.1
 
 **De PDF met bonnen is weer goed te lezen op een telefoon.** Een foto van een
